@@ -1,0 +1,13 @@
+.App { text-align: center; font-family: sans-serif; max-width: 800px; margin: 0 auto; }
+.header { display: flex; justify-content: space-between; align-items: center; padding: 20px; border-bottom: 2px solid #eee; }
+.wallet-btn { background: #ff9800; color: white; border: none; padding: 10px 20px; border-radius: 20px; cursor: pointer; font-weight: bold; }
+.nav { display: flex; justify-content: space-around; margin-top: 20px; border-bottom: 1px solid #ddd; }
+.nav button { background: none; border: none; padding: 15px; cursor: pointer; font-size: 16px; width: 100%; }
+.nav button.active { border-bottom: 3px solid #007bff; color: #007bff; font-weight: bold; }
+.content { padding: 20px; text-align: left; }
+.card { background: #f9f9f9; padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px solid #ddd; }
+.status { background: #e0f7fa; color: #006064; padding: 3px 8px; border-radius: 5px; font-size: 12px; }
+.input-group { display: flex; gap: 10px; margin-bottom: 20px; }
+.input-group input { flex: 1; padding: 10px; border-radius: 5px; border: 1px solid #ddd; }
+.input-group button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+textarea { padding: 10px; border-radius: 5px; border: 1px solid #ddd; margin-bottom: 10px;}
