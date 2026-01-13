@@ -3,59 +3,53 @@ import axios from "axios";
 import { ethers } from "ethers";
 import "./App.css";
 
-// 백엔드 주소
 const API_URL = "http://localhost:8000";
 
 function App() {
-  // === 상태 관리 (State) ===
-  const [activeTab, setActiveTab] = useState("main"); // 현재 보고 있는 페이지
+  // === 1. 상태 관리 (State) ===
+  const [activeTab, setActiveTab] = useState("main"); // main, proposals, write, studio, gallery, chat, mypage
   const [walletAddress, setWalletAddress] = useState("");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-
+  
   // 데이터 상태
   const [proposals, setProposals] = useState([]);
   const [galleryItems, setGalleryItems] = useState([]);
   
-  // 안건 작성 폼 (AI 스튜디오에서 넘어오는 데이터 포함)
-  const [proposalForm, setProposalForm] = useState({
-    topic: "",
-    description: "",
-    style: "General",
-    image_url: ""
+  // 마이페이지 데이터
+  const [myInfo, setMyInfo] = useState({ 
+    balance: 0, 
+    membership: "", 
+    rewards: 0, 
+    delegation: {},
+    activity: [],
+    badge: "",
+    referral: {},
+    myProposals: []
   });
-
-  // AI 스튜디오 상태
-  const [studioIntent, setStudioIntent] = useState("");
-  const [generatedDraft, setGeneratedDraft] = useState("");
-  const [generatedImage, setGeneratedImage] = useState("");
-  const [similarityMsg, setSimilarityMsg] = useState("");
-  const [isLoading, setIsLoading] = useState(false); // 로딩 상태
-
-  // === 1. 초기 데이터 로드 ===
-  useEffect(() => {
-    fetchProposals();
-    fetchGallery();
-  }, []);
-
-  // === 2. API 통신 함수들 ===
   
-  // [공통] 안건 목록 조회
-  const fetchProposals = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/api/proposals`);
-      setProposals(res.data);
-    } catch (err) { console.error("안건 조회 실패:", err); }
-  };
+  // AI 스튜디오 상태
+  const [studioData, setStudioData] = useState({ intent: "", draft: "", image: "", similarity: "" });
+  const [isLoading, setIsLoading] = useState(false);
 
-  // [공통] 갤러리 조회
-  const fetchGallery = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/api/gallery/items`);
-      setGalleryItems(res.data);
-    } catch (err) { console.error("갤러리 조회 실패:", err); }
-  };
+  // A2A 채팅 상태
+  const [chatInput, setChatInput] = useState("");
+  const [chatMessages, setChatMessages] = useState([
+    { sender: "bot", text: "안녕하세요! AI 큐레이터입니다. 취향에 맞는 작품을 추천해드릴까요?" }
+  ]);
 
-  // [지갑] 메타마스크 연결 & 백엔드 로그인
+  // 안건 작성 폼
+  const [proposalForm, setProposalForm] = useState({ topic: "", description: "", style: "General", image_url: "" });
+
+  // === 2. 초기화 및 지갑 연동 ===
+  useEffect(() => {
+    if (isLoggedIn) {
+      fetchMyPageData(); // 로그인 성공 시 내 정보 로드
+    }
+    // 공통 데이터는 항상 로드
+    fetchProposals(); 
+    fetchGallery();   
+  }, [isLoggedIn]);
+
   const connectWallet = async () => {
     if (!window.ethereum) return alert("메타마스크를 설치해주세요!");
     try {
@@ -63,283 +57,377 @@ function App() {
       const signer = await provider.getSigner();
       const address = await signer.getAddress();
       
+      // [명세서: POST /api/auth/wallet-login]
+      await axios.post(`${API_URL}/api/auth/wallet-login`, { wallet_address: address, signature: "dummy_sig" });
+      
       setWalletAddress(address);
-      
-      // 백엔드로 지갑 주소 전송 (로그인 처리)
-      await axios.post(`${API_URL}/api/auth/wallet-login`, {
-        wallet_address: address,
-        signature: "dummy_signature" // 추후 실제 서명으로 교체 필요
-      });
-      
       setIsLoggedIn(true);
-      alert(`지갑 연결 성공! \n${address.substring(0, 6)}...`);
+      alert("지갑 연결 및 로그인 성공!");
+    } catch (err) { alert("지갑 연결 실패"); console.error(err); }
+  };
+
+  // === 3. 데이터 조회 함수들 (API 연동) ===
+  
+  // [마이페이지] 명세서에 있는 모든 정보 병렬 호출
+  const fetchMyPageData = async () => {
+    if (!walletAddress) return;
+    try {
+      const [resBal, resMem, resRew, resDel, resAct, resRef, resMyProp] = await Promise.all([
+        axios.get(`${API_URL}/api/wallet/balance`, { params: { wallet_address: walletAddress } }),
+        axios.get(`${API_URL}/api/user/membership`, { params: { wallet_address: walletAddress } }),
+        axios.get(`${API_URL}/api/wallet/rewards`, { params: { wallet_address: walletAddress } }),
+        axios.get(`${API_URL}/api/dao/delegation`, { params: { wallet_address: walletAddress } }),
+        axios.get(`${API_URL}/api/user/activity`, { params: { wallet_address: walletAddress } }),
+        axios.get(`${API_URL}/api/user/referral`, { params: { wallet_address: walletAddress } }),
+        axios.get(`${API_URL}/api/user/proposals`, { params: { wallet_address: walletAddress } }),
+      ]);
+      
+      setMyInfo({
+        balance: resBal.data.balance,
+        membership: resMem.data.grade,
+        rewards: resRew.data.pending_amount,
+        delegation: resDel.data,
+        activity: resAct.data,
+        referral: resRef.data,
+        myProposals: resMyProp.data
+      });
+    } catch (err) { console.error("내 정보 로드 실패", err); }
+  };
+
+  // [안건 목록] 필터링 지원 (GET /api/proposals?status=OPEN)
+  const fetchProposals = async (status = null) => {
+    try {
+      const params = status ? { status } : {};
+      const res = await axios.get(`${API_URL}/api/proposals`, { params });
+      setProposals(res.data);
+    } catch (err) { console.error(err); }
+  };
+
+  const fetchGallery = async () => {
+    const res = await axios.get(`${API_URL}/api/gallery/items`);
+    setGalleryItems(res.data);
+  };
+
+  // === 4. 액션 핸들러 ===
+
+  // [AI 스튜디오] Draft -> Image -> Check
+  const handleStudioAction = async (type) => {
+    setIsLoading(true);
+    try {
+      if (type === "draft") {
+        const res = await axios.post(`${API_URL}/api/studio/draft`, { intent: studioData.intent });
+        setStudioData(prev => ({ ...prev, draft: res.data.draft_text }));
+      } else if (type === "image") {
+        const res = await axios.post(`${API_URL}/api/studio/image`, { keywords: studioData.intent });
+        setStudioData(prev => ({ ...prev, image: res.data.image_url }));
+      } else if (type === "check") {
+        const res = await axios.get(`${API_URL}/api/studio/check`, { params: { topic: studioData.intent } });
+        setStudioData(prev => ({ ...prev, similarity: `유사도: ${res.data.similarity_score}점 (${res.data.message})` }));
+      }
+    } catch (err) { alert("AI 요청 실패"); }
+    setIsLoading(false);
+  };
+
+  // [AI 스튜디오 -> 안건 작성 이동]
+  const sendToProposalWrite = () => {
+    setProposalForm({
+        topic: studioData.intent,
+        description: studioData.draft,
+        image_url: studioData.image,
+        style: "AI Generated"
+    });
+    setActiveTab("write");
+  };
+
+  // [안건 제출]
+  const submitProposal = async () => {
+    if (!walletAddress) return alert("로그인 필요");
+    try {
+        await axios.post(`${API_URL}/api/proposals`, {
+        wallet_address: walletAddress,
+        ...proposalForm
+        });
+        alert("안건 등록 완료!");
+        setActiveTab("proposals");
+        fetchProposals();
+    } catch(err) { alert("제출 실패"); }
+  };
+
+  // [A2A 채팅] 메시지 전송
+  const sendMessage = async () => {
+    if (!chatInput.trim()) return;
+    const userMsg = { sender: "user", text: chatInput };
+    setChatMessages(prev => [...prev, userMsg]);
+    setChatInput("");
+
+    try {
+      // 명세서: POST /api/a2a/chat
+      const res = await axios.post(`${API_URL}/api/a2a/chat`, null, { 
+          params: { message: userMsg.text, wallet_address: walletAddress } 
+      });
+      const botMsg = { sender: "bot", text: res.data.reply };
+      setChatMessages(prev => [...prev, botMsg]);
     } catch (err) {
-      console.error(err);
-      alert("지갑 연결 실패");
+      setChatMessages(prev => [...prev, { sender: "bot", text: "오류가 발생했습니다." }]);
     }
   };
 
-  // [AI 스튜디오] 1. 기획서 초안 생성
-  const handleGenerateDraft = async () => {
-    if (!studioIntent) return alert("기획 의도를 입력해주세요.");
-    setIsLoading(true);
-    try {
-      const res = await axios.post(`${API_URL}/api/studio/draft`, { intent: studioIntent });
-      setGeneratedDraft(res.data.draft_text);
-    } catch (err) { alert("생성 실패"); }
-    setIsLoading(false);
-  };
-
-  // [AI 스튜디오] 2. 포스터 이미지 생성
-  const handleGenerateImage = async () => {
-    setIsLoading(true);
-    try {
-      const res = await axios.post(`${API_URL}/api/studio/image`, { keywords: studioIntent });
-      setGeneratedImage(res.data.image_url);
-    } catch (err) { alert("이미지 생성 실패"); }
-    setIsLoading(false);
-  };
-
-  // [AI 스튜디오] 3. 유사도 검사
-  const handleCheckSimilarity = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/api/studio/check`, { params: { topic: studioIntent } });
-      setSimilarityMsg(`점수: ${res.data.similarity_score}점 - ${res.data.message}`);
-    } catch (err) { alert("검사 실패"); }
-  };
-
-  // [AI 스튜디오 -> 안건 작성] 데이터 이관
-  const sendToProposal = () => {
-    setProposalForm({
-      topic: studioIntent,
-      description: generatedDraft,
-      style: "AI Generated",
-      image_url: generatedImage
-    });
-    setActiveTab("proposal-create"); // 페이지 이동
-  };
-
-  // [안건] 최종 제출
-  const submitProposal = async () => {
-    if (!walletAddress) return alert("지갑 연결이 필요합니다.");
-    try {
-      await axios.post(`${API_URL}/api/proposals`, {
-        wallet_address: walletAddress,
-        ...proposalForm
-      });
-      alert("안건이 등록되었습니다!");
-      setActiveTab("proposal-list");
-      fetchProposals();
-      // 폼 초기화
-      setProposalForm({ topic: "", description: "", style: "General", image_url: "" });
-    } catch (err) { alert("제출 실패"); }
-  };
-
-  // [갤러리] 도슨트 듣기
-  const handleDocent = async (id) => {
+  // [갤러리] 도슨트 & 피드백
+  const playDocent = async (id) => {
     try {
         const res = await axios.post(`${API_URL}/api/gallery/docent`, null, { params: { item_id: id } });
-        alert(`[도슨트 AI]: ${res.data.text_script}`);
-    } catch (err) { alert("도슨트 연결 실패"); }
+        alert(`🎧 도슨트 재생 중...\n\n"${res.data.text_script}"`);
+    } catch(err) { alert("도슨트 재생 실패"); }
   };
 
+  const sendFeedback = async (id) => {
+      const msg = prompt("관람평을 남겨주세요:");
+      if(msg) {
+        await axios.post(`${API_URL}/api/gallery/feedback`, null, { 
+            params: { item_id: id, content: msg, wallet_address: walletAddress } 
+        });
+        alert("소중한 의견 감사합니다!");
+      }
+  };
 
-  // === 3. 화면 렌더링 ===
+  // === 5. UI 렌더링 ===
   return (
     <div className="App">
-      {/* 헤더 */}
-      <header className="header">
-        <div className="logo" onClick={() => setActiveTab("main")}>🎨 DAO Art Platform</div>
-        <button className={`wallet-btn ${isLoggedIn ? 'connected' : ''}`} onClick={connectWallet}>
-          {walletAddress ? `🟢 ${walletAddress.substring(0,6)}...` : "🦊 지갑 연결"}
-        </button>
-      </header>
+      {/* 1. 사이드바 (메뉴) */}
+      <aside className="sidebar">
+        <h1 className="logo">🎨 ArtDAO</h1>
+        <div className="user-status">
+            {isLoggedIn ? (
+                <div className="badge-connected">🟢 Connected</div>
+            ) : (
+                <button className="connect-btn" onClick={connectWallet}>🦊 Connect Wallet</button>
+            )}
+        </div>
+        <nav>
+          <button className={activeTab==="main"?"active":""} onClick={()=>setActiveTab("main")}>🏠 메인 (Hub)</button>
+          <button className={activeTab==="proposals"?"active":""} onClick={()=>setActiveTab("proposals")}>🗳️ 안건 목록</button>
+          <button className={activeTab==="studio"?"active":""} onClick={()=>setActiveTab("studio")}>🎨 AI 스튜디오</button>
+          <button className={activeTab==="gallery"?"active":""} onClick={()=>setActiveTab("gallery")}>🖼️ 온라인 전시관</button>
+          <button className={activeTab==="chat"?"active":""} onClick={()=>setActiveTab("chat")}>🤖 AI 큐레이터</button>
+          <button className={activeTab==="mypage"?"active":""} onClick={()=>setActiveTab("mypage")}>👤 마이페이지</button>
+        </nav>
+      </aside>
 
-      {/* 네비게이션 */}
-      <nav className="nav">
-        <button className={activeTab==="main"?"active":""} onClick={()=>setActiveTab("main")}>홈</button>
-        <button className={activeTab==="proposal-list"?"active":""} onClick={()=>setActiveTab("proposal-list")}>안건 목록</button>
-        <button className={activeTab==="studio"?"active":""} onClick={()=>setActiveTab("studio")}>AI 창작 스튜디오</button>
-        <button className={activeTab==="gallery"?"active":""} onClick={()=>setActiveTab("gallery")}>온라인 전시관</button>
-        <button className={activeTab==="mypage"?"active":""} onClick={()=>setActiveTab("mypage")}>마이페이지</button>
-      </nav>
-
-      <main className="content">
-        {/* 1. 메인 페이지 */}
+      {/* 2. 메인 컨텐츠 영역 */}
+      <main className="main-content">
+        
+        {/* === 메인 대시보드 === */}
         {activeTab === "main" && (
-          <div className="page-main">
-            <div className="hero-section">
-              <h2>Welcome to Art DAO</h2>
-              <p>AI와 블록체인이 만나는 새로운 예술 플랫폼</p>
-            </div>
-            <div className="dashboard-summary">
-              <div className="card summary-card" onClick={()=>setActiveTab("proposal-list")}>
-                <h3>🔥 진행 중인 안건</h3>
-                <p>{proposals.length} 건</p>
-              </div>
-              <div className="card summary-card" onClick={()=>setActiveTab("gallery")}>
-                <h3>🖼️ 전시 작품</h3>
-                <p>{galleryItems.length} 점</p>
-              </div>
+          <div className="page fade-in">
+            <h2>🔥 Dashboard Summary</h2>
+            <div className="dashboard-grid">
+                <div className="card summary" onClick={()=>setActiveTab("proposals")}>
+                    <h3>진행 중인 안건</h3>
+                    <p className="highlight">{proposals.filter(p=>p.status==="OPEN").length} 건</p>
+                    <span>바로가기 &rarr;</span>
+                </div>
+                <div className="card summary" onClick={()=>setActiveTab("gallery")}>
+                    <h3>전시 작품</h3>
+                    <p className="highlight">{galleryItems.length} 점</p>
+                    <span>관람하기 &rarr;</span>
+                </div>
+                {isLoggedIn && (
+                <div className="card summary" onClick={()=>setActiveTab("mypage")}>
+                    <h3>내 토큰 잔액</h3>
+                    <p className="highlight">{myInfo.balance} ART</p>
+                    <span>관리하기 &rarr;</span>
+                </div>
+                )}
             </div>
           </div>
         )}
 
-        {/* 2. 안건 목록 페이지 */}
-        {activeTab === "proposal-list" && (
-          <div className="page-proposal-list">
+        {/* === 안건 목록 (필터링) === */}
+        {activeTab === "proposals" && (
+          <div className="page fade-in">
             <div className="page-header">
-              <h2>🗳️ 안건 목록</h2>
-              <button className="primary-btn" onClick={()=>{
-                  setProposalForm({ topic: "", description: "", style: "General", image_url: "" });
-                  setActiveTab("proposal-create");
-              }}>+ 새 안건 작성</button>
-            </div>
-            <div className="list-container">
-              {proposals.map(p => (
-                <div key={p.id} className="card proposal-card">
-                  <div className="card-left">
-                    {p.image_url && <img src={p.image_url} alt="thumbnail" className="thumb"/>}
-                  </div>
-                  <div className="card-right">
-                    <h3>{p.topic}</h3>
-                    <p className="desc">{p.description ? p.description.substring(0, 100) + "..." : "내용 없음"}</p>
-                    <div className="tags">
-                      <span className="badge">{p.style}</span>
-                      <span className={`badge status-${p.status}`}>{p.status}</span>
-                    </div>
-                  </div>
+                <h2>🗳️ Governance Proposals</h2>
+                <div className="filters">
+                    <button onClick={()=>fetchProposals("OPEN")}>🔵 진행중(OPEN)</button>
+                    <button onClick={()=>fetchProposals(null)}>⚪ 전체보기</button>
+                    <button className="primary" onClick={()=>{
+                        setProposalForm({ topic: "", description: "", style: "General", image_url: "" });
+                        setActiveTab("write");
+                    }}>+ 새 안건 작성</button>
                 </div>
-              ))}
             </div>
-          </div>
-        )}
-
-        {/* 3. 안건 작성 페이지 (일반 + AI 연동) */}
-        {activeTab === "proposal-create" && (
-          <div className="page-create">
-            <h2>📝 안건 작성</h2>
-            <div className="form-container">
-              <label>투표 종류 (Style)</label>
-              <div className="radio-group">
-                {["General", "Cyberpunk", "Abstract", "Realistic"].map(style => (
-                   <label key={style}>
-                     <input type="radio" name="style" 
-                            checked={proposalForm.style === style}
-                            onChange={(e)=>setProposalForm({...proposalForm, style: e.target.value})}
-                            value={style} /> {style}
-                   </label>
+            <div className="list">
+                {proposals.map(p => (
+                    <div key={p.id} className="card proposal-item">
+                        <div className="p-left">
+                            <span className={`status-badge ${p.status}`}>{p.status}</span>
+                            <h3>{p.topic}</h3>
+                            <p>{p.description}</p>
+                        </div>
+                        {p.image_url && <img src={p.image_url} alt="art" className="thumb"/>}
+                    </div>
                 ))}
-              </div>
-
-              <label>주제 (Topic)</label>
-              <input type="text" value={proposalForm.topic} 
-                     onChange={(e)=>setProposalForm({...proposalForm, topic: e.target.value})}
-                     placeholder="안건 제목을 입력하세요" />
-
-              <label>상세 내용 (Description)</label>
-              <textarea rows="5" value={proposalForm.description}
-                        onChange={(e)=>setProposalForm({...proposalForm, description: e.target.value})}
-                        placeholder="제안 내용을 상세히 적어주세요." />
-
-              <label>첨부 이미지 (URL)</label>
-              <div className="image-preview-area">
-                 <input type="text" value={proposalForm.image_url} readOnly placeholder="AI 스튜디오에서 생성된 이미지 URL" />
-                 {proposalForm.image_url && <img src={proposalForm.image_url} alt="preview" />}
-              </div>
-
-              <div className="btn-group">
-                <button className="cancel-btn" onClick={()=>setActiveTab("proposal-list")}>취소</button>
-                <button className="primary-btn" onClick={submitProposal}>제출하기</button>
-              </div>
             </div>
           </div>
         )}
 
-        {/* 4. AI 창작 스튜디오 */}
-        {activeTab === "studio" && (
-          <div className="page-studio">
-            <h2>🎨 AI 창작 스튜디오</h2>
-            <div className="studio-container">
-                <div className="chat-section">
-                    <label>🤖 AI에게 기획 의도를 말해주세요</label>
-                    <div className="input-with-btn">
-                        <input type="text" placeholder="예: 비 오는 네온사인 도시를 그리고 싶어" 
-                               value={studioIntent} onChange={(e)=>setStudioIntent(e.target.value)}/>
-                        <button onClick={handleCheckSimilarity}>유사도 검사</button>
+        {/* === 안건 작성 (Form) === */}
+        {activeTab === "write" && (
+            <div className="page fade-in">
+                <h2>📝 Create Proposal</h2>
+                <div className="card form-card">
+                    <label>안건 주제</label>
+                    <input type="text" value={proposalForm.topic} onChange={(e)=>setProposalForm({...proposalForm, topic: e.target.value})} placeholder="제목 입력"/>
+                    
+                    <label>상세 내용</label>
+                    <textarea rows="5" value={proposalForm.description} onChange={(e)=>setProposalForm({...proposalForm, description: e.target.value})} placeholder="내용 입력"/>
+                    
+                    <label>스타일 (Style)</label>
+                    <select value={proposalForm.style} onChange={(e)=>setProposalForm({...proposalForm, style: e.target.value})}>
+                        <option value="General">General</option>
+                        <option value="Cyberpunk">Cyberpunk</option>
+                        <option value="Abstract">Abstract</option>
+                        <option value="Realistic">Realistic</option>
+                    </select>
+
+                    {proposalForm.image_url && (
+                        <div className="img-preview">
+                            <p>첨부된 이미지:</p>
+                            <img src={proposalForm.image_url} alt="attached" />
+                        </div>
+                    )}
+                    
+                    <div className="btn-group">
+                        <button className="cancel" onClick={()=>setActiveTab("proposals")}>취소</button>
+                        <button className="primary" onClick={submitProposal}>제출하기</button>
                     </div>
-                    {similarityMsg && <p className="info-msg">💡 {similarityMsg}</p>}
-                    
-                    <button className="action-btn" onClick={handleGenerateDraft} disabled={isLoading}>
-                        {isLoading ? "생성 중..." : "1. 기획서 초안 생성"}
-                    </button>
-                </div>
-
-                <div className="result-section">
-                    {generatedDraft && (
-                        <div className="draft-box">
-                            <h4>📜 생성된 기획서</h4>
-                            <textarea readOnly value={generatedDraft} />
-                            <button className="action-btn" onClick={handleGenerateImage} disabled={isLoading}>
-                                {isLoading ? "그리는 중..." : "2. 포스터 이미지 생성"}
-                            </button>
-                        </div>
-                    )}
-                    
-                    {generatedImage && (
-                        <div className="image-box">
-                            <h4>🖼️ 생성된 포스터</h4>
-                            <img src={generatedImage} alt="AI Art" />
-                            <button className="primary-btn full-width" onClick={sendToProposal}>
-                                3. 이 내용으로 안건 작성하러 가기 👉
-                            </button>
-                        </div>
-                    )}
                 </div>
             </div>
-          </div>
         )}
 
-        {/* 5. 온라인 전시관 */}
+        {/* === AI 스튜디오 (명세서 이미지 3) === */}
+        {activeTab === "studio" && (
+            <div className="page fade-in">
+                <h2>🎨 AI Art Studio</h2>
+                <div className="studio-layout">
+                    <div className="card studio-input">
+                        <h3>1. 기획 의도 입력</h3>
+                        <input type="text" placeholder="예: 우울한 사이버펑크 도시" 
+                               value={studioData.intent} onChange={(e)=>setStudioData({...studioData, intent: e.target.value})}/>
+                        <div className="studio-btns">
+                            <button onClick={()=>handleStudioAction('check')}>🔍 유사도 검사</button>
+                            <button onClick={()=>handleStudioAction('draft')} disabled={isLoading}>📜 기획서 생성</button>
+                        </div>
+                        {studioData.similarity && <p className="info-msg">{studioData.similarity}</p>}
+                    </div>
+
+                    <div className="card studio-result">
+                        <h3>2. 결과물 확인</h3>
+                        {studioData.draft && (
+                            <>
+                                <textarea value={studioData.draft} readOnly />
+                                <button className="action-btn" onClick={()=>handleStudioAction('image')} disabled={isLoading}>
+                                    {isLoading ? "생성 중..." : "🎨 포스터 이미지 생성"}
+                                </button>
+                            </>
+                        )}
+                        {studioData.image && (
+                            <div className="final-result">
+                                <img src={studioData.image} alt="Generated" />
+                                <button className="primary full-width" onClick={sendToProposalWrite}>
+                                    👉 이 내용으로 안건 작성하기
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* === 온라인 전시관 (명세서 이미지 6) === */}
         {activeTab === "gallery" && (
-          <div className="page-gallery">
-            <h2>🖼️ 온라인 전시관</h2>
-            <div className="gallery-grid">
-              {galleryItems.map(item => (
-                <div key={item.id} className="gallery-item">
-                  <div className="img-wrapper">
-                    <img src={item.image_url} alt={item.title} />
-                  </div>
-                  <div className="info">
-                    <h3>{item.title}</h3>
-                    <p className="artist">Artist: {item.artist_address ? item.artist_address.substring(0,6) : "Unknown"}</p>
-                    <button onClick={()=>handleDocent(item.id)}>🎧 도슨트 해설</button>
-                  </div>
+            <div className="page fade-in">
+                <h2>🖼️ Online Gallery</h2>
+                <div className="gallery-grid">
+                    {galleryItems.map(item => (
+                        <div key={item.id} className="gallery-card">
+                            <div className="img-wrap"><img src={item.image_url} alt={item.title}/></div>
+                            <div className="info">
+                                <h3>{item.title}</h3>
+                                <p>Artist: {item.artist_address ? item.artist_address.substring(0,6) : "Unknown"}</p>
+                                <div className="gallery-btns">
+                                    <button onClick={()=>playDocent(item.id)}>🎧 도슨트</button>
+                                    <button onClick={()=>sendFeedback(item.id)}>💬 방명록</button>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
                 </div>
-              ))}
             </div>
-          </div>
         )}
 
-        {/* 6. 마이 페이지 */}
-        {activeTab === "mypage" && (
-           <div className="page-mypage">
-             <h2>👤 마이 페이지</h2>
-             <div className="card profile-card">
-                <h3>내 정보</h3>
-                <p><strong>지갑 주소:</strong> {walletAddress || "연결 안됨"}</p>
-                <p><strong>멤버십 등급:</strong> Gold (예시)</p>
-                <p><strong>토큰 잔액:</strong> 1,000 ART</p>
-             </div>
-             <div className="card">
-                <h3>내 활동</h3>
-                <ul>
-                    <li>투표 참여: 5회</li>
-                    <li>제안 안건: {proposals.filter(p => p.wallet_address === walletAddress).length}건</li>
-                </ul>
-             </div>
-           </div>
+        {/* === AI 큐레이터 (A2A 채팅) === */}
+        {activeTab === "chat" && (
+            <div className="page fade-in">
+                <h2>🤖 AI Curator Chat</h2>
+                <div className="chat-window">
+                    <div className="messages">
+                        {chatMessages.map((msg, idx) => (
+                            <div key={idx} className={`msg ${msg.sender}`}>
+                                <div className="bubble">{msg.text}</div>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="chat-input">
+                        <input type="text" value={chatInput} onChange={(e)=>setChatInput(e.target.value)} 
+                               onKeyPress={(e)=>e.key==='Enter' && sendMessage()} placeholder="미술품 추천을 부탁해보세요..." />
+                        <button onClick={sendMessage}>전송</button>
+                    </div>
+                </div>
+            </div>
         )}
+
+        {/* === 마이 페이지 (명세서 이미지 2 - 핵심!) === */}
+        {activeTab === "mypage" && (
+            <div className="page fade-in">
+                <h2>👤 My Page</h2>
+                {!isLoggedIn ? <p>지갑을 먼저 연결해주세요.</p> : (
+                    <div className="mypage-grid">
+                        <div className="card profile">
+                            <h3>내 정보</h3>
+                            <p><strong>주소:</strong> {walletAddress}</p>
+                            <p><strong>멤버십 등급:</strong> <span className="gold-text">{myInfo.membership}</span></p>
+                            <p><strong>보유 토큰:</strong> {myInfo.balance} ART</p>
+                        </div>
+                        <div className="card rewards">
+                            <h3>💰 보상 관리</h3>
+                            <p>미수령 보상: <strong>{myInfo.rewards} ART</strong></p>
+                            <button className="primary-btn sm">보상 수령</button>
+                        </div>
+                        <div className="card delegation">
+                            <h3>🤝 위임 상태</h3>
+                            <p>위임 대상: {myInfo.delegation.delegated_to || "없음"}</p>
+                            <p>위임 수량: {myInfo.delegation.amount || 0} Vote</p>
+                        </div>
+                        <div className="card history">
+                            <h3>📅 활동 내역</h3>
+                            <ul>
+                                {myInfo.activity.map((act, i) => (
+                                    <li key={i}>{act.date}: {act.type}</li>
+                                ))}
+                            </ul>
+                        </div>
+                        <div className="card my-proposals">
+                            <h3>📝 내가 쓴 기획서 ({myInfo.myProposals.length})</h3>
+                            {myInfo.myProposals.map(p => (
+                                <div key={p.id} className="mini-item">#{p.id} {p.topic} ({p.status})</div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+        )}
+
       </main>
     </div>
   );
