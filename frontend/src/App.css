@@ -1,13 +1,70 @@
-.App { text-align: center; font-family: sans-serif; max-width: 800px; margin: 0 auto; }
-.header { display: flex; justify-content: space-between; align-items: center; padding: 20px; border-bottom: 2px solid #eee; }
-.wallet-btn { background: #ff9800; color: white; border: none; padding: 10px 20px; border-radius: 20px; cursor: pointer; font-weight: bold; }
-.nav { display: flex; justify-content: space-around; margin-top: 20px; border-bottom: 1px solid #ddd; }
-.nav button { background: none; border: none; padding: 15px; cursor: pointer; font-size: 16px; width: 100%; }
-.nav button.active { border-bottom: 3px solid #007bff; color: #007bff; font-weight: bold; }
-.content { padding: 20px; text-align: left; }
-.card { background: #f9f9f9; padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px solid #ddd; }
-.status { background: #e0f7fa; color: #006064; padding: 3px 8px; border-radius: 5px; font-size: 12px; }
-.input-group { display: flex; gap: 10px; margin-bottom: 20px; }
-.input-group input { flex: 1; padding: 10px; border-radius: 5px; border: 1px solid #ddd; }
-.input-group button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
-textarea { padding: 10px; border-radius: 5px; border: 1px solid #ddd; margin-bottom: 10px;}
+/* 기본 설정 */
+* { box-sizing: border-box; }
+body { margin: 0; font-family: 'Noto Sans KR', sans-serif; background-color: #f4f6f8; color: #333; }
+.App { max-width: 1000px; margin: 0 auto; background: white; min-height: 100vh; box-shadow: 0 0 20px rgba(0,0,0,0.05); }
+
+/* 헤더 & 네비게이션 */
+.header { display: flex; justify-content: space-between; align-items: center; padding: 20px 30px; border-bottom: 1px solid #eee; }
+.logo { font-size: 1.5rem; font-weight: bold; color: #2c3e50; cursor: pointer; }
+.wallet-btn { background: #333; color: white; border: none; padding: 10px 20px; border-radius: 20px; cursor: pointer; font-weight: bold; transition: 0.3s; }
+.wallet-btn.connected { background: #27ae60; }
+
+.nav { display: flex; border-bottom: 1px solid #eee; background: #fff; position: sticky; top: 0; z-index: 10; }
+.nav button { flex: 1; border: none; background: none; padding: 15px; font-size: 1rem; cursor: pointer; color: #7f8c8d; border-bottom: 3px solid transparent; }
+.nav button:hover { background-color: #f9f9f9; }
+.nav button.active { color: #3498db; border-bottom-color: #3498db; font-weight: bold; }
+
+/* 컨텐츠 공통 */
+.content { padding: 30px; }
+h2 { border-left: 5px solid #3498db; padding-left: 15px; margin-bottom: 25px; color: #2c3e50; }
+.card { background: white; border: 1px solid #eee; border-radius: 10px; padding: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.03); margin-bottom: 15px; }
+.primary-btn { background: #3498db; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 1rem; }
+.action-btn { background: #9b59b6; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; margin-top: 10px; }
+.full-width { width: 100%; margin-top: 10px; }
+
+/* 1. 메인 */
+.dashboard-summary { display: flex; gap: 20px; margin-top: 20px; }
+.summary-card { flex: 1; text-align: center; cursor: pointer; transition: transform 0.2s; background: #ebf5fb; border: none; }
+.summary-card:hover { transform: translateY(-5px); }
+.summary-card h3 { margin: 0 0 10px 0; color: #555; }
+.summary-card p { font-size: 2rem; font-weight: bold; margin: 0; color: #3498db; }
+
+/* 2. 안건 목록 */
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.proposal-card { display: flex; gap: 20px; align-items: center; }
+.proposal-card .thumb { width: 80px; height: 80px; object-fit: cover; border-radius: 5px; background: #ddd; }
+.tags { display: flex; gap: 5px; margin-top: 10px; }
+.badge { padding: 3px 8px; border-radius: 4px; font-size: 0.8rem; background: #eee; }
+.status-OPEN { background: #d5f5e3; color: #27ae60; }
+
+/* 3. 안건 작성 */
+.form-container { display: flex; flex-direction: column; gap: 15px; max-width: 600px; margin: 0 auto; }
+.form-container label { font-weight: bold; margin-bottom: 5px; display: block; }
+.form-container input[type="text"], textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; }
+.radio-group { display: flex; gap: 15px; margin-bottom: 10px; }
+.image-preview-area img { max-width: 100%; margin-top: 10px; border-radius: 5px; border: 1px solid #ddd; }
+.btn-group { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+.cancel-btn { background: #95a5a6; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; }
+
+/* 4. AI 스튜디오 */
+.studio-container { display: flex; flex-direction: column; gap: 30px; }
+.input-with-btn { display: flex; gap: 10px; }
+.input-with-btn input { flex: 1; padding: 12px; border: 2px solid #3498db; border-radius: 5px; }
+.draft-box textarea { height: 150px; background: #f9f9f9; }
+.image-box { text-align: center; background: #222; padding: 20px; border-radius: 10px; color: white; }
+.image-box img { max-width: 100%; border: 1px solid #444; margin-bottom: 15px; }
+.info-msg { background: #fff3cd; color: #856404; padding: 10px; border-radius: 5px; font-size: 0.9rem; }
+
+/* 5. 갤러리 */
+.gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 20px; }
+.gallery-item { border: 1px solid #eee; border-radius: 10px; overflow: hidden; background: white; }
+.gallery-item .img-wrapper { height: 200px; overflow: hidden; background: #eee; }
+.gallery-item img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.3s; }
+.gallery-item:hover img { transform: scale(1.05); }
+.gallery-item .info { padding: 15px; }
+.gallery-item h3 { margin: 0 0 5px 0; font-size: 1.1rem; }
+.gallery-item .artist { color: #888; font-size: 0.8rem; margin-bottom: 10px; }
+.gallery-item button { width: 100%; padding: 8px; background: #34495e; color: white; border: none; border-radius: 5px; cursor: pointer; }
+
+/* 6. 마이페이지 */
+.profile-card p { margin: 10px 0; border-bottom: 1px solid #eee; padding-bottom: 10px; }
