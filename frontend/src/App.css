@@ -80,3 +80,24 @@ body { margin: 0; font-family: 'Segoe UI', sans-serif; background-color: var(--b
 .mypage-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
 .gold-text { color: #d97706; font-weight: bold; }
 .mini-item { background: #f3f4f6; padding: 8px; margin-bottom: 5px; border-radius: 4px; font-size: 0.9rem; }
+
+.logged-in-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.logout-btn {
+  background: #ef4444; /* 빨간색 */
+  color: white;
+  border: none;
+  padding: 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: 0.2s;
+}
+
+.logout-btn:hover {
+  background: #dc2626;
+}

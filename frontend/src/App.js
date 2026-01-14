@@ -72,7 +72,29 @@ function App() {
       alert("지갑 연결 및 로그인 성공!");
     } catch (err) { alert("지갑 연결 실패"); console.error(err); }
   };
-
+  
+const handleLogout = async () => {
+    try {
+      // (선택) 백엔드에 로그아웃 알림
+      if (walletAddress) {
+        await axios.post(`${API_URL}/api/auth/logout`, null, { 
+            params: { wallet_address: walletAddress } 
+        });
+      }
+    } catch (err) {
+      console.error("Logout log error", err);
+    } finally {
+      // 핵심: 프론트엔드 상태 초기화
+      setWalletAddress("");
+      setIsLoggedIn(false);
+      setMyInfo({ 
+        balance: 0, membership: "", rewards: 0, delegation: {},
+        activity: [], badge: "", referral: {}, myProposals: [], recommendation: null
+      });
+      setActiveTab("main"); // 메인 화면으로 이동
+      alert("로그아웃 되었습니다.");
+    }
+  };
   // === 3. 데이터 조회 함수들 (API 연동) ===
   
   // [마이페이지] 명세서의 모든 정보 로드 (추천 전시 포함)
@@ -217,14 +239,18 @@ function App() {
     <div className="App">
       {/* 1. 사이드바 */}
       <aside className="sidebar">
-        <h1 className="logo">🎨 ArtDAO</h1>
-        <div className="user-status">
-            {isLoggedIn ? (
-                <div className="badge-connected">🟢 Connected</div>
-            ) : (
-                <button className="connect-btn" onClick={connectWallet}>🦊 Connect Wallet</button>
-            )}
-        </div>
+  <h1 className="logo">🎨 ArtDAO</h1>
+  <div className="user-status">
+      {isLoggedIn ? (
+          // [수정됨] 로그인 상태일 때 로그아웃 버튼 표시
+          <div className="logged-in-box">
+            <div className="badge-connected">🟢 {walletAddress.substring(0, 6)}...</div>
+            <button className="logout-btn" onClick={handleLogout}>로그아웃</button>
+          </div>
+      ) : (
+          <button className="connect-btn" onClick={connectWallet}>🦊 Connect Wallet</button>
+      )}
+  </div>
         <nav>
           <button className={activeTab==="main"?"active":""} onClick={()=>setActiveTab("main")}>🏠 메인 (Hub)</button>
           <button className={activeTab==="proposals"?"active":""} onClick={()=>setActiveTab("proposals")}>🗳️ 안건 목록</button>

@@ -38,6 +38,13 @@ def wallet_login(req: schemas.WalletLoginRequest, db: Session = Depends(get_db))
     
     return {"status": "success", "wallet_address": user.wallet_address}
 
+@app.post("/api/auth/logout")
+def logout(wallet_address: str):
+    # 실제 세션/쿠키 방식이라면 response.delete_cookie("session_id") 등이 들어갑니다.
+    # 현재는 stateless 방식이므로 로그만 남기거나 성공 메시지만 반환합니다.
+    print(f"[Logout] Wallet: {wallet_address}") 
+    return {"status": "success", "message": "Logged out successfully"}
+
 # 유저 조회 헬퍼 함수
 def get_user_or_404(wallet_address: str, db: Session):
     user = db.query(models.User).filter(models.User.wallet_address == wallet_address).first()
