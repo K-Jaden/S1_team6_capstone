@@ -7,27 +7,42 @@ class WalletLoginRequest(BaseModel):
     wallet_address: str
     signature: str
 
-# === 사용자 (마이페이지) ===
+# === 사용자 ===
 class UserResponse(BaseModel):
     wallet_address: str
     membership_grade: str
     token_balance: float
     pending_rewards: float
+    # [추가] 뱃지 정보도 응답에 포함
+    badge: str | None = None 
     class Config:
         from_attributes = True
+
+# === 추천 전시 (New!) ===
+class RecommendationResponse(BaseModel):
+    title: str
+    reason: str
 
 # === 안건 (Proposals) ===
 class ProposalCreate(BaseModel):
     wallet_address: str
-    topic: str
+    title: str
+    meta_hash: str | None = None
     description: str | None = None
     style: str | None = "General"
+    image_url: str | None = None
+
+class ProposalUpdate(BaseModel):
+    title: str | None = None
+    meta_hash: str | None = None
+    description: str | None = None
     image_url: str | None = None
 
 class ProposalResponse(BaseModel):
     id: int
     wallet_address: str
-    topic: str
+    title: str
+    meta_hash: str | None
     description: str | None
     status: str
     image_url: str | None
@@ -35,7 +50,7 @@ class ProposalResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# === AI 스튜디오 ===
+# === AI 스튜디오, 갤러리 ===
 class StudioDraftRequest(BaseModel):
     intent: str
 class StudioDraftResponse(BaseModel):
@@ -44,8 +59,6 @@ class StudioImageRequest(BaseModel):
     keywords: str
 class StudioImageResponse(BaseModel):
     image_url: str
-
-# === 갤러리 & 피드백 ===
 class FeedbackResponse(BaseModel):
     id: int
     wallet_address: str
@@ -53,14 +66,12 @@ class FeedbackResponse(BaseModel):
     created_at: datetime
     class Config:
         from_attributes = True
-
 class GalleryItemResponse(BaseModel):
     id: int
     title: str
     artist_address: str
     image_url: str
     description: str
-    # 해당 작품에 달린 피드백도 같이 보여주기
     feedbacks: List[FeedbackResponse] = []
     class Config:
         from_attributes = True
