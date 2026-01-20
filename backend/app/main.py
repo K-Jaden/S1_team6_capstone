@@ -5,6 +5,13 @@ from sqlalchemy import desc
 from app import models, schemas, database
 from typing import List, Optional
 import time
+import requests
+import json
+from app import schemas 
+
+# AI 에이전트 서버 주소 (도커 서비스 이름 사용)
+AI_AGENT_URL = "http://art_ai_agent:8002"
+
 
 # DB 테이블 생성
 models.Base.metadata.create_all(bind=database.engine)
@@ -195,10 +202,29 @@ def delete_proposal(proposal_id: int, db: Session = Depends(get_db)):
 # =========================================================
 
 # [명세서 추가 요청 1] 미술품 추천 및 질의응답 (A2A Chat)
-@app.post("/api/a2a/chat")
-def a2a_chat(message: str, wallet_address: str):
-    # Agent: Agent Orchestrator (Feedback, Inquiry Agent)
-    return {"reply": f"AI 큐레이터: '{message}'에 대해 답변해 드릴게요. 이 작품은..."}
+# ==========================================
+# [수정 3] 채팅/피드백 (A2A) - 비평가 연결
+# ==========================================
+@app.post("/api/a2a/chat", response_model=schemas.A2AChatResponse)
+def chat_with_curator(message: str, wallet_address: str):
+    print(f"📡 [Backend] AI에게 질문: {message}")
+    
+    try:
+        # 1. AI 요원(비평가/챗봇)에게 전화 걸기 (POST /review 사용)
+        # agent.py에 채팅 전용(/chat)이 없으므로 비평가(/review)를 대리인으로 씀
+        response = requests.post(
+            f"{AI_AGENT_URL}/review", 
+            json={"art_info": message}
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            return {"reply": result.get("review_text", "답변을 생성하지 못했습니다.")}
+        else:
+            return {"reply": "AI 큐레이터가 지금 바쁩니다. (에러)"}
+            
+    except Exception as e:
+        return {"reply": "AI 서버와 연결이 끊겼습니다."}
 
 # [명세서 추가 요청 2] 사용자 맞춤 작품 매칭 (A2A Recommend)
 @app.get("/api/a2a/recommend", summary="사용자 맞춤 작품 매칭")
@@ -223,16 +249,58 @@ def propose_exhibition_agent(intent: str):
     }
 
 # (기존 스튜디오 기능 유지)
-@app.post("/api/studio/draft")
-def generate_draft(req: schemas.StudioDraftRequest):
-    time.sleep(1)
-    return {"draft_text": f"AI 기획서 초안: {req.intent}..."}
+# ==========================================
+# [수정 1] 기획서 생성 (Draft) - 진짜 AI 연결
+# ==========================================
+@app.post("/api/studio/draft", response_model=schemas.StudioDraftResponse)
+def create_draft(request: schemas.StudioDraftRequest):
+    print(f"📡 [Backend] AI에게 기획서 요청: {request.intent}")
+    
+    try:
+        # 1. AI 요원(기획자)에게 전화 걸기 (POST /propose)
+        response = requests.post(
+            f"{AI_AGENT_URL}/propose", 
+            json={"intent": request.intent}
+        )
+        
+        # 2. 응답 확인
+        if response.status_code == 200:
+            result = response.json()
+            # agent.py가 주는 키("draft_text")를 그대로 프론트로 전달
+            return {"draft_text": result.get("draft_text", "내용 없음")}
+        else:
+            print(f"🔥 AI 에러: {response.text}")
+            return {"draft_text": "AI가 기획하다가 잠들었습니다. (에러 발생)"}
+            
+    except Exception as e:
+        print(f"🔥 통신 에러: {str(e)}")
+        return {"draft_text": "AI 에이전트와 연결할 수 없습니다."}
 
-@app.post("/api/studio/image")
-def generate_studio_image(req: schemas.StudioImageRequest):
-    time.sleep(2)
-    return {"image_url": "https://via.placeholder.com/500x500"}
 
-@app.get("/api/studio/check")
-def check_similarity(topic: str):
-    return {"similarity_score": 10, "message": "통과"}
+# ==========================================
+# [수정 2] 이미지 생성 (Image) - 진짜 AI 연결
+# ==========================================
+@app.post("/api/studio/image", response_model=schemas.StudioImageResponse)
+def create_art_image(request: schemas.StudioImageRequest):
+    print(f"📡 [Backend] AI에게 그림 요청: {request.keywords}")
+    
+    try:
+        # 1. AI 요원(화가)에게 전화 걸기 (POST /generate)
+        # agent.py의 WorkRequest 스키마에 맞춰 데이터 포장
+        payload = {
+            "topic": request.keywords,
+            "style": "Digital Art",  # 기본 스타일 지정 (필요 시 프론트에서 받게 수정 가능)
+            "wallet_address": "0xSystem" # 임시 주소
+        }
+        
+        response = requests.post(f"{AI_AGENT_URL}/generate", json=payload)
+        
+        if response.status_code == 200:
+            result = response.json()
+            return {"image_url": result.get("image_url", "")}
+        else:
+            return {"image_url": "https://via.placeholder.com/300?text=AI+Error"}
+            
+    except Exception as e:
+        print(f"🔥 통신 에러: {str(e)}")
+        return {"image_url": "https://via.placeholder.com/300?text=Connection+Failed"}

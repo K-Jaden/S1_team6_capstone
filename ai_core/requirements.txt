@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+pydantic
+requests
+python-dotenv
+langchain
+langchain-community
+langchain-core
+langchain-google-genai
+google-generativeai==0.8.3

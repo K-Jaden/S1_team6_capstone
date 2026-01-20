@@ -64,6 +64,19 @@ services:
     tty: true
     depends_on:
       - backend
+      
+  # 5. AI Agent (FastAPI)
+  ai_core: 
+    build: ./ai_core
+    container_name: art_ai_agent
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./ai_core:/app
+    environment:
+      - GOOGLE_API_KEY=AIzaSyC52mDKtEQgM7KRoxpKUbTRZYImPOxHFuc
+    networks:
+      - default
 
 volumes:
   db_data:

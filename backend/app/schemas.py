@@ -13,15 +13,35 @@ class UserResponse(BaseModel):
     membership_grade: str
     token_balance: float
     pending_rewards: float
-    # [추가] 뱃지 정보도 응답에 포함
+    # 뱃지 정보 포함
     badge: str | None = None 
     class Config:
         from_attributes = True
 
-# === 추천 전시 (New!) ===
+# === 추천 전시 (마이페이지용) ===
 class RecommendationResponse(BaseModel):
     title: str
     reason: str
+
+# === A2A (AI 에이전트) [NEW] ===
+class A2AChatRequest(BaseModel):
+    message: str
+    wallet_address: str
+
+class A2AChatResponse(BaseModel):
+    reply: str
+
+class A2ARecommendationItem(BaseModel):
+    id: int
+    title: str
+    reason: str
+
+class ProposalAgentRequest(BaseModel):
+    intent: str
+
+class ProposalAgentResponse(BaseModel):
+    proposal_text: str
+    suggested_title: str
 
 # === 안건 (Proposals) ===
 class ProposalCreate(BaseModel):
@@ -50,7 +70,7 @@ class ProposalResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# === AI 스튜디오, 갤러리 ===
+# === AI 스튜디오 ===
 class StudioDraftRequest(BaseModel):
     intent: str
 class StudioDraftResponse(BaseModel):
@@ -59,6 +79,8 @@ class StudioImageRequest(BaseModel):
     keywords: str
 class StudioImageResponse(BaseModel):
     image_url: str
+
+# === 갤러리 & 피드백 ===
 class FeedbackResponse(BaseModel):
     id: int
     wallet_address: str
@@ -66,6 +88,7 @@ class FeedbackResponse(BaseModel):
     created_at: datetime
     class Config:
         from_attributes = True
+
 class GalleryItemResponse(BaseModel):
     id: int
     title: str
