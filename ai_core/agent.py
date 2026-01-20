@@ -1,17 +1,18 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+# ✅ LangChain 도구들 다시 불러오기
 from langchain_core.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.output_parsers import StrOutputParser
 import requests
 import os
-import traceback # 👈 에러 추적용
-import google.generativeai as genai
+import traceback
 
 app = FastAPI(title="S1-6 AI Orchestrator", version="Final-Fix")
 
 # -----------------------------------------------------------
 # 🔥 API 키
-MY_GOOGLE_API_KEY = 
+MY_GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 # -----------------------------------------------------------
 
 # [모델] Gemini 1.5 Flash (빠르고 똑똑함, 0.8.3 버전 호환)

@@ -73,8 +73,6 @@ services:
       - "8002:8002"
     volumes:
       - ./ai_core:/app
-    environment:
-      - GOOGLE_API_KEY=AIzaSyC52mDKtEQgM7KRoxpKUbTRZYImPOxHFuc
     networks:
       - default
 

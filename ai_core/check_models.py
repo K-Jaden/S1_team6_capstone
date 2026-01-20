@@ -1,7 +1,7 @@
 import google.generativeai as genai
 
 # --- 주영 님의 API 키를 여기에 넣으세요 ---
-MY_API_KEY = "AIzaSyCM7eA674cFJriItAkrsXgNp9Ex9C977Bk" 
+MY_API_KEY = "AIzaSyD6ntuUF1UA2vB5hcOLgxVMJh8xWVn48ZE" 
 # ---------------------------------------
 
 genai.configure(api_key=MY_API_KEY)
