@@ -73,6 +73,8 @@ services:
       - "8002:8002"
     volumes:
       - ./ai_core:/app
+    env_file:
+      - ./ai_core/.env
     networks:
       - default
 
