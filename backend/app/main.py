@@ -7,7 +7,9 @@ from typing import List, Optional
 import time
 import requests
 import json
-from app import schemas 
+import urllib.parse # ✅ URL 인코딩을 위해 추가 필요
+import random
+
 
 # AI 에이전트 서버 주소 (도커 서비스 이름 사용)
 AI_AGENT_URL = "http://art_ai_agent:8002"
@@ -278,29 +280,82 @@ def create_draft(request: schemas.StudioDraftRequest):
 
 
 # ==========================================
-# [수정 2] 이미지 생성 (Image) - 진짜 AI 연결
+# [수정] 이미지 생성 (Image) - 텍스트를 받아서 그림 URL로 변환
 # ==========================================
 @app.post("/api/studio/image", response_model=schemas.StudioImageResponse)
 def create_art_image(request: schemas.StudioImageRequest):
     print(f"📡 [Backend] AI에게 그림 요청: {request.keywords}")
     
     try:
-        # 1. AI 요원(화가)에게 전화 걸기 (POST /generate)
-        # agent.py의 WorkRequest 스키마에 맞춰 데이터 포장
+        # 1. AI 요원(화가)에게 "그림 묘사 프롬프트" 부탁하기
         payload = {
             "topic": request.keywords,
-            "style": "Digital Art",  # 기본 스타일 지정 (필요 시 프론트에서 받게 수정 가능)
-            "wallet_address": "0xSystem" # 임시 주소
+            "style": "Digital Art", 
+            "wallet_address": "0xSystem"
         }
         
         response = requests.post(f"{AI_AGENT_URL}/generate", json=payload)
         
         if response.status_code == 200:
             result = response.json()
-            return {"image_url": result.get("image_url", "")}
+            # AI가 만든 영어 프롬프트 가져오기
+            final_prompt = result.get("final_prompt", "Abstract Art")
+            
+            print(f"🎨 [Backend] 생성된 프롬프트: {final_prompt[:30]}...")
+
+            # 2. [핵심] 프롬프트를 가지고 실제 이미지 URL 만들기 (Pollinations AI 사용 - 무료/키 없음)
+            # URL에 특수문자가 들어가면 안되니까 인코딩 처리
+            encoded_prompt = urllib.parse.quote(final_prompt)
+            seed = random.randint(1, 99999)
+            timestamp = int(time.time()) # ✅ 현재 시간 (매번 바뀜)
+
+            
+            # 실제 이미지가 나오는 마법의 링크
+            real_image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?seed={seed}&width=1024&height=768&nologo=true&model=flux"
+            
+            return {"image_url": real_image_url}
         else:
-            return {"image_url": "https://via.placeholder.com/300?text=AI+Error"}
+            print("🔥 AI 에이전트 응답 실패")
+            return {"image_url": "https://via.placeholder.com/600x400?text=AI+Error"}
             
     except Exception as e:
         print(f"🔥 통신 에러: {str(e)}")
-        return {"image_url": "https://via.placeholder.com/300?text=Connection+Failed"}
+        return {"image_url": "https://via.placeholder.com/600x400?text=Connection+Failed"}
+
+# 2. 마케터 (Marketer) 연결
+@app.post("/api/agent/promote", response_model=schemas.AgentPromoteResponse)
+def agent_promote(req: schemas.AgentPromoteRequest):
+    print(f"📡 [Backend] 마케터 호출: {req.exhibition_title}")
+    try:
+        # AI 컨테이너(8002)의 /promote 엔드포인트 호출
+        payload = {
+            "exhibition_title": req.exhibition_title, 
+            "target_audience": req.target_audience
+        }
+        resp = requests.post(f"{AI_AGENT_URL}/promote", json=payload)
+        
+        if resp.status_code == 200:
+            return resp.json() # {"promo_text": "..."} 반환
+        else:
+            return {"promo_text": "마케팅 문구 생성 실패"}
+    except Exception as e:
+        return {"promo_text": "통신 오류 발생"}
+
+# 3. 경매사 (Auctioneer) 연결
+@app.post("/api/agent/auction", response_model=schemas.AgentAuctionResponse)
+def agent_auction(req: schemas.AgentAuctionRequest):
+    print(f"📡 [Backend] 경매사 호출")
+    try:
+        # AI 컨테이너(8002)의 /auction 엔드포인트 호출
+        payload = {
+            "art_info": req.art_info,
+            "critic_review": req.critic_review
+        }
+        resp = requests.post(f"{AI_AGENT_URL}/auction", json=payload)
+        
+        if resp.status_code == 200:
+            return resp.json() # {"auction_report": "..."} 반환
+        else:
+            return {"auction_report": "경매 리포트 생성 실패"}
+    except Exception as e:
+        return {"auction_report": "통신 오류 발생"}

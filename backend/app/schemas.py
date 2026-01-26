@@ -98,3 +98,34 @@ class GalleryItemResponse(BaseModel):
     feedbacks: List[FeedbackResponse] = []
     class Config:
         from_attributes = True
+        
+# schemas.py
+
+# ... (기존 코드들) ...
+
+# ==========================================
+# ✅ [NEW] AI 에이전트 센터 (Agent Squad)
+# ==========================================
+
+# 1. 비평가 (Critic)
+class AgentReviewRequest(BaseModel):
+    art_info: str
+
+class AgentReviewResponse(BaseModel):
+    review_text: str
+
+# 2. 마케터 (Marketer)
+class AgentPromoteRequest(BaseModel):
+    exhibition_title: str
+    target_audience: str
+
+class AgentPromoteResponse(BaseModel):
+    promo_text: str
+
+# 3. 경매사 (Auctioneer)
+class AgentAuctionRequest(BaseModel):
+    art_info: str
+    critic_review: str
+
+class AgentAuctionResponse(BaseModel):
+    auction_report: str
