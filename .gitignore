@@ -1,0 +1,10 @@
+# .gitignore 내용
+
+# 1. API 키 숨기기
+.env
+*.env
+ai_core/.env
+
+# 2. 파이썬 캐시 파일 숨기기 (필요 없는 파일)
+__pycache__/
+*.pyc
