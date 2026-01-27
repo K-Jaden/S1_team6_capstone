@@ -128,10 +128,35 @@ def create_feedback(item_id: int, content: str, wallet_address: str, db: Session
     db.commit()
     return {"status": "feedback_saved"}
 
+# ==========================================
+# [추가] 도슨트 기능 (작품 설명 생성)
+# ==========================================
 @app.post("/api/gallery/docent")
-def get_docent_explanation(item_id: int):
-    # Agent: Docent Agent
-    return {"audio_url": "mock.mp3", "text_script": f"작품 {item_id}번에 대한 AI 도슨트 해설입니다..."}
+def generate_docent_script(item_id: int = 0):
+    print(f"📡 [Backend] 도슨트 요청 (ID: {item_id})")
+    
+    # 1. DB에서 작품 찾기 (없으면 임시 데이터 사용)
+    # (실제로는 DB에서 조회해야 하지만, 여기선 예시로 처리)
+    art_info = "신비로운 사이버펑크 도시의 밤 풍경" # 기본값
+    
+    # 2. AI 에이전트(도슨트)에게 대본 요청
+    try:
+        payload = {
+            "art_info": art_info,
+            "audience_type": "일반 관람객"
+        }
+        # agent.py의 /docent 엔드포인트 호출
+        response = requests.post(f"{AI_AGENT_URL}/docent", json=payload, timeout=10)
+        
+        if response.status_code == 200:
+            script = response.json().get("commentary", "작품 설명을 불러오지 못했습니다.")
+            return {"text_script": script}
+        else:
+            return {"text_script": "AI 도슨트가 현재 바쁩니다."}
+            
+    except Exception as e:
+        print(f"🔥 도슨트 에러: {str(e)}")
+        return {"text_script": "잠시 후 다시 시도해주세요."}
 
 
 # =========================================================
