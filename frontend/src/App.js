@@ -222,11 +222,28 @@ function App() {
     }
   };
 
-  const playDocent = async (id) => {
+  // [도슨트] 음성 재생 함수 (브라우저 내장 TTS 사용 - 무료!)
+  const playDocent = async (id, title) => {
     try {
         const res = await axios.post(`${API_URL}/api/gallery/docent`, null, { params: { item_id: id } });
-        alert(`🎧 도슨트 재생 중...\n\n"${res.data.text_script}"`);
-    } catch(err) { alert("도슨트 재생 실패"); }
+        const script = res.data.text_script;
+        
+        // 1. 텍스트로 보여주기 (알림)
+        alert(`🎧 도슨트 해설이 시작됩니다:\n\n"${script}"`);
+        
+        // 2. 음성으로 읽어주기 (TTS)
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel(); // 기존 음성 중지
+            const utterance = new SpeechSynthesisUtterance(script);
+            utterance.lang = 'ko-KR'; // 한국어 설정
+            utterance.rate = 1.0;     // 속도 (1.0 = 보통)
+            utterance.pitch = 1.0;    // 톤 (1.0 = 보통)
+            window.speechSynthesis.speak(utterance);
+        }
+    } catch(err) { 
+        console.error(err);
+        alert("도슨트 재생 실패 (백엔드 연결 확인 필요)"); 
+    }
   };
 
   const sendFeedback = async (id) => {
@@ -506,13 +523,22 @@ function App() {
                 <div className="gallery-grid">
                     {galleryItems.map(item => (
                         <div key={item.id} className="gallery-card">
-                            <div className="img-wrap"><img src={item.image_url} alt={item.title}/></div>
+                            <div className="img-wrap">
+                                <img src={item.image_url} alt={item.title}/>
+                            </div>
                             <div className="info">
                                 <h3>{item.title}</h3>
                                 <p>Artist: {item.artist_address ? item.artist_address.substring(0,6) : "Unknown"}</p>
+                                
                                 <div className="gallery-btns">
-                                    <button onClick={()=>playDocent(item.id)}>🎧 도슨트</button>
-                                    <button onClick={()=>sendFeedback(item.id)}>💬 방명록</button>
+                                    {/* ✅ 도슨트 버튼이 여기 있어야 합니다! */}
+                                    <button onClick={()=>playDocent(item.id, item.title)}>
+                                        🎧 도슨트 듣기
+                                    </button>
+                                    
+                                    <button onClick={()=>sendFeedback(item.id)}>
+                                        💬 방명록
+                                    </button>
                                 </div>
                             </div>
                         </div>
