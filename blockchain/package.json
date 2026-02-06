@@ -1,0 +1,12 @@
+{
+  "name": "art-planning-dao",
+  "version": "1.0.0",
+  "description": "Blockchain Part",
+  "scripts": {
+    "test": "npx hardhat test"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.22.5"
+  }
+}
