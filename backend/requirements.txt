@@ -1,7 +1,0 @@
-fastapi
-uvicorn
-sqlalchemy
-pymysql
-pydantic
-cryptography
-requests
