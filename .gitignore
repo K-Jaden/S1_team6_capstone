@@ -1,10 +1,30 @@
-# .gitignore 내용
-
-# 1. API 키 숨기기
+# --- 1. API 키 및 환경 변수 ---
 .env
 *.env
-ai_core/.env
+**/.env
 
-# 2. 파이썬 캐시 파일 숨기기 (필요 없는 파일)
-__pycache__/
+# --- 2. 파이썬 캐시 및 빌드 파일 (중요!) ---
+# 모든 하위 디렉토리의 __pycache__를 포함하도록 수정
+**/__pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+
+# --- 3. 프론트엔드 (Node.js) 관련 ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+build/
+dist/
+
+# --- 4. 에디터 및 OS 설정 파일 ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

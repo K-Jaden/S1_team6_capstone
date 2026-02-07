@@ -1,0 +1,41 @@
+{
+  "_format": "hh-sol-cache-2",
+  "files": {
+    "C:\\capstone\\S1_team6_capstone\\blockchain\\contracts\\ArtPlanningDAO.sol": {
+      "lastModificationDate": 1770405533612,
+      "contentHash": "261e0a276999bfe997cd93c16ad500e4",
+      "sourceName": "contracts/ArtPlanningDAO.sol",
+      "solcConfig": {
+        "version": "0.8.20",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.20"
+      ],
+      "artifacts": [
+        "ArtPlanningDAO"
+      ]
+    }
+  }
+}
