@@ -62,15 +62,33 @@ function App() {
   // 2. 초기화 및 지갑 연동
   // ==========================================
   
-  // [NEW] 새로고침 시 로그인 유지
+  // [NEW] 새로고침 시 로그인 유지 & 컨트랙트 자동 재연결 (수정된 버전)
   useEffect(() => {
     const storedAddress = localStorage.getItem("walletAddress");
+    
     if (storedAddress) {
+      // 1. 지갑 주소 & 로그인 상태 복구
       setWalletAddress(storedAddress);
       setIsLoggedIn(true);
+
+      // 2. 🟢 [핵심] 끊어진 스마트 컨트랙트 연결선 다시 잇기
+      if (window.ethereum) {
+        const restoreContract = async () => {
+          try {
+            const provider = new ethers.BrowserProvider(window.ethereum);
+            const signer = await provider.getSigner();
+            // 주소와 ABI(설명서)를 이용해 컨트랙트 객체 재생성
+            const daoContract = new ethers.Contract(CONTRACT_ADDRESS, ArtPlanningDAO.abi, signer);
+            setContract(daoContract); // 상태 변수에 다시 저장 (중요!)
+            console.log("♻️ 스마트 컨트랙트 재연결 완료!");
+          } catch (err) {
+            console.error("재연결 실패:", err);
+          }
+        };
+        restoreContract();
+      }
     }
   }, []);
-
   useEffect(() => {
     if (isLoggedIn && walletAddress) {
       fetchMyPageData();
