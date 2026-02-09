@@ -3,6 +3,9 @@ import axios from "axios";
 import { ethers } from "ethers";
 import "./App.css";
 
+// LIM. 블록체인 연결 정보 가져오기. contracts 폴더가 src 안에 있어야 합니다
+import { CONTRACT_ADDRESS } from './contracts/address';
+import ArtPlanningDAO from './contracts/ArtPlanningDAO.json';
 const API_URL = "http://localhost:8000";
 
 // ✅ [설정] 관리자 지갑 주소 (팀장님 지갑 주소를 여기에 넣으세요!)
@@ -52,6 +55,9 @@ function App() {
   });
   const [agentResult, setAgentResult] = useState({ critic: "", marketer: "", auction: "" });
 
+
+  // 스마트 컨트랙트 객체 저장용 State
+  const [contract, setContract] = useState(null);
   // ==========================================
   // 2. 초기화 및 지갑 연동
   // ==========================================
@@ -78,7 +84,13 @@ function App() {
     try {
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
+      console.log("JSON 파일 내용:", ArtPlanningDAO);
       const address = await signer.getAddress();
+	
+      //LIM. 스마트 컨트랙트 연결
+      const daoContract = new ethers.Contract(CONTRACT_ADDRESS, ArtPlanningDAO.abi, signer);
+      setContract(daoContract); // 나중에 사용하기 위해 상태에 저장
+      console.log("블록체인 계약 연결 완료:", daoContract);
       
       await axios.post(`${API_URL}/api/auth/wallet-login`, { wallet_address: address, signature: "dummy_sig" });
       
@@ -184,14 +196,63 @@ function App() {
     setActiveTab("write");
   };
 
+  //LIM. 기존 코드 수정. backend 서버에서 meta_hash 받아주는지 확인 필요함.
+  //블록체인에 먼저 저장하고 백엔드 DB에 저장하도록 코드 수정
   const submitProposal = async () => {
-    if (!walletAddress) return alert("로그인 필요");
+    // 1. 유효성 검사
+    if (!walletAddress) return alert("지갑이 연결되지 않았습니다.");
+    if (!contract) return alert("스마트 컨트랙트가 로드되지 않았습니다. 잠시 후 다시 시도하거나 새로고침 해주세요.");
+    
+    // 필수 입력값 체크
+    if (!proposalForm.title || !proposalForm.description) {
+      return alert("제목과 내용을 모두 입력해주세요.");
+    }
+
     try {
-        await axios.post(`${API_URL}/api/proposals`, { wallet_address: walletAddress, ...proposalForm });
-        alert("안건 등록 완료!");
+        // 2. 블록체인에 먼저 기록 (메타마스크 서명 유도)
+        alert("지갑에서 트랜잭션을 승인해주세요...");
+        
+        // 주의: 솔리디티 함수 인자 순서와 개수가 정확해야 합니다!
+        // (제목, 내용, 이미지URL 순서라고 가정)
+        const tx = await contract.createProposal(
+            proposalForm.title, 
+            proposalForm.description, 
+            proposalForm.image_url || "" // 이미지가 없으면 빈 문자열
+        );
+        
+        alert("블록체인에 기록 중입니다... (약 10~20초 소요)");
+        
+        // 블록에 담길 때까지 기다림 (여기서 시간이 좀 걸립니다)
+        const receipt = await tx.wait(); 
+        console.log("트랜잭션 성공:", receipt);
+        
+        // 3. 블록체인 성공 후 백엔드(DB)에도 저장
+        // meta_hash 필드에 트랜잭션 해시(tx.hash)를 저장하면 나중에 조회하기 좋습니다.
+        await axios.post(`${API_URL}/api/proposals`, { 
+            wallet_address: walletAddress, 
+            ...proposalForm,
+            meta_hash: tx.hash // 블록체인 영수증 번호 저장
+        });
+
+        alert("✅ 안건이 블록체인과 DB에 모두 안전하게 등록되었습니다!");
+        
+        // 목록으로 이동 및 갱신
         setActiveTab("proposals");
         fetchProposals();
-    } catch(err) { alert("제출 실패"); }
+
+        // 입력 폼 초기화
+        setProposalForm({ title: "", description: "", style: "General", image_url: "", meta_hash: "" });
+
+    } catch(err) { 
+        console.error("등록 실패:", err);
+        
+        // 에러 메시지 분석 (사용자 취소 등)
+        if (err.code === "ACTION_REJECTED") {
+          alert("지갑 서명을 취소하셨습니다.");
+        } else {
+          alert("제출 실패: " + (err.message || "알 수 없는 오류"));
+        }
+    }
   };
 
   // ✅ [삭제] 안건 삭제 함수 (여기에 정의됨!)

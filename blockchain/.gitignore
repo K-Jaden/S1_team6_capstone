@@ -1,0 +1,20 @@
+# 1. 의존성 파일
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# 2. Hardhat 컴파일 결과물 
+artifacts/
+cache/
+typechain-types/
+
+# 3. 테스트 리포트
+coverage/
+coverage.json
+
+# 4. ★★★ 보안 파일 ★★★
+.env
+
+# 5. OS 잡동사니
+.DS_Store
+Thumbs.db
