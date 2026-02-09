@@ -252,7 +252,10 @@ function App() {
             meta_hash: tx.hash // 블록체인 영수증 번호 저장
         });
 
-        alert("✅ 안건이 블록체인과 DB에 모두 안전하게 등록되었습니다!");
+        //alert("✅ 안건이 블록체인과 DB에 모두 안전하게 등록되었습니다!"); 기존 코드
+	//블록체인에 저장됐는지 확인할 수 있게 변경
+	const shortHash = `${tx.hash.substring(0,6)}...${tx.hash.substring(tx.hash.length - 4)}`;
+	alert(`✅ 블록체인 저장 성공!\n\n🧾 트랜잭션 영수증(Hash):\n${shortHash}\n\n이제 안건 목록에서 확인할 수 있습니다.`);
         
         // 목록으로 이동 및 갱신
         setActiveTab("proposals");
@@ -460,6 +463,21 @@ function App() {
                 <div className="modal-content" onClick={(e) => e.stopPropagation()}>
                     <button className="close-btn" onClick={() => setSelectedProposal(null)}>✖</button>
                     <div className="modal-header">
+			{/* [추가] 블록체인 저장 증명 배너 */}
+			<div style={{
+    				background: "#f0f9ff", 
+    				padding: "10px", 
+    				borderRadius: "8px", 
+    				marginBottom: "15px", 
+    				border: "1px solid #bae6fd",
+    				fontSize: "0.9em",
+    				color: "#0369a1"
+			}}>
+    				<strong>🔗 Blockchain Verified</strong>
+    				<div style={{ marginTop: "4px", fontFamily: "monospace", wordBreak: "break-all" }}>
+        				Tx Hash: {selectedProposal.meta_hash || "처리 중..."}
+    				</div>
+			</div>
                         <span className={`status-badge ${selectedProposal.status}`}>{selectedProposal.status}</span>
                         <h2>{selectedProposal.title}</h2>
                         <p className="meta">작성자: {selectedProposal.wallet_address}</p>
