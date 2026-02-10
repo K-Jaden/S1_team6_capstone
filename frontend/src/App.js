@@ -168,22 +168,30 @@ function App() {
     } catch (err) { alert("뱃지 업데이트 실패"); }
   };
 
-  const handleStudioAction = async (type) => {
+    // App.js 내부
+    const handleGenerateWithIPFS = async () => {
     setIsLoading(true);
     try {
-      if (type === "draft") {
-        const res = await axios.post(`${API_URL}/api/studio/draft`, { intent: studioData.intent });
-        setStudioData(prev => ({ ...prev, draft: res.data.draft_text }));
-      } else if (type === "image") {
-        const res = await axios.post(`${API_URL}/api/studio/image`, { keywords: studioData.intent });
-        setStudioData(prev => ({ ...prev, image: res.data.image_url }));
-      } else if (type === "check") {
-        const res = await axios.get(`${API_URL}/api/studio/check`, { params: { topic: studioData.intent } });
-        setStudioData(prev => ({ ...prev, similarity: `유사도: ${res.data.similarity_score}점 (${res.data.message})` }));
-      }
-    } catch (err) { alert("AI 요청 실패"); }
+        // 방금 만든 하이브리드 API 호출
+        const res = await axios.post(`${API_URL}/api/studio/generate_hybrid`, {
+        prompt: studioData.intent,
+        wallet_address: walletAddress
+        });
+
+        if (res.data.status === "success") {
+        setStudioData(prev => ({
+            ...prev,
+            image: res.data.image_url,  // 화면에 보여줄 이미지 (IPFS Gateway)
+            meta_cid: res.data.meta_cid // ⭐ 나중에 저장할 메타데이터 CID
+        }));
+        alert("이미지와 메타데이터가 IPFS에 안전하게 저장되었습니다!");
+        }
+    } catch (err) {
+        alert("생성 실패");
+        console.error(err);
+    }
     setIsLoading(false);
-  };
+    };
 
   const sendToProposalWrite = () => {
     setProposalForm({
@@ -195,65 +203,73 @@ function App() {
     });
     setActiveTab("write");
   };
-
-  //LIM. 기존 코드 수정. backend 서버에서 meta_hash 받아주는지 확인 필요함.
-  //블록체인에 먼저 저장하고 백엔드 DB에 저장하도록 코드 수정
-  const submitProposal = async () => {
-    // 1. 유효성 검사
-    if (!walletAddress) return alert("지갑이 연결되지 않았습니다.");
-    if (!contract) return alert("스마트 컨트랙트가 로드되지 않았습니다. 잠시 후 다시 시도하거나 새로고침 해주세요.");
-    
-    // 필수 입력값 체크
-    if (!proposalForm.title || !proposalForm.description) {
-      return alert("제목과 내용을 모두 입력해주세요.");
-    }
-
-    try {
-        // 2. 블록체인에 먼저 기록 (메타마스크 서명 유도)
-        alert("지갑에서 트랜잭션을 승인해주세요...");
-        
-        // 주의: 솔리디티 함수 인자 순서와 개수가 정확해야 합니다!
-        // (제목, 내용, 이미지URL 순서라고 가정)
-        const tx = await contract.createProposal(
-            proposalForm.title, 
-            proposalForm.description, 
-            proposalForm.image_url || "" // 이미지가 없으면 빈 문자열
-        );
-        
-        alert("블록체인에 기록 중입니다... (약 10~20초 소요)");
-        
-        // 블록에 담길 때까지 기다림 (여기서 시간이 좀 걸립니다)
-        const receipt = await tx.wait(); 
-        console.log("트랜잭션 성공:", receipt);
-        
-        // 3. 블록체인 성공 후 백엔드(DB)에도 저장
-        // meta_hash 필드에 트랜잭션 해시(tx.hash)를 저장하면 나중에 조회하기 좋습니다.
-        await axios.post(`${API_URL}/api/proposals`, { 
-            wallet_address: walletAddress, 
-            ...proposalForm,
-            meta_hash: tx.hash // 블록체인 영수증 번호 저장
-        });
-
-        alert("✅ 안건이 블록체인과 DB에 모두 안전하게 등록되었습니다!");
-        
-        // 목록으로 이동 및 갱신
-        setActiveTab("proposals");
-        fetchProposals();
-
-        // 입력 폼 초기화
-        setProposalForm({ title: "", description: "", style: "General", image_url: "", meta_hash: "" });
-
-    } catch(err) { 
-        console.error("등록 실패:", err);
-        
-        // 에러 메시지 분석 (사용자 취소 등)
-        if (err.code === "ACTION_REJECTED") {
-          alert("지갑 서명을 취소하셨습니다.");
-        } else {
-          alert("제출 실패: " + (err.message || "알 수 없는 오류"));
+  // handleGenerateWithIPFS 함수 바로 밑에 이 코드를 추가하세요!
+  
+  const handleStudioAction = async (type) => {
+    // 1. 기획서 생성 (Draft) - 기존 로직 유지
+    if (type === 'draft') {
+        setIsLoading(true);
+        try {
+            const res = await axios.post(`${API_URL}/api/studio/draft`, { intent: studioData.intent });
+            setStudioData(prev => ({ ...prev, draft: res.data.draft_text }));
+        } catch (err) { 
+            alert("기획서 생성 실패"); 
         }
+        setIsLoading(false);
+    } 
+    // 2. 이미지 생성 (Image) - 새로 만든 IPFS 하이브리드 기능 연결!
+    else if (type === 'image') {
+        await handleGenerateWithIPFS(); // 아까 만든 함수 실행
     }
   };
+
+    //LIM. 기존 코드 수정. backend 서버에서 meta_hash 받아주는지 확인 필요함.
+    //블록체인에 먼저 저장하고 백엔드 DB에 저장하도록 코드 수정
+    // App.js 내부 submitProposal 함수
+    const submitProposal = async () => {
+        if (!contract) return alert("컨트랙트 연결 필요");
+
+        try {
+            alert("지갑 승인 요청 중...");
+
+            // [블록체인 저장]
+            // 1. IPFS 이미지 주소 (화면에 보여주기 용)
+            // 2. 메타데이터 CID (진본 증명 용 - Description이나 별도 필드에 포함)
+            const title = proposalForm.title;
+            const imageUrl = studioData.image; // IPFS Gateway URL
+            const metaCid = studioData.meta_cid; // JSON CID
+
+            // 설명란 끝에 [Metadata: Qm...]을 붙여서 블록체인에 영구 박제 (가장 쉬운 방법)
+            const finalDescription = `${proposalForm.description}\n\n[IPFS Metadata: ${metaCid}]`;
+
+            // 스마트 컨트랙트 호출
+            const tx = await contract.createProposal(
+                title,
+                finalDescription, // 설명 + CID
+                imageUrl          // 이미지 URL
+            );
+            
+            await tx.wait(); // 블록 생성 대기
+
+            // [DB 저장]
+            // DB에는 빠르게 조회하기 위해 각각 컬럼에 저장
+            await axios.post(`${API_URL}/api/proposals`, {
+                wallet_address: walletAddress,
+                title: title,
+                description: proposalForm.description,
+                image_url: imageUrl,
+                meta_hash: metaCid, // ⭐ DB meta_hash 컬럼에 CID 저장 (중요!)
+                status: "OPEN"
+            });
+
+            alert("✅ 블록체인과 IPFS에 완벽하게 기록되었습니다!");
+            fetchProposals();
+
+        } catch (err) {
+            console.error(err);
+            alert("등록 실패");
+        }
+    };
 
   // ✅ [삭제] 안건 삭제 함수 (여기에 정의됨!)
   const deleteProposal = async (id, e) => {
