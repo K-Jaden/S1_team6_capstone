@@ -11,7 +11,13 @@ async def generate_hybrid_art(prompt: str, wallet_address: str):
     print(f"🎨 [1] AI에게 그림 요청: {prompt}")
     
     # 1. AI 그림 생성 요청
-    ai_res = requests.post(AI_URL, json={"prompt": prompt})
+    # 1. AI 그림 생성 요청 (agent.py의 WorkRequest 규격에 맞춤)
+    payload = {
+        "topic": prompt,       # 사용자가 입력한 prompt를 topic에 매핑
+        "style": "Digital Art", # 스타일은 기본값 설정 (혹은 입력받은 걸로)
+        "wallet_address": wallet_address
+    }
+    ai_res = requests.post(AI_URL, json=payload)
     if ai_res.status_code != 200: return {"error": "AI Error"}
     
     temp_url = ai_res.json().get("url") # AI가 준 임시 URL

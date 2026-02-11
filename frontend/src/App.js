@@ -62,15 +62,33 @@ function App() {
   // 2. 초기화 및 지갑 연동
   // ==========================================
   
-  // [NEW] 새로고침 시 로그인 유지
+  // [NEW] 새로고침 시 로그인 유지 & 컨트랙트 자동 재연결 (수정된 버전)
   useEffect(() => {
     const storedAddress = localStorage.getItem("walletAddress");
+    
     if (storedAddress) {
+      // 1. 지갑 주소 & 로그인 상태 복구
       setWalletAddress(storedAddress);
       setIsLoggedIn(true);
+
+      // 2. 🟢 [핵심] 끊어진 스마트 컨트랙트 연결선 다시 잇기
+      if (window.ethereum) {
+        const restoreContract = async () => {
+          try {
+            const provider = new ethers.BrowserProvider(window.ethereum);
+            const signer = await provider.getSigner();
+            // 주소와 ABI(설명서)를 이용해 컨트랙트 객체 재생성
+            const daoContract = new ethers.Contract(CONTRACT_ADDRESS, ArtPlanningDAO.abi, signer);
+            setContract(daoContract); // 상태 변수에 다시 저장 (중요!)
+            console.log("♻️ 스마트 컨트랙트 재연결 완료!");
+          } catch (err) {
+            console.error("재연결 실패:", err);
+          }
+        };
+        restoreContract();
+      }
     }
   }, []);
-
   useEffect(() => {
     if (isLoggedIn && walletAddress) {
       fetchMyPageData();
@@ -223,47 +241,49 @@ function App() {
     }
   };
 
-    //LIM. 기존 코드 수정. backend 서버에서 meta_hash 받아주는지 확인 필요함.
-    //블록체인에 먼저 저장하고 백엔드 DB에 저장하도록 코드 수정
-    // App.js 내부 submitProposal 함수
-    const submitProposal = async () => {
-        if (!contract) return alert("컨트랙트 연결 필요");
+  //LIM. 기존 코드 수정. backend 서버에서 meta_hash 받아주는지 확인 필요함.
+  //블록체인에 먼저 저장하고 백엔드 DB에 저장하도록 코드 수정
+  const submitProposal = async () => {
+    // 1. 유효성 검사
+    if (!walletAddress) return alert("지갑이 연결되지 않았습니다.");
+    if (!contract) return alert("스마트 컨트랙트가 로드되지 않았습니다. 잠시 후 다시 시도하거나 새로고침 해주세요.");
+    
+    // 필수 입력값 체크
+    if (!proposalForm.title || !proposalForm.description) {
+      return alert("제목과 내용을 모두 입력해주세요.");
+    }
 
-        try {
-            alert("지갑 승인 요청 중...");
+    try {
+        // 2. 블록체인에 먼저 기록 (메타마스크 서명 유도)
+        alert("지갑에서 트랜잭션을 승인해주세요...");
+        
+        // 주의: 솔리디티 함수 인자 순서와 개수가 정확해야 합니다!
+        // (제목, 내용, 이미지URL 순서라고 가정)
+        const tx = await contract.createProposal(
+            proposalForm.title, 
+            proposalForm.description, 
+            proposalForm.image_url || "" // 이미지가 없으면 빈 문자열
+        );
+        
+        alert("블록체인에 기록 중입니다... (약 10~20초 소요)");
+        
+        // 블록에 담길 때까지 기다림 (여기서 시간이 좀 걸립니다)
+        const receipt = await tx.wait(); 
+        console.log("트랜잭션 성공:", receipt);
+        
+        // 3. 블록체인 성공 후 백엔드(DB)에도 저장
+        // meta_hash 필드에 트랜잭션 해시(tx.hash)를 저장하면 나중에 조회하기 좋습니다.
+        await axios.post(`${API_URL}/api/proposals`, { 
+            wallet_address: walletAddress, 
+            ...proposalForm,
+            meta_hash: tx.hash // 블록체인 영수증 번호 저장
+        });
 
-            // [블록체인 저장]
-            // 1. IPFS 이미지 주소 (화면에 보여주기 용)
-            // 2. 메타데이터 CID (진본 증명 용 - Description이나 별도 필드에 포함)
-            const title = proposalForm.title;
-            const imageUrl = studioData.image; // IPFS Gateway URL
-            const metaCid = studioData.meta_cid; // JSON CID
-
-            // 설명란 끝에 [Metadata: Qm...]을 붙여서 블록체인에 영구 박제 (가장 쉬운 방법)
-            const finalDescription = `${proposalForm.description}\n\n[IPFS Metadata: ${metaCid}]`;
-
-            // 스마트 컨트랙트 호출
-            const tx = await contract.createProposal(
-                title,
-                finalDescription, // 설명 + CID
-                imageUrl          // 이미지 URL
-            );
-            
-            await tx.wait(); // 블록 생성 대기
-
-            // [DB 저장]
-            // DB에는 빠르게 조회하기 위해 각각 컬럼에 저장
-            await axios.post(`${API_URL}/api/proposals`, {
-                wallet_address: walletAddress,
-                title: title,
-                description: proposalForm.description,
-                image_url: imageUrl,
-                meta_hash: metaCid, // ⭐ DB meta_hash 컬럼에 CID 저장 (중요!)
-                status: "OPEN"
-            });
-
-            alert("✅ 블록체인과 IPFS에 완벽하게 기록되었습니다!");
-            fetchProposals();
+        alert("✅ 안건이 블록체인과 DB에 모두 안전하게 등록되었습니다!");
+        
+        // 목록으로 이동 및 갱신
+        setActiveTab("proposals");
+        fetchProposals();
 
         } catch (err) {
             console.error(err);
@@ -458,6 +478,21 @@ function App() {
                 <div className="modal-content" onClick={(e) => e.stopPropagation()}>
                     <button className="close-btn" onClick={() => setSelectedProposal(null)}>✖</button>
                     <div className="modal-header">
+			{/* [추가] 블록체인 저장 증명 배너 */}
+			<div style={{
+    				background: "#f0f9ff", 
+    				padding: "10px", 
+    				borderRadius: "8px", 
+    				marginBottom: "15px", 
+    				border: "1px solid #bae6fd",
+    				fontSize: "0.9em",
+    				color: "#0369a1"
+			}}>
+    				<strong>🔗 Blockchain Verified</strong>
+    				<div style={{ marginTop: "4px", fontFamily: "monospace", wordBreak: "break-all" }}>
+        				Tx Hash: {selectedProposal.meta_hash || "처리 중..."}
+    				</div>
+			</div>
                         <span className={`status-badge ${selectedProposal.status}`}>{selectedProposal.status}</span>
                         <h2>{selectedProposal.title}</h2>
                         <p className="meta">작성자: {selectedProposal.wallet_address}</p>
