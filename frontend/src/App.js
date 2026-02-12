@@ -186,22 +186,30 @@ function App() {
     } catch (err) { alert("뱃지 업데이트 실패"); }
   };
 
-  const handleStudioAction = async (type) => {
+    // App.js 내부
+    const handleGenerateWithIPFS = async () => {
     setIsLoading(true);
     try {
-      if (type === "draft") {
-        const res = await axios.post(`${API_URL}/api/studio/draft`, { intent: studioData.intent });
-        setStudioData(prev => ({ ...prev, draft: res.data.draft_text }));
-      } else if (type === "image") {
-        const res = await axios.post(`${API_URL}/api/studio/image`, { keywords: studioData.intent });
-        setStudioData(prev => ({ ...prev, image: res.data.image_url }));
-      } else if (type === "check") {
-        const res = await axios.get(`${API_URL}/api/studio/check`, { params: { topic: studioData.intent } });
-        setStudioData(prev => ({ ...prev, similarity: `유사도: ${res.data.similarity_score}점 (${res.data.message})` }));
-      }
-    } catch (err) { alert("AI 요청 실패"); }
+        // 방금 만든 하이브리드 API 호출
+        const res = await axios.post(`${API_URL}/api/studio/generate_hybrid`, {
+        prompt: studioData.intent,
+        wallet_address: walletAddress
+        });
+
+        if (res.data.status === "success") {
+        setStudioData(prev => ({
+            ...prev,
+            image: res.data.image_url,  // 화면에 보여줄 이미지 (IPFS Gateway)
+            meta_cid: res.data.meta_cid // ⭐ 나중에 저장할 메타데이터 CID
+        }));
+        alert("이미지와 메타데이터가 IPFS에 안전하게 저장되었습니다!");
+        }
+    } catch (err) {
+        alert("생성 실패");
+        console.error(err);
+    }
     setIsLoading(false);
-  };
+    };
 
   const sendToProposalWrite = () => {
     setProposalForm({
@@ -212,6 +220,25 @@ function App() {
         meta_hash: "mock_ipfs_hash_123"
     });
     setActiveTab("write");
+  };
+  // handleGenerateWithIPFS 함수 바로 밑에 이 코드를 추가하세요!
+  
+  const handleStudioAction = async (type) => {
+    // 1. 기획서 생성 (Draft) - 기존 로직 유지
+    if (type === 'draft') {
+        setIsLoading(true);
+        try {
+            const res = await axios.post(`${API_URL}/api/studio/draft`, { intent: studioData.intent });
+            setStudioData(prev => ({ ...prev, draft: res.data.draft_text }));
+        } catch (err) { 
+            alert("기획서 생성 실패"); 
+        }
+        setIsLoading(false);
+    } 
+    // 2. 이미지 생성 (Image) - 새로 만든 IPFS 하이브리드 기능 연결!
+    else if (type === 'image') {
+        await handleGenerateWithIPFS(); // 아까 만든 함수 실행
+    }
   };
 
   //LIM. 기존 코드 수정. backend 서버에서 meta_hash 받아주는지 확인 필요함.
@@ -261,20 +288,11 @@ function App() {
         setActiveTab("proposals");
         fetchProposals();
 
-        // 입력 폼 초기화
-        setProposalForm({ title: "", description: "", style: "General", image_url: "", meta_hash: "" });
-
-    } catch(err) { 
-        console.error("등록 실패:", err);
-        
-        // 에러 메시지 분석 (사용자 취소 등)
-        if (err.code === "ACTION_REJECTED") {
-          alert("지갑 서명을 취소하셨습니다.");
-        } else {
-          alert("제출 실패: " + (err.message || "알 수 없는 오류"));
+        } catch (err) {
+            console.error(err);
+            alert("등록 실패");
         }
-    }
-  };
+    };
 
   // ✅ [삭제] 안건 삭제 함수 (여기에 정의됨!)
   const deleteProposal = async (id, e) => {

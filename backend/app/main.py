@@ -9,10 +9,12 @@ import requests
 import json
 import urllib.parse # ✅ URL 인코딩을 위해 추가 필요
 import random
+from .ipfs import upload_bytes_to_ipfs, upload_json_to_ipfs # 👈 추가
+from pydantic import BaseModel # 👈 이것도 없으면 추가
 
 
 # AI 에이전트 서버 주소 (도커 서비스 이름 사용)
-AI_AGENT_URL = "http://art_ai_agent:8002"
+AI_AGENT_URL = "http://127.0.0.1:8002"
 
 
 # DB 테이블 생성
@@ -384,3 +386,87 @@ def agent_auction(req: schemas.AgentAuctionRequest):
             return {"auction_report": "경매 리포트 생성 실패"}
     except Exception as e:
         return {"auction_report": "통신 오류 발생"}
+    
+    # ==========================================
+# [추가] 하이브리드 이미지 생성 (IPFS + DB)
+# ==========================================
+
+# 1. 데이터를 받을 그릇(Schema) 만들기
+class HybridArtRequest(BaseModel):
+    prompt: str
+    wallet_address: str
+
+# 2. API 함수 (라우터 대신 app 사용)
+@app.post("/api/studio/generate_hybrid")
+async def generate_hybrid_art(req: HybridArtRequest):
+    print(f"🎨 [1] AI에게 그림 요청: {req.prompt}")
+    
+    try:
+        # 1. AI 에이전트에게 "영어 프롬프트" 요청 (URL 아님!)
+        ai_payload = {
+            "topic": req.prompt,
+            "style": "Cyberpunk",
+            "wallet_address": req.wallet_address
+        }
+        
+        ai_res = requests.post(f"{AI_AGENT_URL}/generate", json=ai_payload)
+        
+        if ai_res.status_code != 200: 
+            print(f"🔥 AI 서버 에러! (상태코드: {ai_res.status_code})")
+            return {"error": f"AI Error: {ai_res.text}"}
+        
+        # 2. AI가 준 "영어 설명(final_prompt)" 가져오기
+        # (여기서 .get("url")이 아니라 .get("final_prompt")를 써야 함!)
+        final_prompt = ai_res.json().get("final_prompt", "Abstract Art")
+        print(f"📝 AI가 만든 프롬프트: {final_prompt[:30]}...")
+        
+        # 3. Pollinations AI를 사용해 진짜 이미지 URL 만들기
+        # (URL 인코딩 및 랜덤 시드 적용)
+        encoded_prompt = urllib.parse.quote(final_prompt)
+        seed = random.randint(1, 99999)
+        temp_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?seed={seed}&width=1024&height=768&nologo=true&model=flux"
+        
+        print(f"📥 [2] 이미지 다운로드 주소 생성: {temp_url}")
+        
+        # 4. 백엔드가 이미지를 다운로드 (메모리에 저장)
+        img_res = requests.get(temp_url)
+        if img_res.status_code != 200: return {"error": "Download Failed"}
+        image_bytes = img_res.content
+
+        # 5. 이미지를 IPFS에 업로드
+        print("🚀 [3] 이미지 -> IPFS 업로드 중...")
+        image_cid = upload_bytes_to_ipfs(image_bytes)
+        if not image_cid: return {"error": "Image Upload Failed"}
+        
+        image_ipfs_url = f"https://gateway.pinata.cloud/ipfs/{image_cid}"
+
+        # 6. 메타데이터(JSON) 생성
+        metadata = {
+            "name": f"ArtDAO: {req.prompt}",
+            "description": f"Created by ArtDAO AI.\nPrompt: {final_prompt}",
+            "image": f"ipfs://{image_cid}", 
+            "external_url": image_ipfs_url,
+            "attributes": [
+                {"trait_type": "Creator", "value": req.wallet_address},
+                {"trait_type": "Date", "value": str(time.time())}
+            ]
+        }
+
+        # 7. 메타데이터를 IPFS에 업로드
+        print("📝 [4] 메타데이터 -> IPFS 업로드 중...")
+        meta_cid = upload_json_to_ipfs(metadata)
+        
+        if not meta_cid: return {"error": "Metadata Upload Failed"}
+
+        print(f"✅ [완료] Image CID: {image_cid} / Meta CID: {meta_cid}")
+
+        return {
+            "status": "success",
+            "image_url": image_ipfs_url,
+            "meta_cid": meta_cid,
+            "image_cid": image_cid
+        }
+        
+    except Exception as e:
+        print(f"🔥 에러 발생: {str(e)}")
+        return {"error": str(e)}

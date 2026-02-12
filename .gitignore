@@ -28,3 +28,9 @@ dist/
 .idea/
 .DS_Store
 Thumbs.db
+
+# --- 5. 블록체인(Hardhat) 관련 ---
+artifacts/
+cache/
+typechain/
+coverage/
