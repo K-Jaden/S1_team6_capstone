@@ -5,3 +5,4 @@ pymysql
 pydantic
 cryptography
 requests
+python-dotenv

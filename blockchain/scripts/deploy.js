@@ -1,9 +1,71 @@
 // blockchain/scripts/deploy.js
+
 const hre = require("hardhat");
+const fs = require("fs");
+const path = require("path");
+
 async function main() {
+  const [owner, voter1, voter2, voter3] = await hre.ethers.getSigners();
+
+  console.log("🚀 배포 및 자동 주소/ABI 동기화를 시작합니다...");
+
+  // 1. TukToken 배포
+  const TukToken = await hre.ethers.getContractFactory("TukToken");
+  const tukToken = await TukToken.deploy(owner.address);
+  await tukToken.waitForDeployment();
+  const tukAddress = await tukToken.getAddress();
+
+  // 2. TUK 토큰 분배 (테스트용 10,000개)
+  const amount = hre.ethers.parseEther("10000");
+  await tukToken.transfer(voter1.address, amount);
+  await tukToken.transfer(voter2.address, amount);
+  await tukToken.transfer(voter3.address, amount);
+
+  console.log(`🪙 TukToken 배포 완료: ${tukAddress}`);
+
+  // 3. ArtPlanningDAO 배포 (TUK 토큰 주소 주입)
   const ArtPlanningDAO = await hre.ethers.getContractFactory("ArtPlanningDAO");
-  const dao = await ArtPlanningDAO.deploy();
+  const dao = await ArtPlanningDAO.deploy(tukAddress);
   await dao.waitForDeployment();
-  console.log("CONTRACT_ADDRESS:", await dao.getAddress()); // 이 로그가 중요!
+  const daoAddress = await dao.getAddress();
+
+  console.log(`🏛️ ArtPlanningDAO 배포 완료: ${daoAddress}`);
+
+  // ====================================================
+  // 📂 [핵심] 프론트엔드 파일 자동 업데이트 (주소 + ABI)
+  // ====================================================
+  
+  const frontendDir = path.join(__dirname, "../../frontend/src/contracts");
+  
+  // 폴더가 없으면 생성
+  if (!fs.existsSync(frontendDir)) {
+    fs.mkdirSync(frontendDir, { recursive: true });
+  }
+
+  // 1️⃣ 주소 파일 업데이트 (address.js)
+  const addressFilePath = path.join(frontendDir, "address.js");
+  const content = `export const TUK_TOKEN_ADDRESS = "${tukAddress}";
+export const DAO_CONTRACT_ADDRESS = "${daoAddress}";
+`;
+  fs.writeFileSync(addressFilePath, content, "utf8");
+  console.log(`✅ 주소 파일 업데이트 완료: ${addressFilePath}`);
+
+  // 2️⃣ ABI 파일 복사 (ArtPlanningDAO.json) - 여기가 중요합니다!
+  // 하드햇이 컴파일한 최신 JSON 파일을 가져옵니다.
+  const artifactPath = path.join(__dirname, "../artifacts/contracts/ArtPlanningDAO.sol/ArtPlanningDAO.json");
+  const frontendArtifactPath = path.join(frontendDir, "ArtPlanningDAO.json");
+
+  if (fs.existsSync(artifactPath)) {
+      fs.copyFileSync(artifactPath, frontendArtifactPath);
+      console.log(`✅ ABI(JSON) 파일 복사 완료: ${frontendArtifactPath}`);
+  } else {
+      console.error("❌ 컴파일된 아티팩트 파일을 찾을 수 없습니다. (npx hardhat compile을 먼저 확인하세요)");
+  }
+
+  console.log("--------------------------------------------------\n");
 }
-main().catch((error) => { console.error(error); process.exitCode = 1; });
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

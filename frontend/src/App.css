@@ -388,3 +388,110 @@ body { margin: 0; font-family: 'Segoe UI', sans-serif; background-color: var(--b
   color: white;
   transform: scale(1.1);
 }
+/* --- [추가] 우측 하단 플로팅 버튼 스타일 --- */
+.floating-btn {
+  position: fixed;
+  bottom: 40px;      /* 하단에서 40px 띄움 */
+  right: 40px;       /* 우측에서 40px 띄움 */
+  padding: 15px 25px;
+  background-color: var(--primary); /* 기존에 정의된 블루 컬러 사용 */
+  color: white;
+  border: none;
+  border-radius: 50px; /* 둥근 알약 모양 */
+  font-size: 1rem;
+  font-weight: bold;
+  box-shadow: 0 10px 25px rgba(59, 130, 246, 0.4); /* 부드러운 푸른색 그림자 */
+  cursor: pointer;
+  z-index: 1000;      /* 레이어 최상단 고정 */
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.floating-btn span {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.floating-btn:hover {
+  transform: translateY(-5px) scale(1.05); /* 마우스 올리면 위로 살짝 뜨며 커짐 */
+  background-color: #2563eb; /* 좀 더 진한 파란색 */
+  box-shadow: 0 15px 30px rgba(59, 130, 246, 0.5);
+}
+
+.floating-btn:active {
+  transform: scale(0.95); /* 클릭 시 살짝 눌리는 효과 */
+}
+
+/* 모바일 화면에서는 버튼 크기를 약간 조절 */
+@media (max-width: 768px) {
+  .floating-btn {
+    bottom: 20px;
+    right: 20px;
+    padding: 12px 20px;
+    font-size: 0.9rem;
+  }
+}
+.form-card label {
+    display: block;      /* 라벨을 한 줄 전체 차지하게 함 */
+    margin-top: 15px;    /* 위쪽 요소와 간격 확보 */
+    margin-bottom: 5px;  /* 아래쪽 입력창과 밀착 */
+    font-weight: bold;
+    font-size: 0.9rem;
+    color: var(--text);
+}
+/* 도움말 아이콘 스타일 */
+.help-icon {
+  position: relative;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  width: 18px;
+  height: 18px;
+  background: #e5e7eb;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  cursor: help;
+  color: #4b5563;
+}
+
+/* 툴팁 본체 (평소에는 숨김) */
+.tooltip {
+  visibility: hidden;
+  width: 280px;
+  background-color: #1f2937;
+  color: #fff;
+  text-align: left;
+  border-radius: 8px;
+  padding: 12px;
+  position: absolute;
+  z-index: 100;
+  bottom: 125%; /* 아이콘 위쪽으로 배치 */
+  left: 50%;
+  transform: translateX(-50%);
+  opacity: 0;
+  transition: opacity 0.3s;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+  font-size: 0.85rem;
+  line-height: 1.4;
+  pointer-events: none; /* 툴팁이 마우스 흐름을 방해하지 않게 설정 */
+}
+
+/* 말꼬리 모양(화살표) 추가 */
+.tooltip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -5px;
+  border-width: 5px;
+  border-style: solid;
+  border-color: #1f2937 transparent transparent transparent;
+}
+
+/* 마우스 올리면 표시 */
+.help-icon:hover .tooltip {
+  visibility: visible;
+  opacity: 1;
+}

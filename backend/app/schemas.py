@@ -129,3 +129,21 @@ class AgentAuctionRequest(BaseModel):
 
 class AgentAuctionResponse(BaseModel):
     auction_report: str
+
+# =========================================================
+# 회원 목록을 프론트엔드로 보낼 때 사용할 데이터 규격(Lim)
+# =========================================================
+
+class UserListResponse(BaseModel):
+    wallet_address: str
+    membership_grade: str
+    token_balance: float
+    badge: Optional[str] = None
+    activity_count: int  # 참여한 투표나 안건 수
+
+    class Config:
+        from_attributes = True
+
+class DelegateRequest(BaseModel):
+    from_address: str
+    to_address: str

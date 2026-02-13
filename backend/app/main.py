@@ -470,3 +470,37 @@ async def generate_hybrid_art(req: HybridArtRequest):
     except Exception as e:
         print(f"🔥 에러 발생: {str(e)}")
         return {"error": str(e)}
+
+# =======================================================================
+# 사용자 목록을 불러오는 GET 요청과 위임 처리를 위한 POST 요청 추가(Lim)
+# =======================================================================
+
+# 1. 위임 가능한 전체 사용자 목록 조회
+@app.get("/api/user/list", response_model=List[schemas.UserListResponse])
+def get_user_list(db: Session = Depends(get_db)):
+    users = db.query(models.User).all()
+    # 실제 활동 점수는 각 테이블에서 count()를 해야 하지만, 
+    # 일단은 전체 목록을 반환하는 기본 로직으로 작성합니다.
+    result = []
+    for user in users:
+        activity_count = db.query(models.ArtRequest).filter(models.ArtRequest.wallet_address == user.wallet_address).count()
+        result.append({
+            "wallet_address": user.wallet_address,
+            "membership_grade": user.membership_grade,
+            "token_balance": user.token_balance,
+            "badge": user.badge,
+            "activity_count": activity_count
+        })
+    return result
+
+# 2. 위임 정보 DB 업데이트 (블록체인 성공 후 호출용)
+@app.post("/api/dao/delegate")
+def update_delegation_db(req: schemas.DelegateRequest, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.wallet_address == req.from_address).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user.is_delegated = True
+    user.delegated_to = req.to_address
+    db.commit()
+    return {"status": "success", "message": f"Delegated to {req.to_address}"}

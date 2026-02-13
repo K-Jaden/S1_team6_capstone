@@ -4,13 +4,13 @@ import { ethers } from "ethers";
 import "./App.css";
 
 // LIM. 블록체인 연결 정보 가져오기. contracts 폴더가 src 안에 있어야 합니다
-import { CONTRACT_ADDRESS } from './contracts/address';
+import { DAO_CONTRACT_ADDRESS as CONTRACT_ADDRESS, TUK_TOKEN_ADDRESS } from './contracts/address';
 import ArtPlanningDAO from './contracts/ArtPlanningDAO.json';
 const API_URL = "http://localhost:8000";
 
-// ✅ [설정] 관리자 지갑 주소 (팀장님 지갑 주소를 여기에 넣으세요!)
+// ✅ [설정] 관리자 지갑 주소
 const ADMIN_WALLETS = [
-    "0xa06e02093A85F32b2707f4f7ec646f6D606D0F4C", // 예시: 본인 지갑 주소
+    "0xa06e02093A85F32b2707f4f7ec646f6D606D0F4C", 
 ];
 
 function App() {
@@ -21,12 +21,22 @@ function App() {
   const [walletAddress, setWalletAddress] = useState("");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   
+  //회원 목록 저장
+  const [users, setUsers] = useState([]);
+
   // 데이터 상태
   const [proposals, setProposals] = useState([]);
   const [galleryItems, setGalleryItems] = useState([]);
   
   // 상세 보기를 위한 상태 (선택된 안건)
   const [selectedProposal, setSelectedProposal] = useState(null); 
+
+  const [voteAmount, setVoteAmount] = useState(""); //투표할 토큰 수량
+  
+  const closeModal = () => {
+    setSelectedProposal(null);
+    setVoteAmount("");
+  };
 
   // 마이페이지 데이터
   const [myInfo, setMyInfo] = useState({ 
@@ -46,7 +56,8 @@ function App() {
 
   // 안건 작성 폼
   const [proposalForm, setProposalForm] = useState({ 
-    title: "", description: "", style: "General", image_url: "", meta_hash: "" 
+    title: "", description: "", style: "General", image_url: "", meta_hash: "",
+    voteType: 0 // 0: Weighted(가중치투표), 1: Quadratic(제곱근투표)
   });
 
   // 에이전트 센터 상태
@@ -55,31 +66,27 @@ function App() {
   });
   const [agentResult, setAgentResult] = useState({ critic: "", marketer: "", auction: "" });
 
-
   // 스마트 컨트랙트 객체 저장용 State
   const [contract, setContract] = useState(null);
+
   // ==========================================
   // 2. 초기화 및 지갑 연동
   // ==========================================
   
-  // [NEW] 새로고침 시 로그인 유지 & 컨트랙트 자동 재연결 (수정된 버전)
   useEffect(() => {
     const storedAddress = localStorage.getItem("walletAddress");
     
     if (storedAddress) {
-      // 1. 지갑 주소 & 로그인 상태 복구
       setWalletAddress(storedAddress);
       setIsLoggedIn(true);
 
-      // 2. 🟢 [핵심] 끊어진 스마트 컨트랙트 연결선 다시 잇기
       if (window.ethereum) {
         const restoreContract = async () => {
           try {
             const provider = new ethers.BrowserProvider(window.ethereum);
             const signer = await provider.getSigner();
-            // 주소와 ABI(설명서)를 이용해 컨트랙트 객체 재생성
             const daoContract = new ethers.Contract(CONTRACT_ADDRESS, ArtPlanningDAO.abi, signer);
-            setContract(daoContract); // 상태 변수에 다시 저장 (중요!)
+            setContract(daoContract); 
             console.log("♻️ 스마트 컨트랙트 재연결 완료!");
           } catch (err) {
             console.error("재연결 실패:", err);
@@ -89,30 +96,29 @@ function App() {
       }
     }
   }, []);
+
   useEffect(() => {
     if (isLoggedIn && walletAddress) {
       fetchMyPageData();
     }
     fetchProposals(); 
     fetchGallery();   
-  }, [isLoggedIn, walletAddress]);
+  }, [isLoggedIn, walletAddress]); // 의존성 배열 수정됨
 
   const connectWallet = async () => {
     if (!window.ethereum) return alert("메타마스크를 설치해주세요!");
     try {
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
-      console.log("JSON 파일 내용:", ArtPlanningDAO);
       const address = await signer.getAddress();
-	
-      //LIM. 스마트 컨트랙트 연결
+    
       const daoContract = new ethers.Contract(CONTRACT_ADDRESS, ArtPlanningDAO.abi, signer);
-      setContract(daoContract); // 나중에 사용하기 위해 상태에 저장
+      setContract(daoContract); 
       console.log("블록체인 계약 연결 완료:", daoContract);
       
       await axios.post(`${API_URL}/api/auth/wallet-login`, { wallet_address: address, signature: "dummy_sig" });
       
-      localStorage.setItem("walletAddress", address); // 로컬 스토리지 저장
+      localStorage.setItem("walletAddress", address); 
       setWalletAddress(address);
       setIsLoggedIn(true);
       alert("지갑 연결 및 로그인 성공!");
@@ -126,7 +132,7 @@ function App() {
       }
     } catch (err) { console.error("Logout error", err); } 
     finally {
-      localStorage.removeItem("walletAddress"); // 로컬 스토리지 삭제
+      localStorage.removeItem("walletAddress");
       setWalletAddress("");
       setIsLoggedIn(false);
       setMyInfo({ balance: 0, membership: "", rewards: 0, delegation: {}, activity: [], badge: "", referral: {}, myProposals: [], recommendation: null });
@@ -164,14 +170,43 @@ function App() {
     } catch (err) { console.error("내 정보 로드 실패", err); }
   };
 
+  // ✅ [업그레이드] DB 데이터 + 블록체인 실시간 데이터 병합
   const fetchProposals = async (status = null) => {
     try {
+      // 1. DB에서 안건 목록 가져오기 (제목, 내용 등)
       const params = status ? { status } : {};
       const res = await axios.get(`${API_URL}/api/proposals`, { params });
-      setProposals(res.data);
+      let dbProposals = res.data;
+
+      // 2. 블록체인이 연결되어 있다면, 실시간 득표수 가져오기
+      if (contract) {
+        try {
+            // 솔리디티의 getAllProposals() 호출
+            const chainProposals = await contract.getAllProposals();
+            
+            // DB 데이터에 블록체인 득표수 병합
+            dbProposals = dbProposals.map(p => {
+                // DB ID는 1부터, Chain ID는 0부터 시작하므로 매칭
+                const chainP = chainProposals[Number(p.id) - 1];
+                if (chainP) {
+                    return {
+                        ...p,
+                        // Wei 단위(10^18)를 사람이 보는 숫자로 변환
+                        voteCount: parseFloat(ethers.formatUnits(chainP.voteCount, 18)),     // 찬성표
+                        againstCount: parseFloat(ethers.formatUnits(chainP.againstCount, 18)) // 반대표
+                    };
+                }
+                return p;
+            });
+        } catch (e) {
+            console.error("블록체인 데이터 동기화 실패:", e);
+        }
+      }
+
+      setProposals(dbProposals);
     } catch (err) { console.error(err); }
   };
-
+  
   const fetchGallery = async () => {
     const res = await axios.get(`${API_URL}/api/gallery/items`);
     setGalleryItems(res.data);
@@ -186,21 +221,19 @@ function App() {
     } catch (err) { alert("뱃지 업데이트 실패"); }
   };
 
-    // App.js 내부
     const handleGenerateWithIPFS = async () => {
     setIsLoading(true);
     try {
-        // 방금 만든 하이브리드 API 호출
         const res = await axios.post(`${API_URL}/api/studio/generate_hybrid`, {
-        prompt: studioData.intent,
-        wallet_address: walletAddress
+            prompt: studioData.intent,
+            wallet_address: walletAddress
         });
 
         if (res.data.status === "success") {
         setStudioData(prev => ({
             ...prev,
-            image: res.data.image_url,  // 화면에 보여줄 이미지 (IPFS Gateway)
-            meta_cid: res.data.meta_cid // ⭐ 나중에 저장할 메타데이터 CID
+            image: res.data.image_url,  
+            meta_cid: res.data.meta_cid 
         }));
         alert("이미지와 메타데이터가 IPFS에 안전하게 저장되었습니다!");
         }
@@ -217,14 +250,13 @@ function App() {
         description: studioData.draft,
         image_url: studioData.image,
         style: "AI Generated",
-        meta_hash: "mock_ipfs_hash_123"
+        meta_hash: "mock_ipfs_hash_123",
+        voteType: 0 // 초기값
     });
     setActiveTab("write");
   };
-  // handleGenerateWithIPFS 함수 바로 밑에 이 코드를 추가하세요!
   
   const handleStudioAction = async (type) => {
-    // 1. 기획서 생성 (Draft) - 기존 로직 유지
     if (type === 'draft') {
         setIsLoading(true);
         try {
@@ -235,68 +267,55 @@ function App() {
         }
         setIsLoading(false);
     } 
-    // 2. 이미지 생성 (Image) - 새로 만든 IPFS 하이브리드 기능 연결!
     else if (type === 'image') {
-        await handleGenerateWithIPFS(); // 아까 만든 함수 실행
+        await handleGenerateWithIPFS(); 
     }
   };
 
-  //LIM. 기존 코드 수정. backend 서버에서 meta_hash 받아주는지 확인 필요함.
-  //블록체인에 먼저 저장하고 백엔드 DB에 저장하도록 코드 수정
+  // ✅ [수정] 안건 생성 함수 (인자 4개 전달)
   const submitProposal = async () => {
-    // 1. 유효성 검사
     if (!walletAddress) return alert("지갑이 연결되지 않았습니다.");
     if (!contract) return alert("스마트 컨트랙트가 로드되지 않았습니다. 잠시 후 다시 시도하거나 새로고침 해주세요.");
-    
-    // 필수 입력값 체크
     if (!proposalForm.title || !proposalForm.description) {
       return alert("제목과 내용을 모두 입력해주세요.");
     }
 
     try {
-        // 2. 블록체인에 먼저 기록 (메타마스크 서명 유도)
         alert("지갑에서 트랜잭션을 승인해주세요...");
         
-        // 주의: 솔리디티 함수 인자 순서와 개수가 정확해야 합니다!
-        // (제목, 내용, 이미지URL 순서라고 가정)
+        // 주의: 솔리디티 함수 순서: (title, description, imageUrl, voteType)
         const tx = await contract.createProposal(
             proposalForm.title, 
             proposalForm.description, 
-            proposalForm.image_url || "" // 이미지가 없으면 빈 문자열
+            proposalForm.image_url || "",
+            proposalForm.voteType // 투표 방식(0 or 1) 추가
         );
-        
+    
         alert("블록체인에 기록 중입니다... (약 10~20초 소요)");
         
-        // 블록에 담길 때까지 기다림 (여기서 시간이 좀 걸립니다)
         const receipt = await tx.wait(); 
         console.log("트랜잭션 성공:", receipt);
         
-        // 3. 블록체인 성공 후 백엔드(DB)에도 저장
-        // meta_hash 필드에 트랜잭션 해시(tx.hash)를 저장하면 나중에 조회하기 좋습니다.
         await axios.post(`${API_URL}/api/proposals`, { 
             wallet_address: walletAddress, 
             ...proposalForm,
-            meta_hash: tx.hash // 블록체인 영수증 번호 저장
+            meta_hash: tx.hash 
         });
 
-        //alert("✅ 안건이 블록체인과 DB에 모두 안전하게 등록되었습니다!"); 기존 코드
-	//블록체인에 저장됐는지 확인할 수 있게 변경
-	const shortHash = `${tx.hash.substring(0,6)}...${tx.hash.substring(tx.hash.length - 4)}`;
-	alert(`✅ 블록체인 저장 성공!\n\n🧾 트랜잭션 영수증(Hash):\n${shortHash}\n\n이제 안건 목록에서 확인할 수 있습니다.`);
+        const shortHash = `${tx.hash.substring(0,6)}...${tx.hash.substring(tx.hash.length - 4)}`;
+        alert(`✅ 블록체인 저장 성공!\n\n🧾 트랜잭션 영수증(Hash):\n${shortHash}\n\n이제 안건 목록에서 확인할 수 있습니다.`);
         
-        // 목록으로 이동 및 갱신
         setActiveTab("proposals");
         fetchProposals();
 
-        } catch (err) {
-            console.error(err);
-            alert("등록 실패");
-        }
-    };
+    } catch (err) {
+        console.error(err);
+        alert("등록 실패: " + (err.reason || err.message));
+    }
+  };
 
-  // ✅ [삭제] 안건 삭제 함수 (여기에 정의됨!)
   const deleteProposal = async (id, e) => {
-    e.stopPropagation(); // 모달 열림 방지
+    e.stopPropagation(); 
     if (!window.confirm("정말 이 안건을 삭제하시겠습니까?")) return;
     try {
         await axios.delete(`${API_URL}/api/proposals/${id}`);
@@ -308,7 +327,41 @@ function App() {
         alert("삭제 실패 (서버 오류)");
     }
   };
+  
+  const fetchUsers = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/api/user/list`);
+      setUsers(res.data);
+    } catch (err) {
+      console.error("회원 목록 로드 실패:", err);
+    }
+  };
 
+  const handleDelegate = async (targetAddress) => {
+    if (!contract) return alert("컨트랙트 연결을 확인해주세요.");
+    try {
+      alert(`${targetAddress}님에게 투표권을 위임합니다. 지갑에서 승인해주세요.`);
+      const tx = await contract.delegate(targetAddress);
+      await tx.wait();
+      await axios.post(`${API_URL}/api/dao/delegate`, {
+        from_address: walletAddress,
+        to_address: targetAddress
+      });
+      alert("✅ 위임이 성공적으로 완료되었습니다!");
+      fetchMyPageData(); 
+      setActiveTab("mypage"); 
+    } catch (err) {
+      console.error(err);
+      alert("위임 중 오류가 발생했습니다.");
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === "delegates") {
+      fetchUsers();
+    }
+  }, [activeTab]);
+  
   const sendMessage = async () => {
     if (!chatInput.trim()) return;
     const userMsg = { sender: "user", text: chatInput };
@@ -321,28 +374,67 @@ function App() {
       setChatMessages(prev => [...prev, { sender: "bot", text: "오류가 발생했습니다." }]);
     }
   };
+  
+  // ✅ [핵심 수정] 투표 함수
+  // 1. 계산 로직 삭제 (컨트랙트가 함)
+  // 2. 사용자가 입력한 raw amount를 그대로 전송
+  const handleVote = async (proposalId, support) => {
+    if (!contract || !walletAddress) return alert("지갑 연결이 필요합니다.");
+  
+    const amountToUse = parseFloat(voteAmount);
+  
+    // 유효성 검사
+    if (!amountToUse || amountToUse <= 0) return alert("투표할 토큰 수량을 입력해 주세요.");
+    if (amountToUse > parseFloat(myInfo.balance)) return alert("보유하신 토큰 잔액보다 많은 수량을 입력하셨습니다.");
 
-  // [도슨트] 음성 재생 함수 (브라우저 내장 TTS 사용 - 무료!)
+    try {
+      alert("지갑에서 트랜잭션을 승인해주세요...");
+
+      // [중요] 사용자가 입력한 숫자를 블록체인 단위(Wei, 18 decimals)로 변환
+      // 예: 100 입력 -> 100 * 10^18
+      const tokenAmountWei = ethers.parseUnits(amountToUse.toString(), 18);
+      
+      const blockchainId = Number(proposalId) - 1;
+      
+      console.log(`투표 요청: DB ID=${proposalId} -> Blockchain ID=${blockchainId}`);
+
+      // 스마트 컨트랙트 호출 (안건ID, 찬성여부, 사용할 토큰 수량)
+      // *주의: 여기서 제곱근 계산을 하지 않습니다! 컨트랙트가 합니다.*
+      const tx = await contract.vote(blockchainId, support, tokenAmountWei);
+    
+      alert("투표 트랜잭션을 전송했습니다. (블록체인 검증 및 계산 중...)");
+      await tx.wait();
+
+      alert("✅ 투표 성공! 블록체인에 안전하게 기록되었습니다.");
+      setVoteAmount(""); 
+      fetchProposals(); 
+      closeModal();
+    } catch (err) {
+      console.error("투표 실패:", err);
+      if(err.message && err.message.includes("Insufficient token balance")) {
+          alert("오류: 지갑의 실제 잔액이 부족합니다.");
+      } else {
+          alert("투표 중 오류가 발생했습니다.");
+      }
+    }
+  };
+
   const playDocent = async (id, title) => {
     try {
         const res = await axios.post(`${API_URL}/api/gallery/docent`, null, { params: { item_id: id } });
         const script = res.data.text_script;
-        
-        // 1. 텍스트로 보여주기 (알림)
         alert(`🎧 도슨트 해설이 시작됩니다:\n\n"${script}"`);
-        
-        // 2. 음성으로 읽어주기 (TTS)
         if ('speechSynthesis' in window) {
-            window.speechSynthesis.cancel(); // 기존 음성 중지
+            window.speechSynthesis.cancel(); 
             const utterance = new SpeechSynthesisUtterance(script);
-            utterance.lang = 'ko-KR'; // 한국어 설정
-            utterance.rate = 1.0;     // 속도 (1.0 = 보통)
-            utterance.pitch = 1.0;    // 톤 (1.0 = 보통)
+            utterance.lang = 'ko-KR'; 
+            utterance.rate = 1.0;     
+            utterance.pitch = 1.0;    
             window.speechSynthesis.speak(utterance);
         }
     } catch(err) { 
         console.error(err);
-        alert("도슨트 재생 실패 (백엔드 연결 확인 필요)"); 
+        alert("도슨트 재생 실패"); 
     }
   };
 
@@ -354,7 +446,6 @@ function App() {
       }
   };
 
-  // 에이전트 센터 함수들
   const runCritic = async () => {
     if (!agentInput.criticArtInfo) return alert("작품 정보를 입력해주세요.");
     setIsLoading(true);
@@ -403,6 +494,7 @@ function App() {
         <nav>
           <button className={activeTab==="main"?"active":""} onClick={()=>setActiveTab("main")}>🏠 메인 (Hub)</button>
           <button className={activeTab==="proposals"?"active":""} onClick={()=>setActiveTab("proposals")}>🗳️ 안건 목록</button>
+          <button className={activeTab==="delegates"?"active":""} onClick={()=>setActiveTab("delegates")}>🤝 위임하기 (Delegates)</button>
           <button className={activeTab==="studio"?"active":""} onClick={()=>setActiveTab("studio")}>🎨 AI 스튜디오</button>
           <button className={activeTab==="agents"?"active":""} onClick={()=>setActiveTab("agents")}>💼 AI 에이전트 센터</button>
           <button className={activeTab==="gallery"?"active":""} onClick={()=>setActiveTab("gallery")}>🖼️ 온라인 전시관</button>
@@ -438,7 +530,7 @@ function App() {
           </div>
         )}
 
-        {/* ✅ 안건 목록 (카드 리스트 + 모달 상세 보기) */}
+        {/* ✅ 안건 목록 */}
         {activeTab === "proposals" && (
           <div className="page fade-in">
             <div className="page-header">
@@ -446,10 +538,6 @@ function App() {
                 <div className="filters">
                     <button onClick={()=>fetchProposals("OPEN")}>🔵 진행중</button>
                     <button onClick={()=>fetchProposals(null)}>⚪ 전체</button>
-                    <button className="primary" onClick={()=>{
-                        setProposalForm({ title: "", description: "", style: "General", image_url: "", meta_hash: "" });
-                        setActiveTab("write");
-                    }}>+ 새 안건 작성</button>
                 </div>
             </div>
             
@@ -464,7 +552,6 @@ function App() {
                         </div>
                         <div className="p-right">
                             {p.image_url && <img src={p.image_url} alt="art" className="thumb"/>}
-                            {/* 관리자 삭제 버튼 */}
                             {isLoggedIn && ADMIN_WALLETS.map(w => w.toLowerCase()).includes(walletAddress.toLowerCase()) && (
                                 <button className="delete-icon-btn" onClick={(e) => deleteProposal(p.id, e)}>🗑️</button>
                             )}
@@ -472,6 +559,12 @@ function App() {
                     </div>
                 ))}
             </div>
+            <button className="floating-btn" onClick={()=>{
+                setProposalForm({ title: "", description: "", style: "General", image_url: "", meta_hash: "", voteType: 0});
+                setActiveTab("write");
+            }}>
+                <span>+</span> 새 안건 작성
+            </button>
           </div>
         )}
 
@@ -480,27 +573,47 @@ function App() {
             <div className="modal-overlay" onClick={() => setSelectedProposal(null)}>
                 <div className="modal-content" onClick={(e) => e.stopPropagation()}>
                     <button className="close-btn" onClick={() => setSelectedProposal(null)}>✖</button>
-                    <div className="modal-header">
-			{/* [추가] 블록체인 저장 증명 배너 */}
-			<div style={{
-    				background: "#f0f9ff", 
-    				padding: "10px", 
-    				borderRadius: "8px", 
-    				marginBottom: "15px", 
-    				border: "1px solid #bae6fd",
-    				fontSize: "0.9em",
-    				color: "#0369a1"
-			}}>
-    				<strong>🔗 Blockchain Verified</strong>
-    				<div style={{ marginTop: "4px", fontFamily: "monospace", wordBreak: "break-all" }}>
-        				Tx Hash: {selectedProposal.meta_hash || "처리 중..."}
-    				</div>
-			</div>
-                        <span className={`status-badge ${selectedProposal.status}`}>{selectedProposal.status}</span>
-                        <h2>{selectedProposal.title}</h2>
-                        <p className="meta">작성자: {selectedProposal.wallet_address}</p>
-                    </div>
-                    <div className="modal-body">
+                    {/* 모달 헤더 (수정됨) */}
+		    <div className="modal-header">
+    		    <div style={{ background: "#f0f9ff", padding: "10px", borderRadius: "8px", marginBottom: "15px", border: "1px solid #bae6fd", fontSize: "0.9em", color: "#0369a1" }}>
+        		<strong>🔗 Blockchain Verified</strong>
+        		<div style={{ marginTop: "4px", fontFamily: "monospace", wordBreak: "break-all" }}>
+            		Tx Hash: {selectedProposal.meta_hash || "처리 중..."}
+        		</div>
+     		    </div>
+    
+    		  <span className={`status-badge ${selectedProposal.status}`}>{selectedProposal.status}</span>
+    		  <h2>{selectedProposal.title}</h2>
+    
+    {/* 📊 [NEW] 투표 현황 게이지 바 */}
+    <div className="vote-gauge-container" style={{ marginTop: "20px", background: "#eee", borderRadius: "10px", overflow: "hidden", height: "25px", position: "relative" }}>
+        {/* 찬성 바 (파란색) */}
+        <div style={{
+            width: `${(selectedProposal.voteCount / (selectedProposal.voteCount + selectedProposal.againstCount || 1)) * 100}%`,
+            background: "#3b82f6",
+            height: "100%",
+            float: "left",
+            transition: "width 0.5s"
+        }}></div>
+        {/* 반대 바 (빨간색) */}
+        <div style={{
+            width: `${(selectedProposal.againstCount / (selectedProposal.voteCount + selectedProposal.againstCount || 1)) * 100}%`,
+            background: "#ef4444",
+            height: "100%",
+            float: "left",
+            transition: "width 0.5s"
+        }}></div>
+    </div>
+    
+    {/* 텍스트 정보 */}
+    <div style={{ display: "flex", justifyContent: "space-between", marginTop: "5px", fontSize: "0.9rem", fontWeight: "bold" }}>
+        <span style={{ color: "#3b82f6" }}>👍 찬성: {selectedProposal.voteCount ? selectedProposal.voteCount.toFixed(2) : 0}표</span>
+        <span style={{ color: "#ef4444" }}>👎 반대: {selectedProposal.againstCount ? selectedProposal.againstCount.toFixed(2) : 0}표</span>
+    </div>
+
+    <p className="meta" style={{marginTop: "15px"}}>작성자: {selectedProposal.wallet_address}</p>
+</div>
+		    <div className="modal-body">
                         {selectedProposal.image_url && (
                             <div className="modal-image-section">
                                 <img src={selectedProposal.image_url} alt="Proposal Art" />
@@ -512,11 +625,38 @@ function App() {
                             <div className="markdown-content">{selectedProposal.description}</div>
                         </div>
                     </div>
-                    <div className="modal-footer">
-                        <button className="vote-btn yes">👍 찬성 투표</button>
-                        <button className="vote-btn no">👎 반대 투표</button>
-                    </div>
+                    <div className="modal-footer" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+                {/* 📥 투표 수량 입력 섹션 */}
+                <div className="vote-input-box" style={{ marginBottom: '15px', padding: '15px', background: '#f8fafc', borderRadius: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <label style={{ fontWeight: 'bold' }}>투표할 토큰 수량 (TUK)</label>
+                    <span style={{ fontSize: '0.85rem', color: '#6b7280' }}>보유: {myInfo.balance} TUK</span>
                 </div>
+                <input 
+                    type="number" 
+                    value={voteAmount} 
+                    onChange={(e) => setVoteAmount(e.target.value)}
+                    placeholder="사용할 토큰 수량을 입력하세요"
+                    style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                />
+                {/* 미리보기용 계산 (단순 참고용) */}
+                <div style={{ marginTop: '8px', fontSize: '0.9rem', color: '#3b82f6', fontWeight: 'bold' }}>
+                    예상 행사 표수: {
+                        voteAmount > 0 
+                        ? (selectedProposal.voteType === 1 ? Math.sqrt(voteAmount).toFixed(2) : voteAmount) 
+                        : 0
+                    } 표
+                </div>
+                </div>
+
+                {/* 👍/👎 투표 버튼 */}
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                    <button className="vote-btn yes" onClick={() => handleVote(selectedProposal.id, true)}>👍 찬성 투표</button>
+                    {/* 반대 버튼 로직이 컨트랙트에 없다면 비활성화하거나 찬성만 유지 */}
+                    <button className="vote-btn no" onClick={() => handleVote(selectedProposal.id, false)}>👎 반대 투표</button>
+                </div>
+        </div>
+        </div>
             </div>
         )}
 
@@ -527,8 +667,10 @@ function App() {
                 <div className="card form-card">
                     <label>안건 제목 (Title)</label>
                     <input type="text" value={proposalForm.title} onChange={(e)=>setProposalForm({...proposalForm, title: e.target.value})} placeholder="제목 입력"/>
+            
                     <label>상세 내용</label>
                     <textarea rows="5" value={proposalForm.description} onChange={(e)=>setProposalForm({...proposalForm, description: e.target.value})} placeholder="내용 입력"/>
+            
                     <label>스타일 (Style)</label>
                     <select value={proposalForm.style} onChange={(e)=>setProposalForm({...proposalForm, style: e.target.value})}>
                         <option value="General">General</option>
@@ -536,12 +678,37 @@ function App() {
                         <option value="Abstract">Abstract</option>
                         <option value="Realistic">Realistic</option>
                     </select>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '20px' }}>
+                        투표 방식 설정 (Voting Type)
+                        <div className="help-icon">
+                            ?
+                            <div className="tooltip">
+                                <strong>⚖️ 가중치 투표:</strong><br/>
+                                보유한 토큰 수에 비례하여 표수를 행사합니다.<br/>
+                                (예: 100 TUK = 100표)<br/><br/>
+                                <strong>🟦 제곱근 투표:</strong><br/>
+                                보유 토큰의 제곱근(√)만큼 표수를 행사합니다.<br/>
+                                (예: 100 TUK = 10표)
+                            </div>
+                        </div>
+                    </label>
+
+                    <select
+                        value={proposalForm.voteType}
+                        onChange={(e) => setProposalForm({...proposalForm, voteType: parseInt(e.target.value)})}
+                    >
+                        <option value={0}>가중치 투표 (Weighted)</option>
+                        <option value={1}>제곱근 투표 (Quadratic)</option>
+                    </select>
+
                     {proposalForm.image_url && (
                         <div className="img-preview">
                             <p>첨부된 이미지:</p>
                             <img src={proposalForm.image_url} alt="attached" />
                         </div>
                     )}
+            
                     <div className="btn-group">
                         <button className="cancel" onClick={()=>setActiveTab("proposals")}>취소</button>
                         <button className="primary" onClick={submitProposal}>제출하기</button>
@@ -646,7 +813,6 @@ function App() {
                                 <p>Artist: {item.artist_address ? item.artist_address.substring(0,6) : "Unknown"}</p>
                                 
                                 <div className="gallery-btns">
-                                    {/* ✅ 도슨트 버튼이 여기 있어야 합니다! */}
                                     <button onClick={()=>playDocent(item.id, item.title)}>
                                         🎧 도슨트 듣기
                                     </button>
@@ -682,7 +848,66 @@ function App() {
             </div>
         )}
 
-        {/* 마이 페이지 */}
+        {activeTab === "delegates" && (
+          <div className="page fade-in">
+            <div className="page-header">
+              <h2>🤝 Delegate Your Vote</h2>
+              <p>나를 대신해 투표권을 행사할 신뢰할 수 있는 대리인을 선택하세요.</p>
+            </div>
+            
+            <div className="delegate-grid" style={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', 
+                gap: '20px', 
+                marginTop: '20px' 
+            }}>
+              {users.length > 0 ? users.map(user => (
+                <div key={user.wallet_address} className="card user-card" style={{ padding: '20px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '40px', marginBottom: '10px' }}>👤</div>
+                  <h3 style={{ fontSize: '1rem' }}>
+                    {user.wallet_address.substring(0, 6)}...{user.wallet_address.substring(user.wallet_address.length - 4)}
+                  </h3>
+                  <p style={{ color: '#666', fontSize: '0.85em', marginBottom: '15px' }}>
+                    {user.membership_grade} Member
+                  </p>
+                  
+                  <div className="user-stats" style={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-around', 
+                      margin: '15px 0', 
+                      padding: '10px 0', 
+                      borderTop: '1px solid #eee', 
+                      borderBottom: '1px solid #eee',
+                      fontSize: '0.9em'
+                  }}>
+                    <div style={{ flex: 1 }}><strong>잔액</strong><br/>{user.token_balance} TUK</div>
+                    <div style={{ flex: 1 }}><strong>활동</strong><br/>{user.activity_count}회</div>
+                  </div>
+
+                  <button 
+                    className="primary-btn full-width"
+                    disabled={user.wallet_address.toLowerCase() === walletAddress.toLowerCase()}
+                    onClick={() => handleDelegate(user.wallet_address)}
+                    style={{ 
+                        width: '100%', 
+                        padding: '10px', 
+                        borderRadius: '8px', 
+                        cursor: user.wallet_address.toLowerCase() === walletAddress.toLowerCase() ? 'not-allowed' : 'pointer',
+                        backgroundColor: user.wallet_address.toLowerCase() === walletAddress.toLowerCase() ? '#ccc' : ''
+                    }}
+                  >
+                    {user.wallet_address.toLowerCase() === walletAddress.toLowerCase() ? "본인 (위임 불가)" : "투표권 위임하기"}
+                  </button>
+                </div>
+              )) : (
+                <div className="card" style={{ gridColumn: '1/-1', padding: '40px' }}>
+                  <p>불러올 회원 정보가 없습니다. 다른 브라우저나 계정으로 로그인하여 데이터를 생성해주세요.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        
         {activeTab === "mypage" && (
             <div className="page fade-in">
                 <h2>👤 My Page</h2>

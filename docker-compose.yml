@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # 1. DB (MySQL)
+  # 1. DB (MySQL) 
   db:
     image: mysql:8.0
     container_name: art_db
@@ -20,7 +20,7 @@ services:
       timeout: 20s
       retries: 10
 
-  # 2. Vector DB (Chroma - AI용)
+  # 2. Vector DB (Chroma)
   chroma:
     image: chromadb/chroma:latest
     container_name: art_chroma
@@ -29,44 +29,69 @@ services:
     volumes:
       - chroma_data:/chroma/chroma
 
-  # 3. Backend (FastAPI)
+  # 3. Blockchain (Hardhat Node & Auto Deploy)
+  # 주소 파일을 먼저 생성해야 하므로 다른 서비스들이 이 서비스에 의존합니다.
+  blockchain:
+    image: node:18-slim # 가벼운 버전으로 변경
+    container_name: art_blockchain
+    working_dir: /app/blockchain
+    volumes:
+      - .:/app # 프로젝트 루트 전체를 연결하여 frontend로의 주소 쓰기 허용
+    ports:
+      - "8545:8545"
+    # 실행 최적화: node_modules가 없을 때만 설치하도록 조건부 명령어 추가
+    command: >
+      sh -c "if [ ! -d 'node_modules' ]; then npm install; fi && 
+             npx hardhat node --hostname 0.0.0.0 & 
+             sleep 10 && 
+             npx hardhat run scripts/deploy.js --network localhost && 
+             wait"
+
+  # 4. Backend (FastAPI)
   backend:
-    build: ./backend      # 👈 [중요] backend 폴더를 찾아가라!
+    build: ./backend
     container_name: art_backend
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
     volumes:
-      - ./backend:/app    # 👈 [중요] 내 컴퓨터 backend 폴더랑 연결
+      - ./backend:/app
     depends_on:
       db:
         condition: service_healthy
       chroma:
         condition: service_started
+      blockchain:
+        condition: service_started
     environment:
       DATABASE_URL: mysql+pymysql://user:password@db:3306/art_platform
       CHROMA_URL: http://chroma:8000
 
-  # 4. Frontend (React)
+  # 5. Frontend (React)
   frontend:
-    build: ./frontend     # 👈 [중요] frontend 폴더를 찾아가라!
+    build: ./frontend
     container_name: art_frontend
+    working_dir: /app
     ports:
       - "3000:3000"
     volumes:
       - ./frontend:/app
-      - /app/node_modules
+      - /app/node_modules # 익명 볼륨으로 호스트의 node_modules 간섭 차단
     environment:
       - REACT_APP_API_URL=http://localhost:8000
-      - CHOKIDAR_USEPOLLING=true
-      - WDS_SOCKET_PORT=0
+      - CHOKIDAR_USEPOLLING=true  # 구형 파일 감시 방식 활성화 (윈도우 필수)
+      - WATCHPACK_POLLING=true    # 신형(Webpack 5+) 파일 감시 방식 활성화
+      - WDS_SOCKET_PORT=0         # 웹소켓 포트 충돌 방지
     stdin_open: true
     tty: true
+    # 💡 명시적으로 npm start를 실행하여 볼륨이 덮어씌워진 후에도 서버가 돌게 함
+    command: npm start
     depends_on:
       - backend
-      
-  # 5. AI Agent (FastAPI)
-  ai_core: 
+      - blockchain
+  
+  # 6. AI Agent (FastAPI) 
+  ai_core:
     build: ./ai_core
     container_name: art_ai_agent
     ports:
