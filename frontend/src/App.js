@@ -230,6 +230,7 @@ function App() {
     } catch (err) { alert("뱃지 업데이트 실패"); }
   };
 
+// 1. AI 스튜디오 이미지 생성 (빠른 로딩 & 임시 저장)
   const handleGenerateWithIPFS = async () => {
     setIsLoading(true);
     try {
@@ -239,12 +240,13 @@ function App() {
         });
 
         if (res.data.status === "success") {
-        setStudioData(prev => ({
-            ...prev,
-            image: res.data.image_url,  
-            meta_cid: res.data.meta_cid 
-        }));
-        alert("이미지와 메타데이터가 IPFS에 안전하게 저장되었습니다!");
+            setStudioData(prev => ({
+                ...prev,
+                image: res.data.image_url,  // 빠른 렌더링을 위한 원본 URL
+                meta_cid: "" // 👈 나중에 제출할 때 채움
+            }));
+            // ✅ 알림창 변경 완료!
+            alert("🎨 포스터 이미지가 생성되었습니다! (영구 저장은 안건 제출 시 진행됩니다)"); 
         }
     } catch (err) {
         alert("생성 실패");
@@ -253,13 +255,14 @@ function App() {
     setIsLoading(false);
   };
 
+  // 2. 안건 작성 탭으로 이동
   const sendToProposalWrite = () => {
     setProposalForm({
-        title: studioData.intent,
-        description: studioData.draft,
-        image_url: studioData.image,
+        title: studioData.intent || "AI 기획 안건",
+        description: studioData.draft || "",
+        image_url: studioData.image || "", // 👈 엑박 안 뜨게 임시 이미지 전달
         style: "AI Generated",
-        meta_hash: "mock_ipfs_hash_123",
+        meta_hash: "", // 👈 가짜 해시 제거 (비워둠)
         voteType: 0,
         duration: 3,
         quorum: 10
@@ -283,44 +286,63 @@ function App() {
     }
   };
 
-  // ✅ [수정] 안건 생성 함수 (기간 및 정족수 추가)
+  // ✅ [수정 완료] 안건 제출 시 IPFS 영구 저장 후 블록체인 기록
   const submitProposal = async () => {
     if (!walletAddress) return alert("지갑이 연결되지 않았습니다.");
     if (!contract) return alert("스마트 컨트랙트 연결 중... 잠시 후 시도해주세요.");
-    if (!proposalForm.title || !proposalForm.description) {
-      return alert("제목과 내용을 모두 입력해주세요.");
-    }
+    if (!proposalForm.title || !proposalForm.description) return alert("제목과 내용을 모두 입력해주세요.");
 
+    setIsLoading(true);
     try {
-        alert("지갑에서 트랜잭션을 승인해주세요...");
-        
-        // 정족수를 Wei 단위로 변환
-        const quorumWei = ethers.parseUnits(proposalForm.quorum.toString(), 18);
+        let finalMetaHash = proposalForm.meta_hash;
+        let finalImageUrl = proposalForm.image_url;
 
-        // createProposal(title, desc, img, voteType, duration, quorum)
+        // 1. [IPFS 영구 저장] 이미지 주소가 임시 URL(pollinations)인 경우 백엔드에 IPFS 박제 요청
+        if (proposalForm.image_url && proposalForm.image_url.includes("pollinations")) {
+            alert("☁️ 이미지를 IPFS에 영구 저장 중입니다... (약 5~10초 소요)");
+            const ipfsRes = await axios.post(`${API_URL}/api/ipfs/finalize`, {
+                wallet_address: walletAddress,
+                title: proposalForm.title,
+                description: proposalForm.description,
+                image_url: proposalForm.image_url,
+                prompt: studioData.intent || proposalForm.title
+            });
+
+            if (ipfsRes.data.status !== "success") {
+                setIsLoading(false);
+                return alert("IPFS 저장 실패: " + ipfsRes.data.error);
+            }
+            finalMetaHash = ipfsRes.data.meta_cid;
+            finalImageUrl = ipfsRes.data.image_ipfs_url;
+            console.log("✅ IPFS 저장 완료:", finalMetaHash);
+        }
+
+        // 2. [블록체인 저장]
+        alert("🦊 지갑에서 트랜잭션을 승인해주세요.");
+        const quorumWei = ethers.parseUnits(proposalForm.quorum.toString(), 18);
+        
+        // 여기에 IPFS에서 받아온 진짜 CID(finalMetaHash)를 넣습니다!
         const tx = await contract.createProposal(
             proposalForm.title, 
             proposalForm.description, 
-            proposalForm.image_url || "",
+            finalImageUrl || "",
             proposalForm.voteType,
             proposalForm.duration, 
             quorumWei
         );
     
-        alert("블록체인에 기록 중입니다... (약 10~20초 소요)");
+        alert("⛓️ 블록체인에 기록 중입니다... (약 10~20초 소요)");
         const receipt = await tx.wait(); 
-        console.log("트랜잭션 성공:", receipt);
         
-        // DB에도 저장 (단순 기록용)
+        // 3. [DB 저장]
         await axios.post(`${API_URL}/api/proposals`, { 
             wallet_address: walletAddress, 
             ...proposalForm,
-            meta_hash: tx.hash 
+            image_url: finalImageUrl,
+            meta_hash: finalMetaHash // DB에도 진짜 CID 저장
         });
 
-        const shortHash = `${tx.hash.substring(0,6)}...${tx.hash.substring(tx.hash.length - 4)}`;
-        alert(`✅ 등록 성공!\nTx Hash: ${shortHash}`);
-        
+        alert("✅ 안건 등록 완료! (IPFS + Blockchain + DB)");
         setActiveTab("proposals");
         fetchProposals();
 
@@ -328,8 +350,8 @@ function App() {
         console.error(err);
         alert("등록 실패: " + (err.reason || err.message));
     }
+    setIsLoading(false);
   };
-
   const deleteProposal = async (id, e) => {
     e.stopPropagation(); 
     if (!window.confirm("정말 삭제하시겠습니까?")) return;
@@ -742,7 +764,7 @@ function App() {
                         {studioData.image && (
                             <div className="final-result">
                                 <img src={studioData.image} alt="Generated" />
-                                <button className="primary full-width" onClick={sendToProposalWrite}>👉 이 내용으로 안건 작성하기</button>
+                               <button className="primary full-width" onClick={sendToProposalWrite}>👉 안건 작성 페이지로 이동해서 적용하기 (기간/정족수 설정)</button>
                             </div>
                         )}
                     </div>

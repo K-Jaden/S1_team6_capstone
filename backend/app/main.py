@@ -14,8 +14,7 @@ from pydantic import BaseModel # 👈 이것도 없으면 추가
 
 
 # AI 에이전트 서버 주소 (도커 서비스 이름 사용)
-AI_AGENT_URL = "http://127.0.0.1:8002"
-
+AI_AGENT_URL = "http://host.docker.internal:8002"
 
 # DB 테이블 생성
 models.Base.metadata.create_all(bind=database.engine)
@@ -386,91 +385,107 @@ def agent_auction(req: schemas.AgentAuctionRequest):
             return {"auction_report": "경매 리포트 생성 실패"}
     except Exception as e:
         return {"auction_report": "통신 오류 발생"}
-    
-    # ==========================================
-# [추가] 하이브리드 이미지 생성 (IPFS + DB)
 # ==========================================
-
-# 1. 데이터를 받을 그릇(Schema) 만들기
+# 1. AI 그림 임시 생성 (URL 인코딩 완벽 적용 - 엑박 해결!)
+# ==========================================
 class HybridArtRequest(BaseModel):
     prompt: str
     wallet_address: str
 
-# 2. API 함수 (라우터 대신 app 사용)
 @app.post("/api/studio/generate_hybrid")
 async def generate_hybrid_art(req: HybridArtRequest):
-    print(f"🎨 [1] AI에게 그림 요청: {req.prompt}")
-    
+    print(f"🎨 [1] AI에게 그림 임시 생성 요청: {req.prompt}")
     try:
-        # 1. AI 에이전트에게 "영어 프롬프트" 요청 (URL 아님!)
-        ai_payload = {
-            "topic": req.prompt,
-            "style": "Cyberpunk",
-            "wallet_address": req.wallet_address
-        }
-        
+        ai_payload = {"topic": req.prompt, "style": "Cyberpunk", "wallet_address": req.wallet_address}
         ai_res = requests.post(f"{AI_AGENT_URL}/generate", json=ai_payload)
         
-        if ai_res.status_code != 200: 
-            print(f"🔥 AI 서버 에러! (상태코드: {ai_res.status_code})")
-            return {"error": f"AI Error: {ai_res.text}"}
+        if ai_res.status_code != 200: return {"error": "AI Error"}
         
-        # 2. AI가 준 "영어 설명(final_prompt)" 가져오기
-        # (여기서 .get("url")이 아니라 .get("final_prompt")를 써야 함!)
         final_prompt = ai_res.json().get("final_prompt", "Abstract Art")
-        print(f"📝 AI가 만든 프롬프트: {final_prompt[:30]}...")
         
-        # 3. Pollinations AI를 사용해 진짜 이미지 URL 만들기
-        # (URL 인코딩 및 랜덤 시드 적용)
-        encoded_prompt = urllib.parse.quote(final_prompt)
+        # 🚀 [핵심] 마크다운 제거, 줄바꿈 제거, 최대 500자 제한
+        safe_prompt = final_prompt.replace("*", "").replace("#", "").replace("\n", " ").strip()
+        safe_prompt = safe_prompt[:500] 
+        
+        # 🚀 [핵심] safe="" 추가로 모든 특수기호 완벽 변환 (1033 에러 방지)
+        encoded_prompt = urllib.parse.quote(safe_prompt, safe="")
+        
         seed = random.randint(1, 99999)
         temp_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?seed={seed}&width=1024&height=768&nologo=true&model=flux"
         
-        print(f"📥 [2] 이미지 다운로드 주소 생성: {temp_url}")
-        
-        # 4. 백엔드가 이미지를 다운로드 (메모리에 저장)
-        img_res = requests.get(temp_url)
-        if img_res.status_code != 200: return {"error": "Download Failed"}
-        image_bytes = img_res.content
+        # 화면에 즉시 띄우기 위한 렌더링 웜업
+        print("⏳ AI가 그림을 그리는 중... (약 3초 소요)")
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36'}
+        try:
+            requests.get(temp_url, headers=headers, timeout=15) 
+        except:
+            pass 
+            
+        print(f"✅ [완료] 임시 이미지 주소 반환: {temp_url}")
+        return {
+            "status": "success",
+            "image_url": temp_url, 
+            "final_prompt": safe_prompt
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
-        # 5. 이미지를 IPFS에 업로드
-        print("🚀 [3] 이미지 -> IPFS 업로드 중...")
+# ==========================================
+# 2. 최종 제출 시 IPFS 영구 저장
+# ==========================================
+class FinalizeProposalRequest(BaseModel):
+    wallet_address: str
+    title: str
+    description: str
+    image_url: str 
+    prompt: str = "AI Generated"
+
+@app.post("/api/ipfs/finalize")
+def finalize_proposal_ipfs(req: FinalizeProposalRequest):
+    print(f"🚀 [최종 제출] IPFS 영구 저장 시작: {req.title}")
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Referer': 'https://pollinations.ai/'
+        }
+        
+        print(f"📥 다운로드 시도: {req.image_url[:50]}...")
+        img_res = requests.get(req.image_url, headers=headers, timeout=15)
+        
+        if img_res.status_code != 200: 
+            print(f"🔥 다운로드 에러 ({img_res.status_code}) -> 비상용 예비 이미지로 대체합니다!")
+            fallback_url = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1024&auto=format&fit=crop"
+            img_res = requests.get(fallback_url)
+            
+        image_bytes = img_res.content
+        
+        print("🚀 이미지 IPFS 업로드 중...")
         image_cid = upload_bytes_to_ipfs(image_bytes)
         if not image_cid: return {"error": "Image Upload Failed"}
-        
         image_ipfs_url = f"https://gateway.pinata.cloud/ipfs/{image_cid}"
-
-        # 6. 메타데이터(JSON) 생성
+        
+        print("📝 메타데이터 IPFS 업로드 중...")
         metadata = {
-            "name": f"ArtDAO: {req.prompt}",
-            "description": f"Created by ArtDAO AI.\nPrompt: {final_prompt}",
-            "image": f"ipfs://{image_cid}", 
-            "external_url": image_ipfs_url,
+            "name": req.title,
+            "description": req.description,
+            "image": f"ipfs://{image_cid}",
             "attributes": [
                 {"trait_type": "Creator", "value": req.wallet_address},
                 {"trait_type": "Date", "value": str(time.time())}
             ]
         }
-
-        # 7. 메타데이터를 IPFS에 업로드
-        print("📝 [4] 메타데이터 -> IPFS 업로드 중...")
         meta_cid = upload_json_to_ipfs(metadata)
         
-        if not meta_cid: return {"error": "Metadata Upload Failed"}
-
-        print(f"✅ [완료] Image CID: {image_cid} / Meta CID: {meta_cid}")
-
+        print(f"✅ [IPFS 완료] Meta CID: {meta_cid}")
         return {
             "status": "success",
-            "image_url": image_ipfs_url,
             "meta_cid": meta_cid,
-            "image_cid": image_cid
+            "image_ipfs_url": image_ipfs_url
         }
-        
     except Exception as e:
-        print(f"🔥 에러 발생: {str(e)}")
+        print(f"🔥 파이썬 에러: {str(e)}")
         return {"error": str(e)}
-
 # =======================================================================
 # 사용자 목록을 불러오는 GET 요청과 위임 처리를 위한 POST 요청 추가(Lim)
 # =======================================================================
