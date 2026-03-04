@@ -43,6 +43,11 @@ class ArtRequest(Base):
     style = Column(String(50), default="General")
     image_url = Column(Text, nullable=True)
     
+    voteType = Column(Integer, default=0)
+    duration = Column(Integer, default=3)
+    quorum = Column(Integer, default=10)
+    funding_amount = Column(Float, default=0.0)
+    
     status = Column(String(50), default="OPEN") 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

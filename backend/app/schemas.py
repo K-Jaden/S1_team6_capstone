@@ -51,6 +51,10 @@ class ProposalCreate(BaseModel):
     description: str | None = None
     style: str | None = "General"
     image_url: str | None = None
+    voteType: int | None = 0
+    duration: int | None = 3
+    quorum: int | None = 10
+    fundingAmount: float | None = 0.0
 
 class ProposalUpdate(BaseModel):
     title: str | None = None
@@ -67,6 +71,10 @@ class ProposalResponse(BaseModel):
     status: str
     image_url: str | None
     created_at: datetime
+    voteType: int | None = 0
+    duration: int | None = 3
+    quorum: int | None = 10
+    fundingAmount: float | None = 0.0
     class Config:
         from_attributes = True
 

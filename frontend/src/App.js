@@ -3,13 +3,11 @@ import axios from "axios";
 import { ethers } from "ethers";
 import "./App.css";
 
-// LIM. 블록체인 연결 정보 가져오기
 import { DAO_CONTRACT_ADDRESS as CONTRACT_ADDRESS, TUK_TOKEN_ADDRESS } from './contracts/address';
 import ArtPlanningDAO from './contracts/ArtPlanningDAO.json';
 
 const API_URL = "http://localhost:8000";
 
-// ✅ [설정] 관리자 지갑 주소
 const ADMIN_WALLETS = [
     "0xa06e02093A85F32b2707f4f7ec646f6D606D0F4C", 
 ];
@@ -22,59 +20,52 @@ function App() {
   const [walletAddress, setWalletAddress] = useState("");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   
-  // 회원 목록
   const [users, setUsers] = useState([]);
-
-  // 데이터 상태
   const [proposals, setProposals] = useState([]);
   const [galleryItems, setGalleryItems] = useState([]);
   
-  // 상세 보기 모달 상태
   const [selectedProposal, setSelectedProposal] = useState(null); 
-  const [voteAmount, setVoteAmount] = useState(""); // 투표할 수량 입력
+  const [voteAmount, setVoteAmount] = useState(""); 
 
   const closeModal = () => {
     setSelectedProposal(null);
     setVoteAmount("");
   };
 
-  // 마이페이지 데이터
   const [myInfo, setMyInfo] = useState({ 
     balance: 0, membership: "", rewards: 0, delegation: {},
     activity: [], badge: "", referral: {}, myProposals: [], recommendation: null
   });
   
-  // AI 스튜디오 상태
   const [studioData, setStudioData] = useState({ intent: "", draft: "", image: "", similarity: "" });
   const [isLoading, setIsLoading] = useState(false);
 
-  // A2A 채팅 상태
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState([
     { sender: "bot", text: "안녕하세요! AI 큐레이터입니다. 취향에 맞는 작품을 추천해드릴까요?" }
   ]);
 
-  // 안건 작성 폼 (기간, 정족수 추가됨)
   const [proposalForm, setProposalForm] = useState({ 
     title: "", description: "", style: "General", image_url: "", meta_hash: "",
-    voteType: 0, // 0: Weighted, 1: Quadratic
-    duration: 3, // 기본 3일
-    quorum: 10   // 기본 10표
+    voteType: 0, 
+    duration: 3, 
+    quorum: 10,   
+    fundingAmount: 100 
   });
 
-  // 에이전트 센터 상태
+  // ✅ 블록체인의 진짜 시간을 담는 상태 변수
+  const [currentBlockTime, setCurrentBlockTime] = useState(Math.floor(Date.now() / 1000));
+
   const [agentInput, setAgentInput] = useState({
     criticArtInfo: "", marketerTitle: "", marketerTarget: "", auctionArtInfo: "", auctionReview: ""
   });
   const [agentResult, setAgentResult] = useState({ critic: "", marketer: "", auction: "" });
 
-  // 스마트 컨트랙트 객체
   const [contract, setContract] = useState(null);
 
   // ==========================================
   // 2. 초기화 및 지갑 연동
   // ==========================================
-  
   useEffect(() => {
     const storedAddress = localStorage.getItem("walletAddress");
     
@@ -89,7 +80,6 @@ function App() {
             const signer = await provider.getSigner();
             const daoContract = new ethers.Contract(CONTRACT_ADDRESS, ArtPlanningDAO.abi, signer);
             setContract(daoContract); 
-            console.log("♻️ 스마트 컨트랙트 재연결 완료!");
           } catch (err) {
             console.error("재연결 실패:", err);
           }
@@ -105,7 +95,7 @@ function App() {
     }
     fetchProposals(); 
     fetchGallery();   
-  }, [isLoggedIn, walletAddress]);
+  }, [isLoggedIn, walletAddress, contract]);
 
   const connectWallet = async () => {
     if (!window.ethereum) return alert("메타마스크를 설치해주세요!");
@@ -116,7 +106,6 @@ function App() {
     
       const daoContract = new ethers.Contract(CONTRACT_ADDRESS, ArtPlanningDAO.abi, signer);
       setContract(daoContract); 
-      console.log("블록체인 계약 연결 완료:", daoContract);
       
       await axios.post(`${API_URL}/api/auth/wallet-login`, { wallet_address: address, signature: "dummy_sig" });
       
@@ -147,7 +136,6 @@ function App() {
   // 3. 데이터 조회 및 액션 함수
   // ==========================================
   
-  // ✅ [수정 완료] 모든 데이터를 '번호(Index)'로 강제 매핑
   const fetchProposals = async (status = null) => {
     try {
       const params = status ? { status } : {};
@@ -156,29 +144,35 @@ function App() {
 
       if (contract) {
         try {
+            // ✅ 블록체인에서 현재 시간 가져오기
+            const blockNum = await contract.runner.provider.getBlockNumber();
+            const block = await contract.runner.provider.getBlock(blockNum);
+            const nowBlockTime = Number(block.timestamp);
+            setCurrentBlockTime(nowBlockTime);
+
             const chainProposals = await contract.getAllProposals();
-            console.log("🔥 블록체인 원본 데이터:", chainProposals);
+            const statusMap = ["OPEN", "ACCEPTED", "REJECTED", "EXECUTED"];
 
             dbProposals = dbProposals.map(p => {
-                // DB ID(1부터) -> Chain ID(0부터) 매칭
                 const chainP = chainProposals[Number(p.id) - 1];
                 
                 if (chainP) {
-                    // 🚨 Ethers.js가 이름을 못 찾을 땐 무조건 '순서'로 꺼내야 합니다.
-                    // Struct 구조: 
-                    // [0]id, [1]title, [2]desc, [3]img, 
-                    // [4]voteCount, [5]againstCount, [6]proposer, 
-                    // [7]status, [8]voteType, [9]deadline, [10]quorum
-                    
+                    let currentStatus = statusMap[Number(chainP[7])];
+                    const deadlineTime = Number(chainP[9]);
+
+                    // ✅ [추가] OPEN 상태인데 마감일이 지났다면 프론트엔드에서 'CLOSED(결산 대기)'로 상태 덮어쓰기
+                    if (currentStatus === "OPEN" && deadlineTime < nowBlockTime) {
+                        currentStatus = "CLOSED";
+                    }
+
                     return {
                         ...p,
-                        // ✅ 투표 수도 번호로 지정 (4번, 5번)
                         voteCount: parseFloat(ethers.formatUnits(chainP[4], 18)),     
                         againstCount: parseFloat(ethers.formatUnits(chainP[5], 18)),  
-                        
-                        // ✅ 마감일과 정족수도 번호로 지정 (9번, 10번)
-                        deadline: Number(chainP[9]),   
-                        quorum: parseFloat(ethers.formatUnits(chainP[10], 18))       
+                        status: currentStatus,
+                        deadline: deadlineTime,   
+                        quorum: parseFloat(ethers.formatUnits(chainP[10], 18)),
+                        fundingAmount: parseFloat(ethers.formatUnits(chainP[11], 18))
                     };
                 }
                 return p;
@@ -262,7 +256,8 @@ function App() {
         meta_hash: "mock_ipfs_hash_123",
         voteType: 0,
         duration: 3,
-        quorum: 10
+        quorum: 10,
+        fundingAmount: 100
     });
     setActiveTab("write");
   };
@@ -283,7 +278,6 @@ function App() {
     }
   };
 
-  // ✅ [수정] 안건 생성 함수 (기간 및 정족수 추가)
   const submitProposal = async () => {
     if (!walletAddress) return alert("지갑이 연결되지 않았습니다.");
     if (!contract) return alert("스마트 컨트랙트 연결 중... 잠시 후 시도해주세요.");
@@ -291,30 +285,33 @@ function App() {
       return alert("제목과 내용을 모두 입력해주세요.");
     }
 
+    // ✅ [수정] 5일 등 입력한 글자를 무조건 숫자로 강제 변환
+    const durationNum = parseInt(proposalForm.duration, 10);
+    if (!durationNum || durationNum <= 0) return alert("투표 기간을 1일 이상으로 입력해주세요.");
+
     try {
         alert("지갑에서 트랜잭션을 승인해주세요...");
         
-        // 정족수를 Wei 단위로 변환
         const quorumWei = ethers.parseUnits(proposalForm.quorum.toString(), 18);
+        const fundingWei = ethers.parseUnits(proposalForm.fundingAmount.toString(), 18);
 
-        // createProposal(title, desc, img, voteType, duration, quorum)
         const tx = await contract.createProposal(
             proposalForm.title, 
             proposalForm.description, 
             proposalForm.image_url || "",
             proposalForm.voteType,
-            proposalForm.duration, 
-            quorumWei
+            durationNum, // 숫자형으로 전달
+            quorumWei,
+            fundingWei
         );
     
         alert("블록체인에 기록 중입니다... (약 10~20초 소요)");
         const receipt = await tx.wait(); 
-        console.log("트랜잭션 성공:", receipt);
         
-        // DB에도 저장 (단순 기록용)
         await axios.post(`${API_URL}/api/proposals`, { 
             wallet_address: walletAddress, 
             ...proposalForm,
+            duration: durationNum, // DB에도 숫자형 저장
             meta_hash: tx.hash 
         });
 
@@ -372,7 +369,6 @@ function App() {
     }
   };
   
-  // ✅ [수정] 투표 함수 (ID 보정 및 백틱 수정 완료)
   const handleVote = async (proposalId, support) => {
     if (!contract || !walletAddress) return alert("지갑 연결이 필요합니다.");
   
@@ -384,10 +380,7 @@ function App() {
       alert("지갑에서 트랜잭션을 승인해주세요...");
 
       const tokenAmountWei = ethers.parseUnits(amountToUse.toString(), 18);
-      // DB ID(1부터 시작) -> Chain ID(0부터 시작) 보정
       const blockchainId = Number(proposalId) - 1; 
-
-      console.log(`투표 요청: DB ID=${proposalId} -> Blockchain ID=${blockchainId}`);
 
       const tx = await contract.vote(blockchainId, support, tokenAmountWei);
       alert("투표 처리 중... (블록체인 승인 대기)");
@@ -399,13 +392,33 @@ function App() {
       closeModal();
     } catch (err) {
       console.error("투표 실패:", err);
-      if(err.message && err.message.includes("Insufficient token balance")) {
+      if (err.message && err.message.includes("Already voted")){alert("오류: 이미 참여한 안건입니다.");}
+      else if(err.message && err.message.includes("Insufficient token balance")) {
           alert("오류: 지갑 잔액 부족");
       } else if(err.message && err.message.includes("Voting period has expired")) {
           alert("오류: 투표 기간이 종료되었습니다.");
       } else {
           alert("투표 중 오류가 발생했습니다.");
       }
+    }
+  };
+
+  const handleExecuteProposal = async (proposalId) => {
+    if (!contract) return alert("컨트랙트 연결 확인 필요");
+    try {
+        alert("자금 집행 트랜잭션을 승인해주세요...");
+        const blockchainId = Number(proposalId) - 1;
+        const tx = await contract.executeProposal(blockchainId);
+        
+        alert("지급 처리 중입니다...");
+        await tx.wait();
+        
+        alert("💰 자금 집행 완료! 작성자에게 토큰이 전송되었습니다.");
+        fetchProposals();
+        closeModal();
+    } catch (err) {
+        console.error("집행 실패:", err);
+        alert("집행 실패: " + (err.reason || "트레저리 잔액 부족 등의 사유로 실패했습니다."));
     }
   };
 
@@ -486,6 +499,22 @@ function App() {
           <button className={activeTab==="chat"?"active":""} onClick={()=>setActiveTab("chat")}>🤖 AI 큐레이터</button>
           <button className={activeTab==="mypage"?"active":""} onClick={()=>setActiveTab("mypage")}>👤 마이페이지</button>
         </nav>
+
+        {/* ✅ [신규] 사이드바 하단: 현재 블록체인 시간 및 동기화 버튼 표시 */}
+        <div style={{ marginTop: "auto", padding: "20px" }}>
+            <div style={{ padding: "12px", background: "#1e293b", color: "#94a3b8", borderRadius: "8px", fontSize: "0.85rem", textAlign: "center", border: "1px solid #334155" }}>
+                <div style={{ marginBottom: "5px", fontWeight: "bold", color: "#cbd5e1" }}>🕒 현재 블록체인 시간</div>
+                <strong style={{ color: "#38bdf8", fontSize: "0.95rem", display: "block", marginBottom: "10px" }}>
+                    {new Date(currentBlockTime * 1000).toLocaleString()}
+                </strong>
+                <button 
+                    onClick={() => fetchProposals()} 
+                    style={{ width: "100%", padding: "8px", background: "#3b82f6", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "0.85rem", fontWeight: "bold" }}
+                >
+                    🔄 시간 동기화 (새로고침)
+                </button>
+            </div>
+        </div>
       </aside>
 
       <main className="main-content">
@@ -529,7 +558,13 @@ function App() {
                 {proposals.map(p => (
                     <div key={p.id} className="card proposal-item clickable" onClick={() => setSelectedProposal(p)}>
                         <div className="p-left">
-                            <span className={`status-badge ${p.status}`}>{p.status}</span>
+                            {/* ✅ [수정] 목록에서 CLOSED(결산 대기) 상태일 때 회색 뱃지로 표시 */}
+                            <span 
+                                className={`status-badge ${p.status === 'CLOSED' ? 'REJECTED' : p.status}`} 
+                                style={p.status === 'CLOSED' ? {backgroundColor: '#6b7280', color: 'white'} : {}}
+                            >
+                                {p.status === "CLOSED" ? "CLOSED (결산 대기)" : p.status}
+                            </span>
                             <h3>{p.title}</h3>
                             <p className="preview-text">{p.description ? p.description.substring(0, 100) + "..." : "내용 없음"}</p>
                             <span className="read-more">👉 자세히 보기</span>
@@ -544,7 +579,7 @@ function App() {
                 ))}
             </div>
             <button className="floating-btn" onClick={()=>{
-                setProposalForm({ title: "", description: "", style: "General", image_url: "", meta_hash: "", voteType: 0, duration: 3, quorum: 10 });
+                setProposalForm({ title: "", description: "", style: "General", image_url: "", meta_hash: "", voteType: 0, duration: 3, quorum: 10, fundingAmount: 100 });
                 setActiveTab("write");
             }}>
                 <span>+</span> 새 안건 작성
@@ -558,7 +593,6 @@ function App() {
                 <div className="modal-content" onClick={(e) => e.stopPropagation()}>
                     <button className="close-btn" onClick={() => setSelectedProposal(null)}>✖</button>
                     
-                    {/* 모달 헤더 (게이지 + 마감일 + 정족수 표시) */}
                     <div className="modal-header">
                         <div style={{ background: "#f0f9ff", padding: "10px", borderRadius: "8px", marginBottom: "15px", border: "1px solid #bae6fd", fontSize: "0.9em", color: "#0369a1" }}>
                             <strong>🔗 Blockchain Verified</strong>
@@ -567,37 +601,50 @@ function App() {
                             </div>
                         </div>
                         
-                        <span className={`status-badge ${selectedProposal.status}`}>{selectedProposal.status}</span>
+                        {/* ✅ [수정] 모달 내 CLOSED 상태 뱃지 스타일 적용 */}
+                        <span 
+                            className={`status-badge ${selectedProposal.status === 'CLOSED' ? 'REJECTED' : selectedProposal.status}`} 
+                            style={selectedProposal.status === 'CLOSED' ? {backgroundColor: '#6b7280', color: 'white', display: 'inline-block', padding: '4px 8px', borderRadius: '12px', fontWeight: 'bold', fontSize: '0.8rem', marginBottom: '10px'} : {}}
+                        >
+                            {selectedProposal.status === "CLOSED" ? "CLOSED (결산 대기)" : selectedProposal.status}
+                        </span>
                         <h2>{selectedProposal.title}</h2>
                         
-                        {/* 📅 마감일 & 정족수 표시 */}
-			<div style={{ fontSize: "0.9rem", color: "#666", marginTop: "10px" }}>
-    			    📅 마감: {selectedProposal.deadline && selectedProposal.deadline > 0 
-			        ? new Date(selectedProposal.deadline * 1000).toLocaleString() 
-			        : "데이터 로딩 중..."} | 
-    			    🎯 목표: {selectedProposal.quorum || 0}표
-			</div>
-                        {/* 📊 투표 현황 게이지 바 */}
+                        {/* ✅ [수정] 작성일과 마감일을 직관적으로 보여주는 UI로 개편 */}
+                        <div style={{ fontSize: "0.95rem", color: "#4b5563", marginTop: "15px", background: "#f3f4f6", padding: "12px", borderRadius: "8px" }}>
+                            <div style={{ marginBottom: "6px" }}>
+                                ⏳ <strong>투표 기간:</strong> {selectedProposal.duration || 3}일
+                            </div>
+                            <div style={{ marginBottom: "4px" }}>
+                                {/* 마감일에서 기간(duration)을 빼서 실제 블록체인 '작성일'을 역산 */}
+                                📝 <strong>작성:</strong> {selectedProposal.deadline && selectedProposal.duration 
+                                    ? new Date((selectedProposal.deadline - selectedProposal.duration * 86400) * 1000).toLocaleString() 
+                                    : "데이터 로딩 중..."}
+                            </div>
+                            <div style={{ marginBottom: "6px" }}>
+                                🛑 <strong>마감:</strong> {selectedProposal.deadline 
+                                    ? new Date(selectedProposal.deadline * 1000).toLocaleString() 
+                                    : "데이터 로딩 중..."}
+                                {selectedProposal.status === "CLOSED" && (
+                                    <span style={{ color: "#dc2626", fontWeight: "bold", marginLeft: "10px" }}>[🚫 마감됨]</span>
+                                )}
+                            </div>
+                            <div style={{ borderTop: "1px solid #d1d5db", paddingTop: "6px", marginTop: "6px" }}>
+                                🎯 <strong>목표 정족수:</strong> {selectedProposal.quorum || 0}표
+                            </div>
+                        </div>
+
                         <div className="vote-gauge-container" style={{ marginTop: "15px", background: "#eee", borderRadius: "10px", overflow: "hidden", height: "25px", position: "relative" }}>
-                            {/* 찬성 바 (파란색) */}
                             <div style={{
                                 width: `${(selectedProposal.voteCount / (selectedProposal.voteCount + selectedProposal.againstCount || 1)) * 100}%`,
-                                background: "#3b82f6",
-                                height: "100%",
-                                float: "left",
-                                transition: "width 0.5s"
+                                background: "#3b82f6", height: "100%", float: "left", transition: "width 0.5s"
                             }}></div>
-                            {/* 반대 바 (빨간색) */}
                             <div style={{
                                 width: `${(selectedProposal.againstCount / (selectedProposal.voteCount + selectedProposal.againstCount || 1)) * 100}%`,
-                                background: "#ef4444",
-                                height: "100%",
-                                float: "left",
-                                transition: "width 0.5s"
+                                background: "#ef4444", height: "100%", float: "left", transition: "width 0.5s"
                             }}></div>
                         </div>
                         
-                        {/* 텍스트 정보 */}
                         <div style={{ display: "flex", justifyContent: "space-between", marginTop: "5px", fontSize: "0.9rem", fontWeight: "bold" }}>
                             <span style={{ color: "#3b82f6" }}>👍 찬성: {selectedProposal.voteCount ? selectedProposal.voteCount.toFixed(2) : 0}표</span>
                             <span style={{ color: "#ef4444" }}>👎 반대: {selectedProposal.againstCount ? selectedProposal.againstCount.toFixed(2) : 0}표</span>
@@ -642,8 +689,53 @@ function App() {
                         </div>
 
                         <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                            <button className="vote-btn yes" onClick={() => handleVote(selectedProposal.id, true)}>👍 찬성 투표</button>
-                            <button className="vote-btn no" onClick={() => handleVote(selectedProposal.id, false)}>👎 반대 투표</button>
+                            {/* ✅ [수정] 결산 대기 상태(CLOSED) 이거나 기한이 지나면 버튼 비활성화 */}
+                            <button 
+                                className="vote-btn yes" 
+                                onClick={() => handleVote(selectedProposal.id, true)}
+                                disabled={selectedProposal.status === "CLOSED" || selectedProposal.deadline < currentBlockTime}
+                                style={{ cursor: (selectedProposal.status === "CLOSED" || selectedProposal.deadline < currentBlockTime) ? "not-allowed" : "pointer" }}
+                            >
+                                👍 찬성 투표
+                            </button>
+                            
+                            <button 
+                                className="vote-btn no" 
+                                onClick={() => handleVote(selectedProposal.id, false)}
+                                disabled={selectedProposal.status === "CLOSED" || selectedProposal.deadline < currentBlockTime}
+                                style={{ cursor: (selectedProposal.status === "CLOSED" || selectedProposal.deadline < currentBlockTime) ? "not-allowed" : "pointer" }}
+                            >
+                                👎 반대 투표
+                            </button>
+                        </div>
+                        <div className="modal-footer" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+                            {/* ✅ [수정] 상태가 CLOSED로 바뀌었을 때만 결산 버튼 표시 */}
+                            {selectedProposal.status === "CLOSED" && (
+                                <div style={{ marginTop: '20px', padding: '15px', background: '#e0e7ff', borderRadius: '8px', border: '1px solid #c7d2fe' }}>
+                                    <p style={{ color: '#3730a3', fontWeight: 'bold', textAlign: 'center' }}>
+                                        ⏳ 투표가 마감되었습니다! 결과를 확정하고 자금을 집행하세요.
+                                    </p>
+                                    <button 
+                                        className="primary-btn" 
+                                        onClick={() => handleExecuteProposal(selectedProposal.id)}
+                                        style={{ width: '100%', marginTop: '10px', backgroundColor: '#4f46e5' }}
+                                    >
+                                        ⚖️ 결산 및 자금 집행하기
+                                    </button>
+                                </div>
+                            )}
+
+                            {selectedProposal.status === "REJECTED" && (
+                                <div style={{ marginTop: '20px', padding: '15px', background: '#fee2e2', borderRadius: '8px', textAlign: 'center' }}>
+                                    <p style={{ color: '#991b1b', fontWeight: 'bold' }}>❌ 부결되었습니다. (정족수 미달 또는 반대 우세)</p>
+                                </div>
+                            )}
+                            
+                            {selectedProposal.status === "EXECUTED" && (
+                                <div style={{ marginTop: '20px', padding: '15px', background: '#f3f4f6', borderRadius: '8px', textAlign: 'center' }}>
+                                    <p style={{ color: '#4b5563', fontWeight: 'bold' }}>✅ 자금 지급 완료 (집행 완료)</p>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -680,7 +772,6 @@ function App() {
                         <option value={1}>제곱근 투표 (Quadratic)</option>
                     </select>
 
-                    {/* ✅ [추가] 기간 및 정족수 입력 */}
                     <div style={{ display: "flex", gap: "20px", marginTop: "15px" }}>
                         <div style={{ flex: 1 }}>
                             <label>투표 기간 (일)</label>
@@ -700,6 +791,15 @@ function App() {
                                 placeholder="예: 100표" 
                             />
                         </div>
+                        <div style={{ flex: 1 }}>
+                            <label>요청 지원금 (TUK)</label>
+                            <input 
+                                type="number" 
+                                value={proposalForm.fundingAmount} 
+                                onChange={(e) => setProposalForm({...proposalForm, fundingAmount: e.target.value})} 
+                                placeholder="예: 500" 
+                            />
+                        </div>
                     </div>
 
                     {proposalForm.image_url && (
@@ -717,7 +817,7 @@ function App() {
             </div>
         )}
 
-        {/* AI 스튜디오, 에이전트 등 나머지 탭은 기존과 동일... (아래 생략하지 않고 모두 포함) */}
+        {/* AI 스튜디오, 에이전트 등 나머지 탭 */}
         {activeTab === "studio" && (
             <div className="page fade-in">
                 <h2>🎨 AI Art Studio</h2>

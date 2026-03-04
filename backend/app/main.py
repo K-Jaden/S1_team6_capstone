@@ -194,6 +194,10 @@ def create_proposal(req: schemas.ProposalCreate, db: Session = Depends(get_db)):
         description=req.description,
         style=req.style,
         image_url=req.image_url,
+        voteType=req.voteType,
+        duration=req.duration,
+        quorum=req.quorum,
+        funding_amount=req.fundingAmount,
         status="OPEN"
     )
     db.add(new_p)
