@@ -12,7 +12,7 @@ services:
       MYSQL_USER: user
       MYSQL_PASSWORD: password
     ports:
-      - "3306:3306"
+      - "3307:3306"
     volumes:
       - db_data:/var/lib/mysql
     healthcheck:
@@ -66,6 +66,8 @@ services:
     environment:
       DATABASE_URL: mysql+pymysql://user:password@db:3306/art_platform
       CHROMA_URL: http://chroma:8000
+    env_file:         # 👈 이 두 줄을 추가하세요!
+      - .env          # 👈
 
   # 5. Frontend (React)
   frontend:

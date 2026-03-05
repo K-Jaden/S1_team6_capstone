@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from 'react';
 import axios from "axios";
 import { ethers } from "ethers";
 import "./App.css";
@@ -6,6 +6,7 @@ import "./App.css";
 // LIM. 블록체인 연결 정보 가져오기
 import { DAO_CONTRACT_ADDRESS as CONTRACT_ADDRESS, TUK_TOKEN_ADDRESS } from './contracts/address';
 import ArtPlanningDAO from './contracts/ArtPlanningDAO.json';
+
 
 const API_URL = "http://localhost:8000";
 
@@ -47,6 +48,11 @@ function App() {
   // AI 스튜디오 상태
   const [studioData, setStudioData] = useState({ intent: "", draft: "", image: "", similarity: "" });
   const [isLoading, setIsLoading] = useState(false);
+  const [activeAgentLoading, setActiveAgentLoading] = useState(null); 
+  const [isChatLoading, setIsChatLoading] = useState(false); 
+  
+  // 👇 이거 한 줄 추가! (스튜디오에서 어떤 사고를 하고 있는지 텍스트 저장)
+  const [studioLoadingStep, setStudioLoadingStep] = useState("");
 
   // A2A 채팅 상태
   const [chatInput, setChatInput] = useState("");
@@ -233,6 +239,7 @@ function App() {
 // 1. AI 스튜디오 이미지 생성 (빠른 로딩 & 임시 저장)
   const handleGenerateWithIPFS = async () => {
     setIsLoading(true);
+    setStudioLoadingStep("🎨 AI 화가 에이전트가 프롬프트를 시각화 및 렌더링 중..."); // 👈 상태 메시지 설정
     try {
         const res = await axios.post(`${API_URL}/api/studio/generate_hybrid`, {
             prompt: studioData.intent,
@@ -242,17 +249,14 @@ function App() {
         if (res.data.status === "success") {
             setStudioData(prev => ({
                 ...prev,
-                image: res.data.image_url,  // 빠른 렌더링을 위한 원본 URL
-                meta_cid: "" // 👈 나중에 제출할 때 채움
+                image: res.data.image_url,  
+                meta_cid: "" 
             }));
-            // ✅ 알림창 변경 완료!
             alert("🎨 포스터 이미지가 생성되었습니다! (영구 저장은 안건 제출 시 진행됩니다)"); 
         }
-    } catch (err) {
-        alert("생성 실패");
-        console.error(err);
-    }
+    } catch (err) { alert("생성 실패"); }
     setIsLoading(false);
+    setStudioLoadingStep(""); // 초기화
   };
 
   // 2. 안건 작성 탭으로 이동
@@ -273,6 +277,7 @@ function App() {
   const handleStudioAction = async (type) => {
     if (type === 'draft') {
         setIsLoading(true);
+        setStudioLoadingStep("📜 기획자 에이전트가 데이터를 수집하여 기획서를 작성 중..."); // 👈 상태 메시지 설정
         try {
             const res = await axios.post(`${API_URL}/api/studio/draft`, { intent: studioData.intent });
             setStudioData(prev => ({ ...prev, draft: res.data.draft_text }));
@@ -280,78 +285,80 @@ function App() {
             alert("기획서 생성 실패"); 
         }
         setIsLoading(false);
+        setStudioLoadingStep(""); // 초기화
     } 
     else if (type === 'image') {
         await handleGenerateWithIPFS(); 
     }
   };
-
-  // ✅ [수정 완료] 안건 제출 시 IPFS 영구 저장 후 블록체인 기록
-  const submitProposal = async () => {
-    if (!walletAddress) return alert("지갑이 연결되지 않았습니다.");
-    if (!contract) return alert("스마트 컨트랙트 연결 중... 잠시 후 시도해주세요.");
-    if (!proposalForm.title || !proposalForm.description) return alert("제목과 내용을 모두 입력해주세요.");
-
-    setIsLoading(true);
-    try {
-        let finalMetaHash = proposalForm.meta_hash;
-        let finalImageUrl = proposalForm.image_url;
-
-        // 1. [IPFS 영구 저장] 이미지 주소가 임시 URL(pollinations)인 경우 백엔드에 IPFS 박제 요청
-        if (proposalForm.image_url && proposalForm.image_url.includes("pollinations")) {
-            alert("☁️ 이미지를 IPFS에 영구 저장 중입니다... (약 5~10초 소요)");
-            const ipfsRes = await axios.post(`${API_URL}/api/ipfs/finalize`, {
-                wallet_address: walletAddress,
-                title: proposalForm.title,
-                description: proposalForm.description,
-                image_url: proposalForm.image_url,
-                prompt: studioData.intent || proposalForm.title
-            });
-
-            if (ipfsRes.data.status !== "success") {
-                setIsLoading(false);
-                return alert("IPFS 저장 실패: " + ipfsRes.data.error);
-            }
-            finalMetaHash = ipfsRes.data.meta_cid;
-            finalImageUrl = ipfsRes.data.image_ipfs_url;
-            console.log("✅ IPFS 저장 완료:", finalMetaHash);
+  // ✅ 안건 제출 (스마트 컨트랙트 등록 + IPFS 이미지 저장 + DB 저장)
+    const submitProposal = async () => {
+        if (!proposalForm.title || !proposalForm.description) {
+            alert("제목과 내용을 모두 입력해주세요!");
+            return;
+        }
+        if (!contract) {
+            alert("스마트 컨트랙트에 연결되지 않았습니다.");
+            return;
         }
 
-        // 2. [블록체인 저장]
-        alert("🦊 지갑에서 트랜잭션을 승인해주세요.");
-        const quorumWei = ethers.parseUnits(proposalForm.quorum.toString(), 18);
-        
-        // 여기에 IPFS에서 받아온 진짜 CID(finalMetaHash)를 넣습니다!
-        const tx = await contract.createProposal(
-            proposalForm.title, 
-            proposalForm.description, 
-            finalImageUrl || "",
-            proposalForm.voteType,
-            proposalForm.duration, 
-            quorumWei
-        );
-    
-        alert("⛓️ 블록체인에 기록 중입니다... (약 10~20초 소요)");
-        const receipt = await tx.wait(); 
-        
-        // 3. [DB 저장]
-        await axios.post(`${API_URL}/api/proposals`, { 
-            wallet_address: walletAddress, 
-            ...proposalForm,
-            image_url: finalImageUrl,
-            meta_hash: finalMetaHash // DB에도 진짜 CID 저장
-        });
+        setIsLoading(true);
+        let finalImageIpfsUrl = ""; // 최종 안건에 들어갈 IPFS 주소
 
-        alert("✅ 안건 등록 완료! (IPFS + Blockchain + DB)");
-        setActiveTab("proposals");
-        fetchProposals();
+        try {
+            // 🌟 1. 백엔드에서 받은 엑박 없는 텍스트 이미지(Base64)를 그대로 IPFS 서버로 전송!
+            if (proposalForm.image_url && proposalForm.image_url.startsWith('data:image')) {
+                console.log("🚀 안전한 이미지를 IPFS로 전송 중...");
+                
+                const ipfsRes = await axios.post(`${API_URL}/api/ipfs/finalize`, {
+                    image_url: proposalForm.image_url
+                });
 
-    } catch (err) {
-        console.error(err);
-        alert("등록 실패: " + (err.reason || err.message));
-    }
-    setIsLoading(false);
-  };
+                if (ipfsRes.data.status === "success") {
+                    finalImageIpfsUrl = ipfsRes.data.image_ipfs_url;
+                    console.log("✅ IPFS 이미지 저장 완벽 성공! 주소:", finalImageIpfsUrl);
+                }
+            }
+
+            // 🚨 2. 스마트 컨트랙트 안건 등록
+            alert("🦊 지갑에서 트랜잭션을 승인해주세요.");
+            const quorumWei = ethers.parseUnits(proposalForm.quorum.toString(), 18);
+            
+            console.log("🚀 스마트 컨트랙트에 트랜잭션 전송 중...");
+            const tx = await contract.createProposal(
+                proposalForm.title, 
+                proposalForm.description, 
+                finalImageIpfsUrl || proposalForm.image_url || "", // IPFS 주소가 있으면 넣기
+                proposalForm.voteType,
+                proposalForm.duration, 
+                quorumWei
+            );
+        
+            alert("⛓️ 블록체인에 기록 중입니다... (약 10~20초 소요)");
+            await tx.wait(); 
+            
+            // 🚨 3. DB 저장 (너무 무거운 Base64 대신, 안전하고 짧은 IPFS 주소만 저장하도록 복구!)
+            await axios.post(`${API_URL}/api/proposals`, { 
+                wallet_address: walletAddress, 
+                title: proposalForm.title,
+                description: proposalForm.description,
+                style: proposalForm.style,
+                image_url: finalImageIpfsUrl || "",  // 👈 폭발의 원인이었던 Base64를 빼고, 다시 IPFS 주소로 원상복구!
+                meta_hash: finalImageIpfsUrl 
+            });
+
+            alert("🎉 안건이 성공적으로 등록되었습니다! (IPFS + Blockchain + DB)");
+            setProposalForm({ title: "", description: "", style: "General", image_url: "", meta_hash: "", voteType: 0, duration: 3, quorum: 10 });
+            setActiveTab("proposals"); // 등록 후 안건 목록으로 이동
+            fetchProposals();
+
+        } catch (err) {
+            console.error("🔥 안건 등록 실패:", err);
+            alert("등록 실패: " + (err.reason || err.message));
+        } finally {
+            setIsLoading(false);
+        }
+    };
   const deleteProposal = async (id, e) => {
     e.stopPropagation(); 
     if (!window.confirm("정말 삭제하시겠습니까?")) return;
@@ -381,17 +388,22 @@ function App() {
     } catch (err) { alert("위임 오류"); }
   };
   
-  const sendMessage = async () => {
+ const sendMessage = async () => {
     if (!chatInput.trim()) return;
     const userMsg = { sender: "user", text: chatInput };
     setChatMessages(prev => [...prev, userMsg]);
     setChatInput("");
+    
+    setIsChatLoading(true); // 🚀 [핵심] 여기서 로딩 애니메이션 스위치 ON!
+    
     try {
       const res = await axios.post(`${API_URL}/api/a2a/chat`, null, { params: { message: userMsg.text, wallet_address: walletAddress } });
       setChatMessages(prev => [...prev, { sender: "bot", text: res.data.reply }]);
     } catch (err) {
       setChatMessages(prev => [...prev, { sender: "bot", text: "오류가 발생했습니다." }]);
     }
+    
+    setIsChatLoading(false); // 🚀 [핵심] 답변이 오면 로딩 애니메이션 스위치 OFF!
   };
   
   // ✅ [수정] 투표 함수 (ID 보정 및 백틱 수정 완료)
@@ -453,32 +465,34 @@ function App() {
       }
   };
 
-  const runCritic = async () => {
+const runCritic = async () => {
     if (!agentInput.criticArtInfo) return alert("입력 필요");
-    setIsLoading(true);
+    setActiveAgentLoading('critic'); // 비평가 로딩 켜기
     try {
       const res = await axios.post(`${API_URL}/api/agent/review`, { art_info: agentInput.criticArtInfo });
       setAgentResult(prev => ({ ...prev, critic: res.data.review_text }));
     } catch (err) { alert("실패"); }
-    setIsLoading(false);
+    setActiveAgentLoading(null); // 로딩 끄기
   };
+
   const runMarketer = async () => {
     if (!agentInput.marketerTitle) return alert("입력 필요");
-    setIsLoading(true);
+    setActiveAgentLoading('marketer'); // 마케터 로딩 켜기
     try {
       const res = await axios.post(`${API_URL}/api/agent/promote`, { exhibition_title: agentInput.marketerTitle, target_audience: agentInput.marketerTarget });
       setAgentResult(prev => ({ ...prev, marketer: res.data.promo_text }));
     } catch (err) { alert("실패"); }
-    setIsLoading(false);
+    setActiveAgentLoading(null); // 로딩 끄기
   };
+
   const runAuction = async () => {
     if (!agentInput.auctionArtInfo) return alert("입력 필요");
-    setIsLoading(true);
+    setActiveAgentLoading('auction'); // 경매사 로딩 켜기
     try {
       const res = await axios.post(`${API_URL}/api/agent/auction`, { art_info: agentInput.auctionArtInfo, critic_review: agentInput.auctionReview });
       setAgentResult(prev => ({ ...prev, auction: res.data.auction_report }));
     } catch (err) { alert("실패"); }
-    setIsLoading(false);
+    setActiveAgentLoading(null); // 로딩 끄기
   };
 
   // ==========================================
@@ -557,7 +571,13 @@ function App() {
                             <span className="read-more">👉 자세히 보기</span>
                         </div>
                         <div className="p-right">
-                            {p.image_url && <img src={p.image_url} alt="art" className="thumb"/>}
+                            {/* 🚨 목록에서는 무거운 이미지 대신 '첨부 아이콘'만 표시하여 로딩 속도 최적화 */}
+                            {p.image_url && (
+                                <div style={{ padding: '10px 15px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', color: '#64748b', fontSize: '0.85rem', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '5px', alignItems: 'center', justifyContent: 'center', height: '80px', width: '80px' }}>
+                                    <span style={{ fontSize: '1.8rem' }}>🖼️</span>
+                                    <span style={{ fontWeight: 'bold' }}>이미지</span>
+                                </div>
+                            )}
                             {isLoggedIn && ADMIN_WALLETS.map(w => w.toLowerCase()).includes(walletAddress.toLowerCase()) && (
                                 <button className="delete-icon-btn" onClick={(e) => deleteProposal(p.id, e)}>🗑️</button>
                             )}
@@ -574,88 +594,112 @@ function App() {
           </div>
         )}
 
-        {/* ✅ 상세 보기 모달 */}
+        {/* ✅ 상세 보기 모달 (가독성 대폭 개선 & IPFS 이미지 완벽 지원) */}
         {selectedProposal && (
-            <div className="modal-overlay" onClick={() => setSelectedProposal(null)}>
-                <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-                    <button className="close-btn" onClick={() => setSelectedProposal(null)}>✖</button>
+            <div className="modal-overlay" onClick={closeModal} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.7)', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000, padding: '20px' }}>
+                <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ background: '#fff', width: '100%', maxWidth: '850px', maxHeight: '90vh', overflowY: 'auto', borderRadius: '16px', padding: '30px', position: 'relative', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
                     
-                    {/* 모달 헤더 (게이지 + 마감일 + 정족수 표시) */}
-                    <div className="modal-header">
-                        <div style={{ background: "#f0f9ff", padding: "10px", borderRadius: "8px", marginBottom: "15px", border: "1px solid #bae6fd", fontSize: "0.9em", color: "#0369a1" }}>
-                            <strong>🔗 Blockchain Verified</strong>
-                            <div style={{ marginTop: "4px", fontFamily: "monospace", wordBreak: "break-all" }}>
-                                Tx Hash: {selectedProposal.meta_hash || "처리 중..."}
+                    <button onClick={closeModal} style={{ position: 'absolute', top: '20px', right: '20px', background: '#f1f5f9', border: 'none', borderRadius: '50%', width: '40px', height: '40px', fontSize: '20px', cursor: 'pointer', color: '#64748b' }}>✖</button>
+                    
+                    {/* 1. 모달 헤더 */}
+                    <div className="modal-header" style={{ borderBottom: '2px solid #f1f5f9', paddingBottom: '20px', marginBottom: '25px' }}>
+                        <div style={{ background: "#f0f9ff", padding: "12px 16px", borderRadius: "10px", marginBottom: "20px", border: "1px solid #bae6fd", color: "#0369a1" }}>
+                            <strong style={{ fontSize: '1.1rem' }}>🔗 Blockchain Verified</strong>
+                            <div style={{ marginTop: "6px", fontFamily: "monospace", fontSize: '0.95rem', wordBreak: "break-all" }}>
+                                Tx Hash / CID: {selectedProposal.meta_hash || "처리 중..."}
                             </div>
                         </div>
                         
-                        <span className={`status-badge ${selectedProposal.status}`}>{selectedProposal.status}</span>
-                        <h2>{selectedProposal.title}</h2>
-                        
-                        {/* 📅 마감일 & 정족수 표시 */}
-			<div style={{ fontSize: "0.9rem", color: "#666", marginTop: "10px" }}>
-    			    📅 마감: {selectedProposal.deadline && selectedProposal.deadline > 0 
-			        ? new Date(selectedProposal.deadline * 1000).toLocaleString() 
-			        : "데이터 로딩 중..."} | 
-    			    🎯 목표: {selectedProposal.quorum || 0}표
-			</div>
-                        {/* 📊 투표 현황 게이지 바 */}
-                        <div className="vote-gauge-container" style={{ marginTop: "15px", background: "#eee", borderRadius: "10px", overflow: "hidden", height: "25px", position: "relative" }}>
-                            {/* 찬성 바 (파란색) */}
-                            <div style={{
-                                width: `${(selectedProposal.voteCount / (selectedProposal.voteCount + selectedProposal.againstCount || 1)) * 100}%`,
-                                background: "#3b82f6",
-                                height: "100%",
-                                float: "left",
-                                transition: "width 0.5s"
-                            }}></div>
-                            {/* 반대 바 (빨간색) */}
-                            <div style={{
-                                width: `${(selectedProposal.againstCount / (selectedProposal.voteCount + selectedProposal.againstCount || 1)) * 100}%`,
-                                background: "#ef4444",
-                                height: "100%",
-                                float: "left",
-                                transition: "width 0.5s"
-                            }}></div>
+                        <div style={{ marginBottom: '10px' }}>
+                            <span className={`status-badge ${selectedProposal.status}`} style={{ fontSize: '1rem', padding: '6px 14px' }}>{selectedProposal.status}</span>
                         </div>
                         
-                        {/* 텍스트 정보 */}
-                        <div style={{ display: "flex", justifyContent: "space-between", marginTop: "5px", fontSize: "0.9rem", fontWeight: "bold" }}>
-                            <span style={{ color: "#3b82f6" }}>👍 찬성: {selectedProposal.voteCount ? selectedProposal.voteCount.toFixed(2) : 0}표</span>
-                            <span style={{ color: "#ef4444" }}>👎 반대: {selectedProposal.againstCount ? selectedProposal.againstCount.toFixed(2) : 0}표</span>
+                        <h2 style={{ fontSize: '2.2rem', fontWeight: '800', color: '#0f172a', margin: '10px 0', lineHeight: '1.3' }}>
+                            {selectedProposal.title}
+                        </h2>
+                        
+                        <div style={{ fontSize: "1.1rem", color: "#475569", display: 'flex', gap: '15px', flexWrap: 'wrap', fontWeight: '500' }}>
+                            <span>📅 마감: {selectedProposal.deadline && selectedProposal.deadline > 0 ? new Date(selectedProposal.deadline * 1000).toLocaleString() : "데이터 로딩 중..."}</span>
+                            <span>|</span>
+                            <span>🎯 목표 정족수: {selectedProposal.quorum || 0}표</span>
                         </div>
-
-                        <p className="meta" style={{marginTop: "15px"}}>작성자: {selectedProposal.wallet_address}</p>
                     </div>
 
-                    <div className="modal-body">
-                        {selectedProposal.image_url && (
-                            <div className="modal-image-section">
-                                <img src={selectedProposal.image_url} alt="Proposal Art" />
-                                <a href={selectedProposal.image_url} target="_blank" rel="noreferrer" className="download-link">원본 이미지 보기</a>
+                   {/* 🚨 완벽 수정된 모달 본문 (IPFS 동기화 및 에러 핸들링 최적화) */}
+                    <div style={{ display: 'flex', flexDirection: 'row', gap: '20px', margin: '20px 0', minHeight: '400px', width: '100%', alignItems: 'stretch' }}>
+                        
+                        {/* 🖼️ 왼쪽: 그림 영역 */}
+                        <div style={{ flex: '1', width: '50%', backgroundColor: '#0f172a', borderRadius: '16px', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                            {selectedProposal.image_url ? (
+                                <>
+                                    <div style={{ flex: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '15px' }}>
+                                        <img 
+                                            // 🚨 범용성이 가장 뛰어난 공식 ipfs.io 게이트웨이 사용
+                                            src={selectedProposal.image_url.startsWith('data:image') ? selectedProposal.image_url : selectedProposal.image_url.replace("ipfs://", "https://ipfs.io/ipfs/")} 
+                                            alt="Proposal Art" 
+                                            style={{ maxWidth: '100%', maxHeight: '350px', objectFit: 'contain' }}
+                                            onError={(e) => { 
+                                                e.target.style.display = 'none'; 
+                                                // 에러 발생 시 안내 문구 표시 (IPFS 동기화는 전 세계 노드 전파에 시간이 걸림)
+                                                if (!e.target.nextElementSibling) {
+                                                    e.target.insertAdjacentHTML('afterend', '<div style="color:#94a3b8; padding: 20px; text-align:center; line-height: 1.6;"><span style="font-size:2rem;">⏳</span><br/>블록체인(IPFS) 네트워크에<br/>이미지를 동기화 중입니다.<br/><span style="font-size:0.9rem; color:#64748b;">(약 1~3분 정도 소요될 수 있습니다)</span></div>'); 
+                                                }
+                                            }}
+                                        />
+                                    </div>
+                                    <div style={{ padding: '12px', background: '#1e293b', textAlign: 'center' }}>
+                                        <a 
+                                            href={selectedProposal.image_url.startsWith('data:image') ? selectedProposal.image_url : selectedProposal.image_url.replace("ipfs://", "https://ipfs.io/ipfs/")} 
+                                            target="_blank" 
+                                            rel="noreferrer" 
+                                            style={{ color: '#38bdf8', textDecoration: 'none', fontWeight: 'bold' }}
+                                        >
+                                            👁️ 고화질 원본 보기 (새 창)
+                                        </a>
+                                    </div>
+                                </>
+                            ) : (
+                                <div style={{ flex: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', backgroundColor: '#f1f5f9' }}>
+                                    첨부된 이미지가 없습니다.
+                                </div>
+                            )}
+                        </div>
+                        
+                        {/* 📜 오른쪽: 안건 내용 영역 */}
+                        <div style={{ flex: '1', width: '50%', background: '#f8fafc', padding: '25px', borderRadius: '16px', border: '1px solid #e2e8f0', overflowY: 'auto', maxHeight: '420px' }}>
+                            <h3 style={{ marginTop: 0, color: '#1e293b', borderBottom: '2px solid #cbd5e1', paddingBottom: '12px', fontSize: '1.5rem' }}>📜 안건 내용</h3>
+                            <div style={{ whiteSpace: 'pre-wrap', color: '#334155', fontSize: '1.15rem', lineHeight: '1.8', marginTop: '15px' }}>
+                                {selectedProposal.description || "안건 내용이 등록되지 않았습니다."}
                             </div>
-                        )}
-                        <div className="modal-text-section">
-                            <h3>📜 기획서 상세</h3>
-                            <div className="markdown-content">{selectedProposal.description}</div>
                         </div>
+
                     </div>
-                    
-                    <div className="modal-footer" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-                        <div className="vote-input-box" style={{ marginBottom: '15px', padding: '15px', background: '#f8fafc', borderRadius: '8px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                <label style={{ fontWeight: 'bold' }}>투표할 토큰 수량 (TUK)</label>
-                                <span style={{ fontSize: '0.85rem', color: '#6b7280' }}>보유: {myInfo.balance} TUK</span>
+
+                    {/* 3. 모달 하단 (투표 영역) */}
+                    <div className="modal-footer" style={{ flexDirection: 'column', alignItems: 'stretch', marginTop: '30px', borderTop: '2px solid #f1f5f9', paddingTop: '25px' }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px", fontSize: "1.2rem", fontWeight: "bold" }}>
+                            <span style={{ color: "#2563eb" }}>👍 찬성: {selectedProposal.voteCount ? selectedProposal.voteCount.toFixed(2) : 0}표</span>
+                            <span style={{ color: "#dc2626" }}>👎 반대: {selectedProposal.againstCount ? selectedProposal.againstCount.toFixed(2) : 0}표</span>
+                        </div>
+                        <div style={{ width: "100%", background: "#e2e8f0", borderRadius: "12px", height: "30px", position: "relative", overflow: "hidden", marginBottom: '25px' }}>
+                            <div style={{ width: `${(selectedProposal.voteCount / ((selectedProposal.voteCount + selectedProposal.againstCount) || 1)) * 100}%`, background: "#3b82f6", height: "100%", float: "left", transition: "width 0.5s" }}></div>
+                            <div style={{ width: `${(selectedProposal.againstCount / ((selectedProposal.voteCount + selectedProposal.againstCount) || 1)) * 100}%`, background: "#ef4444", height: "100%", float: "left", transition: "width 0.5s" }}></div>
+                        </div>
+
+                        <div style={{ padding: '20px', background: '#eff6ff', borderRadius: '12px', border: '1px solid #bfdbfe', marginBottom: '20px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                <label style={{ fontWeight: 'bold', color: '#1e3a8a', fontSize: '1.2rem' }}>투표할 토큰 수량 (TUK)</label>
+                                <span style={{ fontSize: '1rem', color: '#3b82f6', fontWeight: 'bold', background: '#fff', padding: '6px 12px', borderRadius: '20px', border: '1px solid #bfdbfe' }}>내 보유량: {myInfo.balance} TUK</span>
                             </div>
                             <input 
                                 type="number" 
                                 value={voteAmount} 
                                 onChange={(e) => setVoteAmount(e.target.value)}
-                                placeholder="사용할 토큰 수량을 입력하세요"
-                                style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                                placeholder="사용할 토큰 수량을 입력하세요 (예: 10)"
+                                style={{ width: '100%', padding: '15px', borderRadius: '10px', border: '2px solid #93c5fd', fontSize: '1.2rem', boxSizing: 'border-box', outline: 'none' }}
                             />
-                            <div style={{ marginTop: '8px', fontSize: '0.9rem', color: '#3b82f6', fontWeight: 'bold' }}>
-                                예상 행사 표수: {
+                            <div style={{ marginTop: '12px', fontSize: '1.1rem', color: '#2563eb', fontWeight: 'bold' }}>
+                                💡 예상 행사 표수: {
                                     voteAmount > 0 
                                     ? (selectedProposal.voteType === 1 ? Math.sqrt(voteAmount).toFixed(2) : voteAmount) 
                                     : 0
@@ -663,15 +707,18 @@ function App() {
                             </div>
                         </div>
 
-                        <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                            <button className="vote-btn yes" onClick={() => handleVote(selectedProposal.id, true)}>👍 찬성 투표</button>
-                            <button className="vote-btn no" onClick={() => handleVote(selectedProposal.id, false)}>👎 반대 투표</button>
+                        <div style={{ display: 'flex', gap: '15px' }}>
+                            <button onClick={() => handleVote(selectedProposal.id, true)} style={{ flex: 1, padding: '15px', fontSize: '1.3rem', fontWeight: 'bold', background: '#2563eb', color: 'white', border: 'none', borderRadius: '12px', cursor: 'pointer', transition: '0.2s' }}>
+                                👍 찬성 투표하기
+                            </button>
+                            <button onClick={() => handleVote(selectedProposal.id, false)} style={{ flex: 1, padding: '15px', fontSize: '1.3rem', fontWeight: 'bold', background: '#dc2626', color: 'white', border: 'none', borderRadius: '12px', cursor: 'pointer', transition: '0.2s' }}>
+                                👎 반대 투표하기
+                            </button>
                         </div>
                     </div>
                 </div>
             </div>
         )}
-
         {/* 안건 작성 */}
         {activeTab === "write" && (
             <div className="page fade-in">
@@ -746,25 +793,41 @@ function App() {
                 <div className="studio-layout">
                     <div className="card studio-input">
                         <h3>1. 기획 의도 입력</h3>
-                        <input type="text" placeholder="예: 우울한 사이버펑크 도시" value={studioData.intent} onChange={(e)=>setStudioData({...studioData, intent: e.target.value})}/>
+                        <input type="text" placeholder="예: 외계인 도시" value={studioData.intent} onChange={(e)=>setStudioData({...studioData, intent: e.target.value})}/>
                         <div className="studio-btns">
-                            <button onClick={()=>handleStudioAction('draft')} disabled={isLoading}>📜 기획서 생성</button>
+                            <button className="primary" onClick={()=>handleStudioAction('draft')} disabled={isLoading}>📜 기획서 생성</button>
                         </div>
                     </div>
+                    
                     <div className="card studio-result">
                         <h3>2. 결과물 확인</h3>
-                        {studioData.draft && (
+                        
+                        {/* 🚀 [NEW] 스튜디오 A2A 사고 과정 UI */}
+                        {isLoading && studioLoadingStep && (
+                            <div className="a2a-thinking-container">
+                                <div className="a2a-thinking-header">
+                                    <span className="loading-spinner" style={{borderColor: 'rgba(100,116,139,0.3)', borderTopColor: '#64748b'}}></span>
+                                    사고 (A2A Protocol)
+                                </div>
+                                <div className="a2a-step-list">
+                                    <div className="a2a-step">유저 인텐트(의도) 분석 완료</div>
+                                    <div className="a2a-step active">{studioLoadingStep}</div>
+                                </div>
+                            </div>
+                        )}
+
+                        {studioData.draft && !isLoading && (
                             <>
                                 <textarea value={studioData.draft} readOnly />
-                                <button className="action-btn" onClick={()=>handleStudioAction('image')} disabled={isLoading}>
-                                    {isLoading ? "생성 중..." : "🎨 포스터 이미지 생성"}
+                                <button className="action-btn primary full-width" onClick={()=>handleStudioAction('image')} disabled={isLoading} style={{marginTop: '10px', marginBottom: '10px'}}>
+                                    🎨 포스터 이미지 생성
                                 </button>
                             </>
                         )}
-                        {studioData.image && (
+                        {studioData.image && !isLoading && (
                             <div className="final-result">
                                 <img src={studioData.image} alt="Generated" />
-                               <button className="primary full-width" onClick={sendToProposalWrite}>👉 안건 작성 페이지로 이동해서 적용하기 (기간/정족수 설정)</button>
+                                <button className="primary full-width" onClick={sendToProposalWrite}>👉 안건 작성 페이지로 이동해서 적용하기</button>
                             </div>
                         )}
                     </div>
@@ -776,14 +839,19 @@ function App() {
             <div className="page fade-in">
                 <h2>💼 AI Agent Squad (전문가 팀)</h2>
                 <div className="agent-grid">
-                    <div className="card agent-card">
+                    
+                    {/* 1. 비평가 카드 */}
+                    <div className={`card agent-card ${activeAgentLoading === 'critic' ? 'loading' : ''}`}>
                         <div className="agent-header"><span className="icon">🧐</span><h3>Art Critic (비평가)</h3></div>
                         <p className="role-desc">작품을 분석하여 심도 있는 비평문을 작성합니다.</p>
                         <div className="input-group">
                             <label>작품 정보</label>
                             <textarea placeholder="예: 사이버펑크 스타일..." value={agentInput.criticArtInfo} onChange={(e) => setAgentInput({...agentInput, criticArtInfo: e.target.value})}/>
                         </div>
-                        <button className="primary full-width" onClick={runCritic} disabled={isLoading}>{isLoading ? "분석 중..." : "비평 작성 요청"}</button>
+                        <button className="primary full-width" onClick={runCritic} disabled={activeAgentLoading !== null}>
+                            {activeAgentLoading === 'critic' ? <><span className="loading-spinner"></span>작품 심층 분석 중...</> : "비평 작성 요청"}
+                        </button>
+                        {activeAgentLoading === 'critic' && <div className="ai-processing-text">✨ AI 비평가가 미술사적 맥락을 파악하고 있습니다...</div>}
                         {agentResult.critic && (
                             <div className="result-box">
                                 <h4>📜 비평문</h4><p>{agentResult.critic}</p>
@@ -791,7 +859,9 @@ function App() {
                             </div>
                         )}
                     </div>
-                    <div className="card agent-card">
+
+                    {/* 2. 마케터 카드 */}
+                    <div className={`card agent-card ${activeAgentLoading === 'marketer' ? 'loading' : ''}`}>
                         <div className="agent-header"><span className="icon">📢</span><h3>Viral Marketer (마케터)</h3></div>
                         <p className="role-desc">전시회 홍보를 위한 SNS 바이럴 카피를 작성합니다.</p>
                         <div className="input-group">
@@ -800,10 +870,15 @@ function App() {
                             <label>타겟 관객</label>
                             <input type="text" placeholder="예: 20대 힙스터" value={agentInput.marketerTarget} onChange={(e) => setAgentInput({...agentInput, marketerTarget: e.target.value})}/>
                         </div>
-                        <button className="primary full-width" onClick={runMarketer} disabled={isLoading}>{isLoading ? "생성 중..." : "홍보 문구 생성"}</button>
+                        <button className="primary full-width" onClick={runMarketer} disabled={activeAgentLoading !== null}>
+                            {activeAgentLoading === 'marketer' ? <><span className="loading-spinner"></span>홍보 문구 생성 중...</> : "홍보 문구 생성"}
+                        </button>
+                        {activeAgentLoading === 'marketer' && <div className="ai-processing-text">🚀 트렌드 분석 및 인스타그램 해시태그 조합 중...</div>}
                         {agentResult.marketer && <div className="result-box"><h4>📱 인스타그램 카피</h4><p style={{whiteSpace: "pre-line"}}>{agentResult.marketer}</p></div>}
                     </div>
-                    <div className="card agent-card">
+
+                    {/* 3. 경매사 카드 */}
+                    <div className={`card agent-card ${activeAgentLoading === 'auction' ? 'loading' : ''}`}>
                         <div className="agent-header"><span className="icon">🔨</span><h3>Auctioneer (경매사)</h3></div>
                         <p className="role-desc">비평을 바탕으로 경매 시작가를 책정하고 오프닝 멘트를 합니다.</p>
                         <div className="input-group">
@@ -812,9 +887,13 @@ function App() {
                             <label>비평가 리뷰</label>
                             <textarea placeholder="비평가가 쓴 글을 입력하세요" value={agentInput.auctionReview} onChange={(e) => setAgentInput({...agentInput, auctionReview: e.target.value})}/>
                         </div>
-                        <button className="primary full-width" onClick={runAuction} disabled={isLoading}>{isLoading ? "산정 중..." : "경매 리포트 생성"}</button>
+                        <button className="primary full-width" onClick={runAuction} disabled={activeAgentLoading !== null}>
+                            {activeAgentLoading === 'auction' ? <><span className="loading-spinner"></span>가치 산정 중...</> : "경매 리포트 생성"}
+                        </button>
+                        {activeAgentLoading === 'auction' && <div className="ai-processing-text">💰 글로벌 경매 데이터와 대조하여 시작가를 책정하고 있습니다...</div>}
                         {agentResult.auction && <div className="result-box"><h4>💰 경매 리포트</h4><p style={{whiteSpace: "pre-line"}}>{agentResult.auction}</p></div>}
                     </div>
+
                 </div>
             </div>
         )}
@@ -849,18 +928,42 @@ function App() {
                     <div className="messages">
                         {chatMessages.map((msg, idx) => (
                             <div key={idx} className={`msg ${msg.sender}`}>
-                                <div className="bubble">{msg.text}</div>
+                                <div className="bubble" style={{ whiteSpace: "pre-line" }}>{msg.text}</div>
                             </div>
                         ))}
+                        
+                        {/* 🚀 [NEW] 채팅창 A2A 사고 과정 애니메이션 */}
+                        {isChatLoading && (
+                            <div className="msg bot">
+                                <div className="a2a-thinking-container" style={{ width: '100%', maxWidth: '80%', margin: 0, padding: '12px' }}>
+                                    <div className="a2a-thinking-header">
+                                        <span className="loading-spinner" style={{borderColor: 'rgba(100,116,139,0.3)', borderTopColor: '#64748b', width: '12px', height: '12px'}}></span>
+                                        사고 (Agent Network)
+                                    </div>
+                                    <div className="a2a-step-list">
+                                        <div className="a2a-step">유저 성향 및 질문 의도 파악 완료</div>
+                                        <div className="a2a-step active">비평가 에이전트와 교차 검증하며 답변 생성 중...</div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
+                    
                     <div className="chat-input">
-                        <input type="text" value={chatInput} onChange={(e)=>setChatInput(e.target.value)} onKeyPress={(e)=>e.key==='Enter' && sendMessage()} placeholder="미술품 추천을 부탁해보세요..." />
-                        <button onClick={sendMessage}>전송</button>
+                        <input 
+                            type="text" 
+                            value={chatInput} 
+                            onChange={(e)=>setChatInput(e.target.value)} 
+                            onKeyPress={(e)=>e.key==='Enter' && !isChatLoading && sendMessage()} 
+                            placeholder="미술품 추천을 부탁해보세요..." 
+                            disabled={isChatLoading} 
+                        />
+                        <button className="primary" onClick={sendMessage} disabled={isChatLoading}>전송</button>
                     </div>
                 </div>
             </div>
         )}
-
+        
         {activeTab === "delegates" && (
           <div className="page fade-in">
             <div className="page-header">

@@ -348,6 +348,27 @@ def create_art_image(request: schemas.StudioImageRequest):
         print(f"🔥 통신 에러: {str(e)}")
         return {"image_url": "https://via.placeholder.com/600x400?text=Connection+Failed"}
 
+# ==========================================
+# 1. 비평가 (Critic) 연결 (🚀 방금 추가한 코드)
+# ==========================================
+class CriticReviewRequest(BaseModel):
+    art_info: str
+
+@app.post("/api/agent/review")
+def agent_review(req: CriticReviewRequest):
+    print(f"📡 [Backend] 비평가 호출: {req.art_info}")
+    try:
+        # AI 컨테이너(8002)의 /review 엔드포인트 호출
+        payload = {"art_info": req.art_info}
+        resp = requests.post(f"{AI_AGENT_URL}/review", json=payload)
+        
+        if resp.status_code == 200:
+            return resp.json() # {"review_text": "..."} 반환
+        else:
+            return {"review_text": "비평문 생성 실패"}
+    except Exception as e:
+        return {"review_text": "통신 오류 발생"}
+    
 # 2. 마케터 (Marketer) 연결
 @app.post("/api/agent/promote", response_model=schemas.AgentPromoteResponse)
 def agent_promote(req: schemas.AgentPromoteRequest):
@@ -385,106 +406,136 @@ def agent_auction(req: schemas.AgentAuctionRequest):
             return {"auction_report": "경매 리포트 생성 실패"}
     except Exception as e:
         return {"auction_report": "통신 오류 발생"}
+
 # ==========================================
-# 1. AI 그림 임시 생성 (URL 인코딩 완벽 적용 - 엑박 해결!)
+# [캡스톤 최종 병기] Gemini(프롬프트 엔지니어링) + Cloudflare FLUX(그림 생성) 융합 파이프라인
 # ==========================================
+from pydantic import BaseModel
+import os
+
 class HybridArtRequest(BaseModel):
     prompt: str
     wallet_address: str
 
+# 🛡️ .env 파일에서 안전하게 키를 불러옵니다!
+CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
+CF_API_TOKEN = os.getenv("CF_API_TOKEN")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") 
+
 @app.post("/api/studio/generate_hybrid")
 async def generate_hybrid_art(req: HybridArtRequest):
-    print(f"🎨 [1] AI에게 그림 임시 생성 요청: {req.prompt}")
-    try:
-        ai_payload = {"topic": req.prompt, "style": "Cyberpunk", "wallet_address": req.wallet_address}
-        ai_res = requests.post(f"{AI_AGENT_URL}/generate", json=ai_payload)
-        
-        if ai_res.status_code != 200: return {"error": "AI Error"}
-        
-        final_prompt = ai_res.json().get("final_prompt", "Abstract Art")
-        
-        # 🚀 [핵심] 마크다운 제거, 줄바꿈 제거, 최대 500자 제한
-        safe_prompt = final_prompt.replace("*", "").replace("#", "").replace("\n", " ").strip()
-        safe_prompt = safe_prompt[:500] 
-        
-        # 🚀 [핵심] safe="" 추가로 모든 특수기호 완벽 변환 (1033 에러 방지)
-        encoded_prompt = urllib.parse.quote(safe_prompt, safe="")
-        
-        seed = random.randint(1, 99999)
-        temp_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?seed={seed}&width=1024&height=768&nologo=true&model=flux"
-        
-        # 화면에 즉시 띄우기 위한 렌더링 웜업
-        print("⏳ AI가 그림을 그리는 중... (약 3초 소요)")
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36'}
-        try:
-            requests.get(temp_url, headers=headers, timeout=15) 
-        except:
-            pass 
-            
-        print(f"✅ [완료] 임시 이미지 주소 반환: {temp_url}")
-        return {
-            "status": "success",
-            "image_url": temp_url, 
-            "final_prompt": safe_prompt
-        }
-    except Exception as e:
-        return {"error": str(e)}
+    print(f"🎨 [1] 사용자의 원본 기획 의도: {req.prompt}")
+    
+    if not CF_ACCOUNT_ID or not CF_API_TOKEN:
+        return {"error": "Cloudflare API 키 설정(.env)이 누락되었습니다!"}
 
+    # 🚨 여기서 try가 열렸으니 맨 밑에 except가 꼭 있어야 합니다!
+    try:
+        import requests
+        import base64
+        import json
+
+        # ---------------------------------------------------------
+        # 🧠 단계 1: Gemini를 통한 한국어 의도 파악 및 영어 프롬프트 강화
+        # ---------------------------------------------------------
+        enhanced_english_prompt = req.prompt.strip()
+        
+        if GEMINI_API_KEY and enhanced_english_prompt:
+            try:
+                print("🧠 [Gemini] 한국어 기획 의도 분석 및 영문 프롬프트 엔지니어링 중...")
+                gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY.strip()}"
+                # 기존 instruction 변수를 찾아서 아래처럼 더 강력하게 바꿔치기 하세요!
+                instruction = f"사용자의 기획 의도: '{enhanced_english_prompt}'\n\n명령: 위 내용을 바탕으로 AI 이미지 생성기(FLUX)에 입력할 완벽하고 디테일한 영문 프롬프트를 1문장으로 작성해줘. 단, 배경이나 간판에 중국어/한자/일본어(No Chinese or Japanese characters)는 절대 그리지 말고 오직 영어(English text only)만 나타나도록 프롬프트에 강력히 명시해. 피사체, 화풍, 조명도 포함해서 다른 부연 설명 없이 오직 영어 프롬프트 문장만 딱 출력해."
+                
+                gemini_payload = {"contents": [{"parts": [{"text": instruction}]}]}
+                gemini_res = requests.post(gemini_url, json=gemini_payload, timeout=10)
+                
+                if gemini_res.status_code == 200:
+                    enhanced_english_prompt = gemini_res.json()['candidates'][0]['content']['parts'][0]['text'].strip()
+                    print(f"✨ [Gemini 변환 완료] ➔ {enhanced_english_prompt}")
+            except Exception as e:
+                print(f"⚠️ Gemini 통신 에러 (원본 그대로 사용합니다): {e}")
+
+        if not enhanced_english_prompt:
+            enhanced_english_prompt = "A beautiful abstract painting, masterpiece, highly detailed"
+        else:
+            enhanced_english_prompt = f"{enhanced_english_prompt}, masterpiece, highly detailed, 8k resolution"
+
+        # ---------------------------------------------------------
+        # 🎨 단계 2: Cloudflare FLUX 모델에 영문 프롬프트 던져서 그림 생성
+        # ---------------------------------------------------------
+        model = "@cf/black-forest-labs/flux-1-schnell"
+        api_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID.strip()}/ai/run/{model}"
+        headers = {"Authorization": f"Bearer {CF_API_TOKEN.strip()}"}
+        payload = {"prompt": enhanced_english_prompt}
+
+        print("📥 [Cloudflare FLUX] 영문 프롬프트로 고화질 이미지 렌더링 중...")
+        res = requests.post(api_url, headers=headers, json=payload, timeout=20)
+
+        if res.status_code == 200:
+            content_type = res.headers.get('Content-Type', '')
+            if 'application/json' in content_type:
+                res_json = res.json()
+                b64_image = res_json['result']['image']
+            else:
+                b64_image = base64.b64encode(res.content).decode('utf-8')
+                
+            data_url = f"data:image/jpeg;base64,{b64_image}"
+            
+            print("✅ 찐 AI 그림 생성 및 메모리 적재 완벽 성공!")
+            return {
+                "status": "success",
+                "image_url": data_url, 
+                "final_prompt": enhanced_english_prompt 
+            }
+        else:
+            print(f"🔥 Cloudflare 에러: {res.text}")
+            return {"error": "AI 모델 호출에 실패했습니다."}
+            
+    # 🚨 실수로 지워졌던 짝꿍! 이 부분이 반드시 들어가야 합니다.
+    except Exception as e:
+        print(f"🔥 통신 에러: {str(e)}")
+        return {"error": str(e)}
+    
 # ==========================================
-# 2. 최종 제출 시 IPFS 영구 저장
+# 2. IPFS 영구 저장 (프론트가 넘겨준 Base64 메모리 데이터를 IPFS로 직행)
 # ==========================================
 class FinalizeProposalRequest(BaseModel):
-    wallet_address: str
-    title: str
-    description: str
-    image_url: str 
-    prompt: str = "AI Generated"
+    image_url: str = ""
+    wallet_address: str = ""
+    title: str = ""
+    description: str = ""
+    prompt: str = ""
 
 @app.post("/api/ipfs/finalize")
 def finalize_proposal_ipfs(req: FinalizeProposalRequest):
-    print(f"🚀 [최종 제출] IPFS 영구 저장 시작: {req.title}")
+    print("🚀 [최종 제출] 메모리 데이터 -> IPFS 영구 저장 시작")
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-            'Referer': 'https://pollinations.ai/'
-        }
+        import base64
         
-        print(f"📥 다운로드 시도: {req.image_url[:50]}...")
-        img_res = requests.get(req.image_url, headers=headers, timeout=15)
-        
-        if img_res.status_code != 200: 
-            print(f"🔥 다운로드 에러 ({img_res.status_code}) -> 비상용 예비 이미지로 대체합니다!")
-            fallback_url = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1024&auto=format&fit=crop"
-            img_res = requests.get(fallback_url)
+        # Base64 형태의 이미지가 제대로 왔는지 확인
+        if not req.image_url or not req.image_url.startswith("data:image"):
+            return {"status": "success", "image_ipfs_url": ""}
             
-        image_bytes = img_res.content
+        print("📥 프론트엔드에서 보낸 데이터를 메모리에 복원 중...")
+        header, encoded = req.image_url.split(",", 1)
+        image_bytes = base64.b64decode(encoded)
         
-        print("🚀 이미지 IPFS 업로드 중...")
+        print("🚀 메모리에 있는 그림을 IPFS에 직접 업로드 중...")
         image_cid = upload_bytes_to_ipfs(image_bytes)
-        if not image_cid: return {"error": "Image Upload Failed"}
-        image_ipfs_url = f"https://gateway.pinata.cloud/ipfs/{image_cid}"
         
-        print("📝 메타데이터 IPFS 업로드 중...")
-        metadata = {
-            "name": req.title,
-            "description": req.description,
-            "image": f"ipfs://{image_cid}",
-            "attributes": [
-                {"trait_type": "Creator", "value": req.wallet_address},
-                {"trait_type": "Date", "value": str(time.time())}
-            ]
-        }
-        meta_cid = upload_json_to_ipfs(metadata)
+        if not image_cid:
+            return {"error": "Image Upload Failed"}
+            
+        image_ipfs_url = f"ipfs://{image_cid}"
+        print(f"✅ [IPFS 완료] 엑박 없는 찐 Image CID: {image_cid}")
         
-        print(f"✅ [IPFS 완료] Meta CID: {meta_cid}")
         return {
             "status": "success",
-            "meta_cid": meta_cid,
             "image_ipfs_url": image_ipfs_url
         }
     except Exception as e:
-        print(f"🔥 파이썬 에러: {str(e)}")
+        print(f"🔥 IPFS 파이썬 에러: {str(e)}")
         return {"error": str(e)}
 # =======================================================================
 # 사용자 목록을 불러오는 GET 요청과 위임 처리를 위한 POST 요청 추가(Lim)
