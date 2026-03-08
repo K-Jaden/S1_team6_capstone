@@ -259,3 +259,26 @@ def start_tour(request: DocentRequest):
         return {"commentary": parse_response(chain.invoke({"art_info": request.art_info, "aud": request.audience_type}).content)}
     except Exception:
         return {"commentary": "해설 실패"}
+    
+# ai_core/agent.py 맨 아래에 붙여넣기
+
+# ai_core/agent.py
+
+@app.get("/test-blockchain")
+def test_blockchain_connection():
+    try:
+        from blockchain import BlockchainService
+        svc = BlockchainService()
+        
+        # 6개의 테스트용 더미 데이터 전달
+        result = svc.submit_proposal(
+            "테스트 전시회",           # title
+            "AI가 생성한 테스트 설명",   # description
+            "QmTest1234567890",       # ipfs_hash
+            100,                      # funding_goal (예: 100 TUK)
+            10,                       # min_contribution
+            7                         # duration_days
+        )
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
