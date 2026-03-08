@@ -495,3 +495,114 @@ body { margin: 0; font-family: 'Segoe UI', sans-serif; background-color: var(--b
   visibility: visible;
   opacity: 1;
 }
+
+/* ==========================================
+   🤖 AI Agent 로딩 애니메이션 (NEW)
+   ========================================== */
+.agent-card.loading {
+  border-color: var(--primary);
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+  animation: agent-pulse 1.5s infinite;
+}
+
+@keyframes agent-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+  70% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+}
+
+.loading-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 3px solid rgba(255,255,255,0.3);
+  border-radius: 50%;
+  border-top-color: white;
+  animation: spin 1s ease-in-out infinite;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.ai-processing-text {
+  color: var(--primary);
+  font-weight: bold;
+  font-size: 0.9rem;
+  margin-top: 15px;
+  text-align: center;
+  animation: blink 1.5s infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ==========================================
+   🧠 A2A 사고 과정 (Thinking Process) UI
+   ========================================== */
+.a2a-thinking-container {
+  margin: 15px 0;
+  padding: 15px 20px;
+  background: #f8fafc;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  font-family: 'Pretendard', sans-serif;
+}
+
+.a2a-thinking-header {
+  font-weight: bold;
+  color: #64748b;
+  margin-bottom: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.a2a-step-list {
+  border-left: 2px solid #cbd5e1;
+  margin-left: 6px;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.a2a-step {
+  position: relative;
+  font-size: 0.95rem;
+  color: #475569;
+}
+
+/* 반짝이는 점 (인디케이터) */
+.a2a-step::before {
+  content: '';
+  position: absolute;
+  left: -27px; /* 선 위에 정확히 맞춤 */
+  top: 5px;
+  width: 10px;
+  height: 10px;
+  background: var(--primary);
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px #e0f2fe;
+}
+
+/* 현재 진행 중인 스텝 애니메이션 */
+.a2a-step.active {
+  color: #0f172a;
+  font-weight: bold;
+}
+
+.a2a-step.active::before {
+  animation: a2a-pulse 1.5s infinite;
+}
+
+@keyframes a2a-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+  70% { box-shadow: 0 0 0 6px rgba(59, 130, 246, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+}

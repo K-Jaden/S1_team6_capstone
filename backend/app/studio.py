@@ -4,7 +4,7 @@ import time
 from ipfs import upload_bytes_to_ipfs, upload_json_to_ipfs # 위에서 만든거 import
 
 router = APIRouter()
-AI_URL = "http://127.0.0.1:8002/generate" # AI 서버 주소
+AI_URL = "http://host.docker.internal:8002/generate"
 
 @router.post("/api/studio/generate_hybrid")
 async def generate_hybrid_art(prompt: str, wallet_address: str):
