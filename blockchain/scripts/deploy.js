@@ -62,6 +62,27 @@ export const DAO_CONTRACT_ADDRESS = "${daoAddress}";
       console.error("❌ 컴파일된 아티팩트 파일을 찾을 수 없습니다. (npx hardhat compile을 먼저 확인하세요)");
   }
 
+  // --- 추가된 AI 에이전트 동기화 로직 ---
+  const AI_CORE_DIR = path.join(__dirname, "../../ai_core");
+  
+  // 1. ABI 복사 (ArtPlanningDAO.json)
+  const abiPath = path.join(__dirname, "../artifacts/contracts/ArtPlanningDAO.sol/ArtPlanningDAO.json");
+  const abiContent = fs.readFileSync(abiPath, "utf8");
+  fs.writeFileSync(path.join(AI_CORE_DIR, "ArtPlanningDAO.json"), abiContent);
+  console.log(`✅ AI Core ABI(JSON) 복사 완료: ${path.join(AI_CORE_DIR, "ArtPlanningDAO.json")}`);
+
+  // 2. 주소 파일 생성 (계약 주소를 Python에서 쉽게 읽도록 JSON으로 저장)
+  const addressData = {
+    ArtPlanningDAO: daoAddress,
+    network: "localhost",
+    lastUpdated: new Date().toISOString()
+  };
+  fs.writeFileSync(
+    path.join(AI_CORE_DIR, "contract_address.json"),
+    JSON.stringify(addressData, null, 2)
+  );
+  console.log(`✅ AI Core 주소 파일 업데이트 완료: ${path.join(AI_CORE_DIR, "contract_address.json")}`);
+
   console.log("--------------------------------------------------\n");
 }
 
