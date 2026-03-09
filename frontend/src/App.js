@@ -6,7 +6,6 @@ import "./App.css";
 import { DAO_CONTRACT_ADDRESS as CONTRACT_ADDRESS, TUK_TOKEN_ADDRESS } from './contracts/address';
 import ArtPlanningDAO from './contracts/ArtPlanningDAO.json';
 
-
 const API_URL = "http://localhost:8000";
 
 const ADMIN_WALLETS = [
@@ -43,7 +42,6 @@ function App() {
   const [activeAgentLoading, setActiveAgentLoading] = useState(null); 
   const [isChatLoading, setIsChatLoading] = useState(false); 
   
-  // 👇 이거 한 줄 추가! (스튜디오에서 어떤 사고를 하고 있는지 텍스트 저장)
   const [studioLoadingStep, setStudioLoadingStep] = useState("");
 
   const [chatInput, setChatInput] = useState("");
@@ -150,7 +148,6 @@ function App() {
 
       if (contract) {
         try {
-            // ✅ 블록체인에서 현재 시간 가져오기
             const blockNum = await contract.runner.provider.getBlockNumber();
             const block = await contract.runner.provider.getBlock(blockNum);
             const nowBlockTime = Number(block.timestamp);
@@ -166,7 +163,6 @@ function App() {
                     let currentStatus = statusMap[Number(chainP[7])];
                     const deadlineTime = Number(chainP[9]);
 
-                    // ✅ [추가] OPEN 상태인데 마감일이 지났다면 프론트엔드에서 'CLOSED(결산 대기)'로 상태 덮어쓰기
                     if (currentStatus === "OPEN" && deadlineTime < nowBlockTime) {
                         currentStatus = "CLOSED";
                     }
@@ -230,10 +226,9 @@ function App() {
     } catch (err) { alert("뱃지 업데이트 실패"); }
   };
 
-// 1. AI 스튜디오 이미지 생성 (빠른 로딩 & 임시 저장)
   const handleGenerateWithIPFS = async () => {
     setIsLoading(true);
-    setStudioLoadingStep("🎨 AI 화가 에이전트가 프롬프트를 시각화 및 렌더링 중..."); // 👈 상태 메시지 설정
+    setStudioLoadingStep("🎨 AI 화가 에이전트가 프롬프트를 시각화 및 렌더링 중..."); 
     try {
         const res = await axios.post(`${API_URL}/api/studio/generate_hybrid`, {
             prompt: studioData.intent,
@@ -250,17 +245,16 @@ function App() {
         }
     } catch (err) { alert("생성 실패"); }
     setIsLoading(false);
-    setStudioLoadingStep(""); // 초기화
+    setStudioLoadingStep(""); 
   };
 
-  // 2. 안건 작성 탭으로 이동
   const sendToProposalWrite = () => {
     setProposalForm({
         title: studioData.intent || "AI 기획 안건",
         description: studioData.draft || "",
-        image_url: studioData.image || "", // 👈 엑박 안 뜨게 임시 이미지 전달
+        image_url: studioData.image || "", 
         style: "AI Generated",
-        meta_hash: "", // 👈 가짜 해시 제거 (비워둠)
+        meta_hash: "", 
         voteType: 0,
         duration: 3,
         quorum: 10,
@@ -272,7 +266,7 @@ function App() {
   const handleStudioAction = async (type) => {
     if (type === 'draft') {
         setIsLoading(true);
-        setStudioLoadingStep("📜 기획자 에이전트가 데이터를 수집하여 기획서를 작성 중..."); // 👈 상태 메시지 설정
+        setStudioLoadingStep("📜 기획자 에이전트가 데이터를 수집하여 기획서를 작성 중...");
         try {
             const res = await axios.post(`${API_URL}/api/studio/draft`, { intent: studioData.intent });
             setStudioData(prev => ({ ...prev, draft: res.data.draft_text }));
@@ -280,39 +274,28 @@ function App() {
             alert("기획서 생성 실패"); 
         }
         setIsLoading(false);
-        setStudioLoadingStep(""); // 초기화
+        setStudioLoadingStep(""); 
     } 
     else if (type === 'image') {
         await handleGenerateWithIPFS(); 
     }
   };
-  // ✅ 안건 제출 (스마트 컨트랙트 등록 + IPFS 이미지 저장 + DB 저장)
-    const submitProposal = async () => {
-        if (!proposalForm.title || !proposalForm.description) {
-            alert("제목과 내용을 모두 입력해주세요!");
-            return;
-        }
-        if (!contract) {
-            alert("스마트 컨트랙트에 연결되지 않았습니다.");
-            return;
-        }
 
-const submitProposal = async () => {
+  // ✅ 안건 제출 (단일 함수로 깔끔하게 정리됨)
+  const submitProposal = async () => {
     if (!walletAddress) return alert("지갑이 연결되지 않았습니다.");
     if (!contract) return alert("스마트 컨트랙트 연결 중... 잠시 후 시도해주세요.");
     if (!proposalForm.title || !proposalForm.description) {
       return alert("제목과 내용을 모두 입력해주세요.");
     }
 
-    // ✅ 1. 기간 강제 숫자 변환 (트레저리 로직)
     const durationNum = parseInt(proposalForm.duration, 10);
     if (!durationNum || durationNum <= 0) return alert("투표 기간을 1일 이상으로 입력해주세요.");
 
     setIsLoading(true);
-    let finalImageIpfsUrl = ""; // 최종 안건에 들어갈 IPFS 주소
+    let finalImageIpfsUrl = ""; 
 
     try {
-        // ✅ 2. 엑박 방지용 IPFS 업로드 (AI 스튜디오 로직)
         if (proposalForm.image_url && proposalForm.image_url.startsWith('data:image')) {
             console.log("🚀 안전한 이미지를 IPFS로 전송 중...");
             const ipfsRes = await axios.post(`${API_URL}/api/ipfs/finalize`, {
@@ -327,57 +310,58 @@ const submitProposal = async () => {
 
         alert("지갑에서 트랜잭션을 승인해주세요...");
         
-        // ✅ 3. 트레저리 로직을 포함한 변수 변환 (fundingWei 추가)
         const quorumWei = ethers.parseUnits(proposalForm.quorum.toString(), 18);
         const fundingWei = ethers.parseUnits(proposalForm.fundingAmount.toString(), 18);
 
         console.log("🚀 스마트 컨트랙트에 트랜잭션 전송 중...");
-        // ✅ 4. 컨트랙트 전송 (7개 인자 완벽 세팅)
+        
+        // 🚨 [온체인 데이터 최적화] 무작정 자르지 않고 문맥이 유지되는 '스마트 요약본' 생성
+        // 가스비 폭발을 막는 안전선(150자) 내에서, 단어가 끊기지 않게 띄어쓰기 기준으로 자름
+        let onChainDescription = proposalForm.description;
+        if (onChainDescription.length > 150) {
+            const cutIndex = onChainDescription.lastIndexOf(' ', 150);
+            const safeIndex = cutIndex > 0 ? cutIndex : 150;
+            onChainDescription = onChainDescription.substring(0, safeIndex) + " ...\n\n[이 안건의 전체 기획서 원문은 ArtDAO 오프체인 DB에 영구 보존되어 있습니다.]";
+        }
+
+        // ✅ 4. 컨트랙트 전송 (스마트하게 정리된 요약본 전송)
         const tx = await contract.createProposal(
             proposalForm.title, 
-            proposalForm.description, 
-            finalImageIpfsUrl || proposalForm.image_url || "", // IPFS 주소 우선 적용
+            onChainDescription, // 👈 앞글자 30자가 아니라, 맥락이 보존된 150자 요약본 탑재!
+            finalImageIpfsUrl || proposalForm.image_url || "", 
             proposalForm.voteType,
-            durationNum, // 숫자형
+            durationNum, 
             quorumWei,
-            fundingWei   // 펀딩 금액
+            fundingWei   
         );
     
         alert("⛓️ 블록체인에 기록 중입니다... (약 10~20초 소요)");
-        const receipt = await tx.wait(); 
+        await tx.wait(); 
         
-        // ✅ 5. DB 저장 (두 브랜치의 핵심 융합)
+        // ✅ 5. DB 저장 (당연히 중앙 DB에는 수천 자의 전체 원문이 1글자도 빠짐없이 보관됨)
         await axios.post(`${API_URL}/api/proposals`, { 
             wallet_address: walletAddress, 
-            ...proposalForm,
+            ...proposalForm, 
             duration: durationNum, 
-            image_url: finalImageIpfsUrl || proposalForm.image_url || "", // 폭발 방지 IPFS 주소
+            image_url: finalImageIpfsUrl || proposalForm.image_url || "", 
             meta_hash: tx.hash 
         });
 
         const shortHash = `${tx.hash.substring(0,6)}...${tx.hash.substring(tx.hash.length - 4)}`;
         alert(`🎉 안건이 성공적으로 등록되었습니다!\nTx Hash: ${shortHash}`);
         
-        // 입력 폼 초기화 및 목록으로 이동
         setProposalForm({ title: "", description: "", style: "General", image_url: "", meta_hash: "", voteType: 0, duration: 3, quorum: 10, fundingAmount: 100 });
         setActiveTab("proposals");
         fetchProposals();
 
     } catch (err) {
-        console.error(err);
+        console.error("🔥 안건 등록 실패:", err);
         alert("등록 실패: " + (err.reason || err.message));
     } finally {
         setIsLoading(false);
     }
   };
 
-        } catch (err) {
-            console.error("🔥 안건 등록 실패:", err);
-            alert("등록 실패: " + (err.reason || err.message));
-        } finally {
-            setIsLoading(false);
-        }
-    };
   const deleteProposal = async (id, e) => {
     e.stopPropagation(); 
     if (!window.confirm("정말 삭제하시겠습니까?")) return;
@@ -413,7 +397,7 @@ const submitProposal = async () => {
     setChatMessages(prev => [...prev, userMsg]);
     setChatInput("");
     
-    setIsChatLoading(true); // 🚀 [핵심] 여기서 로딩 애니메이션 스위치 ON!
+    setIsChatLoading(true); 
     
     try {
       const res = await axios.post(`${API_URL}/api/a2a/chat`, null, { params: { message: userMsg.text, wallet_address: walletAddress } });
@@ -422,7 +406,7 @@ const submitProposal = async () => {
       setChatMessages(prev => [...prev, { sender: "bot", text: "오류가 발생했습니다." }]);
     }
     
-    setIsChatLoading(false); // 🚀 [핵심] 답변이 오면 로딩 애니메이션 스위치 OFF!
+    setIsChatLoading(false); 
   };
   
   const handleVote = async (proposalId, support) => {
@@ -500,34 +484,34 @@ const submitProposal = async () => {
       }
   };
 
-const runCritic = async () => {
+  const runCritic = async () => {
     if (!agentInput.criticArtInfo) return alert("입력 필요");
-    setActiveAgentLoading('critic'); // 비평가 로딩 켜기
+    setActiveAgentLoading('critic'); 
     try {
       const res = await axios.post(`${API_URL}/api/agent/review`, { art_info: agentInput.criticArtInfo });
       setAgentResult(prev => ({ ...prev, critic: res.data.review_text }));
     } catch (err) { alert("실패"); }
-    setActiveAgentLoading(null); // 로딩 끄기
+    setActiveAgentLoading(null); 
   };
 
   const runMarketer = async () => {
     if (!agentInput.marketerTitle) return alert("입력 필요");
-    setActiveAgentLoading('marketer'); // 마케터 로딩 켜기
+    setActiveAgentLoading('marketer'); 
     try {
       const res = await axios.post(`${API_URL}/api/agent/promote`, { exhibition_title: agentInput.marketerTitle, target_audience: agentInput.marketerTarget });
       setAgentResult(prev => ({ ...prev, marketer: res.data.promo_text }));
     } catch (err) { alert("실패"); }
-    setActiveAgentLoading(null); // 로딩 끄기
+    setActiveAgentLoading(null); 
   };
 
   const runAuction = async () => {
     if (!agentInput.auctionArtInfo) return alert("입력 필요");
-    setActiveAgentLoading('auction'); // 경매사 로딩 켜기
+    setActiveAgentLoading('auction'); 
     try {
       const res = await axios.post(`${API_URL}/api/agent/auction`, { art_info: agentInput.auctionArtInfo, critic_review: agentInput.auctionReview });
       setAgentResult(prev => ({ ...prev, auction: res.data.auction_report }));
     } catch (err) { alert("실패"); }
-    setActiveAgentLoading(null); // 로딩 끄기
+    setActiveAgentLoading(null); 
   };
 
   // ==========================================
@@ -558,7 +542,6 @@ const runCritic = async () => {
           <button className={activeTab==="mypage"?"active":""} onClick={()=>setActiveTab("mypage")}>👤 마이페이지</button>
         </nav>
 
-        {/* ✅ [신규] 사이드바 하단: 현재 블록체인 시간 및 동기화 버튼 표시 */}
         <div style={{ marginTop: "auto", padding: "20px" }}>
             <div style={{ padding: "12px", background: "#1e293b", color: "#94a3b8", borderRadius: "8px", fontSize: "0.85rem", textAlign: "center", border: "1px solid #334155" }}>
                 <div style={{ marginBottom: "5px", fontWeight: "bold", color: "#cbd5e1" }}>🕒 현재 블록체인 시간</div>
@@ -616,7 +599,6 @@ const runCritic = async () => {
                 {proposals.map(p => (
                     <div key={p.id} className="card proposal-item clickable" onClick={() => setSelectedProposal(p)}>
                         <div className="p-left">
-                            {/* ✅ [수정] 목록에서 CLOSED(결산 대기) 상태일 때 회색 뱃지로 표시 */}
                             <span 
                                 className={`status-badge ${p.status === 'CLOSED' ? 'REJECTED' : p.status}`} 
                                 style={p.status === 'CLOSED' ? {backgroundColor: '#6b7280', color: 'white'} : {}}
@@ -628,7 +610,6 @@ const runCritic = async () => {
                             <span className="read-more">👉 자세히 보기</span>
                         </div>
                         <div className="p-right">
-                            {/* 🚨 목록에서는 무거운 이미지 대신 '첨부 아이콘'만 표시하여 로딩 속도 최적화 */}
                             {p.image_url && (
                                 <div style={{ padding: '10px 15px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', color: '#64748b', fontSize: '0.85rem', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '5px', alignItems: 'center', justifyContent: 'center', height: '80px', width: '80px' }}>
                                     <span style={{ fontSize: '1.8rem' }}>🖼️</span>
@@ -651,12 +632,13 @@ const runCritic = async () => {
           </div>
         )}
 
-        {/* ✅ 상세 보기 모달 (가독성 대폭 개선 & IPFS 이미지 완벽 지원) */}
+        {/* ✅ 상세 보기 모달 */}
         {selectedProposal && (
             <div className="modal-overlay" onClick={closeModal} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.7)', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000, padding: '20px' }}>
                 <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ background: '#fff', width: '100%', maxWidth: '850px', maxHeight: '90vh', overflowY: 'auto', borderRadius: '16px', padding: '30px', position: 'relative', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
                     
-<<<<<<< HEAD
+                    <button onClick={closeModal} style={{ position: 'absolute', top: '20px', right: '20px', background: '#f1f5f9', border: 'none', borderRadius: '50%', width: '40px', height: '40px', fontSize: '20px', cursor: 'pointer', color: '#64748b', zIndex: 10 }}>✖</button>
+                    
                     <div className="modal-header">
                         <div style={{ background: "#f0f9ff", padding: "10px", borderRadius: "8px", marginBottom: "15px", border: "1px solid #bae6fd", fontSize: "0.9em", color: "#0369a1" }}>
                             <strong>🔗 Blockchain Verified</strong>
@@ -665,7 +647,6 @@ const runCritic = async () => {
                             </div>
                         </div>
                         
-                        {/* ✅ [수정] 모달 내 CLOSED 상태 뱃지 스타일 적용 */}
                         <span 
                             className={`status-badge ${selectedProposal.status === 'CLOSED' ? 'REJECTED' : selectedProposal.status}`} 
                             style={selectedProposal.status === 'CLOSED' ? {backgroundColor: '#6b7280', color: 'white', display: 'inline-block', padding: '4px 8px', borderRadius: '12px', fontWeight: 'bold', fontSize: '0.8rem', marginBottom: '10px'} : {}}
@@ -674,13 +655,11 @@ const runCritic = async () => {
                         </span>
                         <h2>{selectedProposal.title}</h2>
                         
-                        {/* ✅ [수정] 작성일과 마감일을 직관적으로 보여주는 UI로 개편 */}
                         <div style={{ fontSize: "0.95rem", color: "#4b5563", marginTop: "15px", background: "#f3f4f6", padding: "12px", borderRadius: "8px" }}>
                             <div style={{ marginBottom: "6px" }}>
                                 ⏳ <strong>투표 기간:</strong> {selectedProposal.duration || 3}일
                             </div>
                             <div style={{ marginBottom: "4px" }}>
-                                {/* 마감일에서 기간(duration)을 빼서 실제 블록체인 '작성일'을 역산 */}
                                 📝 <strong>작성:</strong> {selectedProposal.deadline && selectedProposal.duration 
                                     ? new Date((selectedProposal.deadline - selectedProposal.duration * 86400) * 1000).toLocaleString() 
                                     : "데이터 로딩 중..."}
@@ -697,65 +676,21 @@ const runCritic = async () => {
                                 🎯 <strong>목표 정족수:</strong> {selectedProposal.quorum || 0}표
                             </div>
                         </div>
-
-                        <div className="vote-gauge-container" style={{ marginTop: "15px", background: "#eee", borderRadius: "10px", overflow: "hidden", height: "25px", position: "relative" }}>
-                            <div style={{
-                                width: `${(selectedProposal.voteCount / (selectedProposal.voteCount + selectedProposal.againstCount || 1)) * 100}%`,
-                                background: "#3b82f6", height: "100%", float: "left", transition: "width 0.5s"
-                            }}></div>
-                            <div style={{
-                                width: `${(selectedProposal.againstCount / (selectedProposal.voteCount + selectedProposal.againstCount || 1)) * 100}%`,
-                                background: "#ef4444", height: "100%", float: "left", transition: "width 0.5s"
-                            }}></div>
-                        </div>
-                        
-                        <div style={{ display: "flex", justifyContent: "space-between", marginTop: "5px", fontSize: "0.9rem", fontWeight: "bold" }}>
-                            <span style={{ color: "#3b82f6" }}>👍 찬성: {selectedProposal.voteCount ? selectedProposal.voteCount.toFixed(2) : 0}표</span>
-                            <span style={{ color: "#ef4444" }}>👎 반대: {selectedProposal.againstCount ? selectedProposal.againstCount.toFixed(2) : 0}표</span>
-=======
-                    <button onClick={closeModal} style={{ position: 'absolute', top: '20px', right: '20px', background: '#f1f5f9', border: 'none', borderRadius: '50%', width: '40px', height: '40px', fontSize: '20px', cursor: 'pointer', color: '#64748b' }}>✖</button>
-                    
-                    {/* 1. 모달 헤더 */}
-                    <div className="modal-header" style={{ borderBottom: '2px solid #f1f5f9', paddingBottom: '20px', marginBottom: '25px' }}>
-                        <div style={{ background: "#f0f9ff", padding: "12px 16px", borderRadius: "10px", marginBottom: "20px", border: "1px solid #bae6fd", color: "#0369a1" }}>
-                            <strong style={{ fontSize: '1.1rem' }}>🔗 Blockchain Verified</strong>
-                            <div style={{ marginTop: "6px", fontFamily: "monospace", fontSize: '0.95rem', wordBreak: "break-all" }}>
-                                Tx Hash / CID: {selectedProposal.meta_hash || "처리 중..."}
-                            </div>
-                        </div>
-                        
-                        <div style={{ marginBottom: '10px' }}>
-                            <span className={`status-badge ${selectedProposal.status}`} style={{ fontSize: '1rem', padding: '6px 14px' }}>{selectedProposal.status}</span>
-                        </div>
-                        
-                        <h2 style={{ fontSize: '2.2rem', fontWeight: '800', color: '#0f172a', margin: '10px 0', lineHeight: '1.3' }}>
-                            {selectedProposal.title}
-                        </h2>
-                        
-                        <div style={{ fontSize: "1.1rem", color: "#475569", display: 'flex', gap: '15px', flexWrap: 'wrap', fontWeight: '500' }}>
-                            <span>📅 마감: {selectedProposal.deadline && selectedProposal.deadline > 0 ? new Date(selectedProposal.deadline * 1000).toLocaleString() : "데이터 로딩 중..."}</span>
-                            <span>|</span>
-                            <span>🎯 목표 정족수: {selectedProposal.quorum || 0}표</span>
->>>>>>> origin/feat/ai-studio-web2.5
-                        </div>
                     </div>
 
-                   {/* 🚨 완벽 수정된 모달 본문 (IPFS 동기화 및 에러 핸들링 최적화) */}
+                    {/* 모달 본문 (IPFS 이미지 최적화) */}
                     <div style={{ display: 'flex', flexDirection: 'row', gap: '20px', margin: '20px 0', minHeight: '400px', width: '100%', alignItems: 'stretch' }}>
                         
-                        {/* 🖼️ 왼쪽: 그림 영역 */}
                         <div style={{ flex: '1', width: '50%', backgroundColor: '#0f172a', borderRadius: '16px', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                             {selectedProposal.image_url ? (
                                 <>
                                     <div style={{ flex: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '15px' }}>
                                         <img 
-                                            // 🚨 범용성이 가장 뛰어난 공식 ipfs.io 게이트웨이 사용
                                             src={selectedProposal.image_url.startsWith('data:image') ? selectedProposal.image_url : selectedProposal.image_url.replace("ipfs://", "https://ipfs.io/ipfs/")} 
                                             alt="Proposal Art" 
                                             style={{ maxWidth: '100%', maxHeight: '350px', objectFit: 'contain' }}
                                             onError={(e) => { 
                                                 e.target.style.display = 'none'; 
-                                                // 에러 발생 시 안내 문구 표시 (IPFS 동기화는 전 세계 노드 전파에 시간이 걸림)
                                                 if (!e.target.nextElementSibling) {
                                                     e.target.insertAdjacentHTML('afterend', '<div style="color:#94a3b8; padding: 20px; text-align:center; line-height: 1.6;"><span style="font-size:2rem;">⏳</span><br/>블록체인(IPFS) 네트워크에<br/>이미지를 동기화 중입니다.<br/><span style="font-size:0.9rem; color:#64748b;">(약 1~3분 정도 소요될 수 있습니다)</span></div>'); 
                                                 }
@@ -780,23 +715,20 @@ const runCritic = async () => {
                             )}
                         </div>
                         
-                        {/* 📜 오른쪽: 안건 내용 영역 */}
                         <div style={{ flex: '1', width: '50%', background: '#f8fafc', padding: '25px', borderRadius: '16px', border: '1px solid #e2e8f0', overflowY: 'auto', maxHeight: '420px' }}>
                             <h3 style={{ marginTop: 0, color: '#1e293b', borderBottom: '2px solid #cbd5e1', paddingBottom: '12px', fontSize: '1.5rem' }}>📜 안건 내용</h3>
                             <div style={{ whiteSpace: 'pre-wrap', color: '#334155', fontSize: '1.15rem', lineHeight: '1.8', marginTop: '15px' }}>
                                 {selectedProposal.description || "안건 내용이 등록되지 않았습니다."}
                             </div>
                         </div>
-
                     </div>
 
-                    {/* 3. 모달 하단 (투표 영역) */}
-                    <div className="modal-footer" style={{ flexDirection: 'column', alignItems: 'stretch', marginTop: '30px', borderTop: '2px solid #f1f5f9', paddingTop: '25px' }}>
+                    <div className="modal-footer" style={{ flexDirection: 'column', alignItems: 'stretch', marginTop: '10px', borderTop: '2px solid #f1f5f9', paddingTop: '20px' }}>
                         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px", fontSize: "1.2rem", fontWeight: "bold" }}>
                             <span style={{ color: "#2563eb" }}>👍 찬성: {selectedProposal.voteCount ? selectedProposal.voteCount.toFixed(2) : 0}표</span>
                             <span style={{ color: "#dc2626" }}>👎 반대: {selectedProposal.againstCount ? selectedProposal.againstCount.toFixed(2) : 0}표</span>
                         </div>
-                        <div style={{ width: "100%", background: "#e2e8f0", borderRadius: "12px", height: "30px", position: "relative", overflow: "hidden", marginBottom: '25px' }}>
+                        <div style={{ width: "100%", background: "#e2e8f0", borderRadius: "12px", height: "25px", position: "relative", overflow: "hidden", marginBottom: '20px' }}>
                             <div style={{ width: `${(selectedProposal.voteCount / ((selectedProposal.voteCount + selectedProposal.againstCount) || 1)) * 100}%`, background: "#3b82f6", height: "100%", float: "left", transition: "width 0.5s" }}></div>
                             <div style={{ width: `${(selectedProposal.againstCount / ((selectedProposal.voteCount + selectedProposal.againstCount) || 1)) * 100}%`, background: "#ef4444", height: "100%", float: "left", transition: "width 0.5s" }}></div>
                         </div>
@@ -822,14 +754,12 @@ const runCritic = async () => {
                             </div>
                         </div>
 
-<<<<<<< HEAD
-                        <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                            {/* ✅ [수정] 결산 대기 상태(CLOSED) 이거나 기한이 지나면 버튼 비활성화 */}
+                        <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
                             <button 
                                 className="vote-btn yes" 
                                 onClick={() => handleVote(selectedProposal.id, true)}
                                 disabled={selectedProposal.status === "CLOSED" || selectedProposal.deadline < currentBlockTime}
-                                style={{ cursor: (selectedProposal.status === "CLOSED" || selectedProposal.deadline < currentBlockTime) ? "not-allowed" : "pointer" }}
+                                style={{ flex: 1, padding: '15px', fontSize: '1.2rem', cursor: (selectedProposal.status === "CLOSED" || selectedProposal.deadline < currentBlockTime) ? "not-allowed" : "pointer", opacity: (selectedProposal.status === "CLOSED" || selectedProposal.deadline < currentBlockTime) ? 0.5 : 1 }}
                             >
                                 👍 찬성 투표
                             </button>
@@ -838,53 +768,43 @@ const runCritic = async () => {
                                 className="vote-btn no" 
                                 onClick={() => handleVote(selectedProposal.id, false)}
                                 disabled={selectedProposal.status === "CLOSED" || selectedProposal.deadline < currentBlockTime}
-                                style={{ cursor: (selectedProposal.status === "CLOSED" || selectedProposal.deadline < currentBlockTime) ? "not-allowed" : "pointer" }}
+                                style={{ flex: 1, padding: '15px', fontSize: '1.2rem', cursor: (selectedProposal.status === "CLOSED" || selectedProposal.deadline < currentBlockTime) ? "not-allowed" : "pointer", opacity: (selectedProposal.status === "CLOSED" || selectedProposal.deadline < currentBlockTime) ? 0.5 : 1 }}
                             >
                                 👎 반대 투표
                             </button>
                         </div>
-                        <div className="modal-footer" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-                            {/* ✅ [수정] 상태가 CLOSED로 바뀌었을 때만 결산 버튼 표시 */}
-                            {selectedProposal.status === "CLOSED" && (
-                                <div style={{ marginTop: '20px', padding: '15px', background: '#e0e7ff', borderRadius: '8px', border: '1px solid #c7d2fe' }}>
-                                    <p style={{ color: '#3730a3', fontWeight: 'bold', textAlign: 'center' }}>
-                                        ⏳ 투표가 마감되었습니다! 결과를 확정하고 자금을 집행하세요.
-                                    </p>
-                                    <button 
-                                        className="primary-btn" 
-                                        onClick={() => handleExecuteProposal(selectedProposal.id)}
-                                        style={{ width: '100%', marginTop: '10px', backgroundColor: '#4f46e5' }}
-                                    >
-                                        ⚖️ 결산 및 자금 집행하기
-                                    </button>
-                                </div>
-                            )}
 
-                            {selectedProposal.status === "REJECTED" && (
-                                <div style={{ marginTop: '20px', padding: '15px', background: '#fee2e2', borderRadius: '8px', textAlign: 'center' }}>
-                                    <p style={{ color: '#991b1b', fontWeight: 'bold' }}>❌ 부결되었습니다. (정족수 미달 또는 반대 우세)</p>
-                                </div>
-                            )}
-                            
-                            {selectedProposal.status === "EXECUTED" && (
-                                <div style={{ marginTop: '20px', padding: '15px', background: '#f3f4f6', borderRadius: '8px', textAlign: 'center' }}>
-                                    <p style={{ color: '#4b5563', fontWeight: 'bold' }}>✅ 자금 지급 완료 (집행 완료)</p>
-                                </div>
-                            )}
-=======
-                        <div style={{ display: 'flex', gap: '15px' }}>
-                            <button onClick={() => handleVote(selectedProposal.id, true)} style={{ flex: 1, padding: '15px', fontSize: '1.3rem', fontWeight: 'bold', background: '#2563eb', color: 'white', border: 'none', borderRadius: '12px', cursor: 'pointer', transition: '0.2s' }}>
-                                👍 찬성 투표하기
-                            </button>
-                            <button onClick={() => handleVote(selectedProposal.id, false)} style={{ flex: 1, padding: '15px', fontSize: '1.3rem', fontWeight: 'bold', background: '#dc2626', color: 'white', border: 'none', borderRadius: '12px', cursor: 'pointer', transition: '0.2s' }}>
-                                👎 반대 투표하기
-                            </button>
->>>>>>> origin/feat/ai-studio-web2.5
-                        </div>
+                        {selectedProposal.status === "CLOSED" && (
+                            <div style={{ marginTop: '20px', padding: '15px', background: '#e0e7ff', borderRadius: '8px', border: '1px solid #c7d2fe' }}>
+                                <p style={{ color: '#3730a3', fontWeight: 'bold', textAlign: 'center', margin: 0, marginBottom: '10px' }}>
+                                    ⏳ 투표가 마감되었습니다! 결과를 확정하고 자금을 집행하세요.
+                                </p>
+                                <button 
+                                    className="primary-btn" 
+                                    onClick={() => handleExecuteProposal(selectedProposal.id)}
+                                    style={{ width: '100%', padding: '12px', backgroundColor: '#4f46e5', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}
+                                >
+                                    ⚖️ 결산 및 자금 집행하기
+                                </button>
+                            </div>
+                        )}
+
+                        {selectedProposal.status === "REJECTED" && (
+                            <div style={{ marginTop: '20px', padding: '15px', background: '#fee2e2', borderRadius: '8px', textAlign: 'center' }}>
+                                <p style={{ color: '#991b1b', fontWeight: 'bold', margin: 0 }}>❌ 부결되었습니다. (정족수 미달 또는 반대 우세)</p>
+                            </div>
+                        )}
+                        
+                        {selectedProposal.status === "EXECUTED" && (
+                            <div style={{ marginTop: '20px', padding: '15px', background: '#f3f4f6', borderRadius: '8px', textAlign: 'center' }}>
+                                <p style={{ color: '#4b5563', fontWeight: 'bold', margin: 0 }}>✅ 자금 지급 완료 (집행 완료)</p>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
         )}
+        
         {/* 안건 작성 */}
         {activeTab === "write" && (
             <div className="page fade-in">
@@ -960,7 +880,7 @@ const runCritic = async () => {
             </div>
         )}
 
-        {/* AI 스튜디오, 에이전트 등 나머지 탭 */}
+        {/* AI 스튜디오 */}
         {activeTab === "studio" && (
             <div className="page fade-in">
                 <h2>🎨 AI Art Studio</h2>
@@ -976,7 +896,6 @@ const runCritic = async () => {
                     <div className="card studio-result">
                         <h3>2. 결과물 확인</h3>
                         
-                        {/* 🚀 [NEW] 스튜디오 A2A 사고 과정 UI */}
                         {isLoading && studioLoadingStep && (
                             <div className="a2a-thinking-container">
                                 <div className="a2a-thinking-header">
@@ -1009,12 +928,11 @@ const runCritic = async () => {
             </div>
         )}
 
+        {/* 에이전트 센터 */}
         {activeTab === "agents" && (
             <div className="page fade-in">
                 <h2>💼 AI Agent Squad (전문가 팀)</h2>
                 <div className="agent-grid">
-                    
-                    {/* 1. 비평가 카드 */}
                     <div className={`card agent-card ${activeAgentLoading === 'critic' ? 'loading' : ''}`}>
                         <div className="agent-header"><span className="icon">🧐</span><h3>Art Critic (비평가)</h3></div>
                         <p className="role-desc">작품을 분석하여 심도 있는 비평문을 작성합니다.</p>
@@ -1034,7 +952,6 @@ const runCritic = async () => {
                         )}
                     </div>
 
-                    {/* 2. 마케터 카드 */}
                     <div className={`card agent-card ${activeAgentLoading === 'marketer' ? 'loading' : ''}`}>
                         <div className="agent-header"><span className="icon">📢</span><h3>Viral Marketer (마케터)</h3></div>
                         <p className="role-desc">전시회 홍보를 위한 SNS 바이럴 카피를 작성합니다.</p>
@@ -1051,7 +968,6 @@ const runCritic = async () => {
                         {agentResult.marketer && <div className="result-box"><h4>📱 인스타그램 카피</h4><p style={{whiteSpace: "pre-line"}}>{agentResult.marketer}</p></div>}
                     </div>
 
-                    {/* 3. 경매사 카드 */}
                     <div className={`card agent-card ${activeAgentLoading === 'auction' ? 'loading' : ''}`}>
                         <div className="agent-header"><span className="icon">🔨</span><h3>Auctioneer (경매사)</h3></div>
                         <p className="role-desc">비평을 바탕으로 경매 시작가를 책정하고 오프닝 멘트를 합니다.</p>
@@ -1067,11 +983,11 @@ const runCritic = async () => {
                         {activeAgentLoading === 'auction' && <div className="ai-processing-text">💰 글로벌 경매 데이터와 대조하여 시작가를 책정하고 있습니다...</div>}
                         {agentResult.auction && <div className="result-box"><h4>💰 경매 리포트</h4><p style={{whiteSpace: "pre-line"}}>{agentResult.auction}</p></div>}
                     </div>
-
                 </div>
             </div>
         )}
 
+        {/* 갤러리 */}
         {activeTab === "gallery" && (
             <div className="page fade-in">
                 <h2>🖼️ Online Gallery</h2>
@@ -1095,6 +1011,7 @@ const runCritic = async () => {
             </div>
         )}
 
+        {/* 채팅 */}
         {activeTab === "chat" && (
             <div className="page fade-in">
                 <h2>🤖 AI Curator Chat</h2>
@@ -1106,7 +1023,6 @@ const runCritic = async () => {
                             </div>
                         ))}
                         
-                        {/* 🚀 [NEW] 채팅창 A2A 사고 과정 애니메이션 */}
                         {isChatLoading && (
                             <div className="msg bot">
                                 <div className="a2a-thinking-container" style={{ width: '100%', maxWidth: '80%', margin: 0, padding: '12px' }}>
@@ -1138,6 +1054,7 @@ const runCritic = async () => {
             </div>
         )}
         
+        {/* 위임 */}
         {activeTab === "delegates" && (
           <div className="page fade-in">
             <div className="page-header">
@@ -1176,6 +1093,7 @@ const runCritic = async () => {
           </div>
         )}
         
+        {/* 마이페이지 */}
         {activeTab === "mypage" && (
             <div className="page fade-in">
                 <h2>👤 My Page</h2>
