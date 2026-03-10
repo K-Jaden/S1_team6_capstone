@@ -13,6 +13,7 @@ from .ipfs import upload_bytes_to_ipfs, upload_json_to_ipfs # 👈 추가
 from pydantic import BaseModel # 👈 이것도 없으면 추가
 
 
+
 # AI 에이전트 서버 주소 (도커 서비스 이름 사용)
 AI_AGENT_URL = "http://host.docker.internal:8002"
 
@@ -228,36 +229,31 @@ def delete_proposal(proposal_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"status": "deleted", "id": proposal_id}
 
-
-# =========================================================
-# 4. AI 에이전트 & 스튜디오 (A2A 기능)
-# =========================================================
-
-# [명세서 추가 요청 1] 미술품 추천 및 질의응답 (A2A Chat)
-# ==========================================
-# [수정 3] 채팅/피드백 (A2A) - 비평가 연결
-# ==========================================
 @app.post("/api/a2a/chat", response_model=schemas.A2AChatResponse)
 def chat_with_curator(message: str, wallet_address: str):
-    print(f"📡 [Backend] AI에게 질문: {message}")
+    print(f"📡 [Backend] AI 협업 팀에게 질문 전달: {message}")
     
     try:
-        # 1. AI 요원(비평가/챗봇)에게 전화 걸기 (POST /review 사용)
-        # agent.py에 채팅 전용(/chat)이 없으므로 비평가(/review)를 대리인으로 씀
+        # ✅ 우리가 원래 하던 방식: requests로 agent.py(8002포트)에 외주 주기
+        # 주소는 /chat (또는 /docent) 중 하나로 통일하세요.
         response = requests.post(
-            f"{AI_AGENT_URL}/review", 
-            json={"art_info": message}
+            f"{AI_AGENT_URL}/chat", 
+            json={
+                "art_info": message,
+                "audience_type": "일반 관람객"
+            }
         )
         
         if response.status_code == 200:
             result = response.json()
-            return {"reply": result.get("review_text", "답변을 생성하지 못했습니다.")}
+            return {"reply": result.get("reply", "답변을 준비 중입니다.")}
         else:
-            return {"reply": "AI 큐레이터가 지금 바쁩니다. (에러)"}
+            return {"reply": "AI 서버가 응답하지 않습니다."}
             
     except Exception as e:
-        return {"reply": "AI 서버와 연결이 끊겼습니다."}
-
+        print(f"🔥 통신 에러: {e}")
+        return {"reply": "AI 서버 연결 실패"}
+    
 # [명세서 추가 요청 2] 사용자 맞춤 작품 매칭 (A2A Recommend)
 @app.get("/api/a2a/recommend", summary="사용자 맞춤 작품 매칭")
 def a2a_recommend(wallet_address: str):

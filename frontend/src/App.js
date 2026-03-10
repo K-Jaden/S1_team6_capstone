@@ -57,7 +57,6 @@ function App() {
     fundingAmount: 100 
   });
 
-  // ✅ 블록체인의 진짜 시간을 담는 상태 변수
   const [currentBlockTime, setCurrentBlockTime] = useState(Math.floor(Date.now() / 1000));
 
   const [agentInput, setAgentInput] = useState({
@@ -158,26 +157,29 @@ function App() {
 
             dbProposals = dbProposals.map(p => {
                 const chainP = chainProposals[Number(p.id) - 1];
-                
-                if (chainP) {
-                    let currentStatus = statusMap[Number(chainP[7])];
-                    const deadlineTime = Number(chainP[9]);
+                // 블록체인 배열 길이보다 DB의 p.id가 크면 접근하지 않도록 보호
+                if (chainProposals.length >= Number(p.id)) {
+                    const chainP = chainProposals[Number(p.id) - 1];
+                    if (chainP) {
+                        let currentStatus = statusMap[Number(chainP[7])];
+                        const deadlineTime = Number(chainP[9]);
 
-                    if (currentStatus === "OPEN" && deadlineTime < nowBlockTime) {
-                        currentStatus = "CLOSED";
+                        if (currentStatus === "OPEN" && deadlineTime < nowBlockTime) {
+                            currentStatus = "CLOSED";
+                        }
+
+                        return {
+                            ...p,
+                            voteCount: parseFloat(ethers.formatUnits(chainP[4], 18)),     
+                            againstCount: parseFloat(ethers.formatUnits(chainP[5], 18)),  
+                            status: currentStatus,
+                            deadline: deadlineTime,   
+                            quorum: parseFloat(ethers.formatUnits(chainP[10], 18)),
+                            fundingAmount: parseFloat(ethers.formatUnits(chainP[11], 18))
+                        };
                     }
-
-                    return {
-                        ...p,
-                        voteCount: parseFloat(ethers.formatUnits(chainP[4], 18)),     
-                        againstCount: parseFloat(ethers.formatUnits(chainP[5], 18)),  
-                        status: currentStatus,
-                        deadline: deadlineTime,   
-                        quorum: parseFloat(ethers.formatUnits(chainP[10], 18)),
-                        fundingAmount: parseFloat(ethers.formatUnits(chainP[11], 18))
-                    };
                 }
-                return p;
+                return p; // 👈 에러 나면 그냥 DB 데이터만 반환
             });
         } catch (e) {
             console.error("블록체인 데이터 동기화 실패:", e);
@@ -248,10 +250,27 @@ function App() {
     setStudioLoadingStep(""); 
   };
 
-  const sendToProposalWrite = () => {
+ const sendToProposalWrite = () => {
+    // 1. 스튜디오에서 생성된 텍스트 원본 가져오기
+    let cleanDescription = studioData.draft || "";
+
+    // 2. [필터링 1] "3. AI 화가 이미지 프롬프트" 아랫부분 싹둑 자르기
+    const splitKeyword = "=========================================\n✨ 3. AI 화가 이미지 프롬프트";
+    if (cleanDescription.includes(splitKeyword)) {
+        cleanDescription = cleanDescription.split(splitKeyword)[0];
+    }
+
+    // 3. [필터링 2] "**큐레이터:** [이름]..." 또는 "큐레이터: [이름]..." 들어간 줄 삭제 (정규식 사용)
+    cleanDescription = cleanDescription.replace(/\*\*큐레이터:\*\*\s*\[이름\].*\n?/g, "");
+    cleanDescription = cleanDescription.replace(/큐레이터:\s*\[이름\].*\n?/g, "");
+
+    // 4. 위아래 쓸데없는 줄바꿈(엔터) 깔끔하게 정리
+    cleanDescription = cleanDescription.trim();
+
+    // 정제된 텍스트를 안건 작성 폼에 세팅하고 화면 이동!
     setProposalForm({
         title: studioData.intent || "AI 기획 안건",
-        description: studioData.draft || "",
+        description: cleanDescription, // 👈 깔끔하게 다듬어진 텍스트 삽입!
         image_url: studioData.image || "", 
         style: "AI Generated",
         meta_hash: "", 
@@ -263,15 +282,32 @@ function App() {
     setActiveTab("write");
   };
   
+  // ==========================================
+  // 🔥 [수정됨] A2A 파이프라인 호출 함수 
+  // ==========================================
   const handleStudioAction = async (type) => {
     if (type === 'draft') {
         setIsLoading(true);
-        setStudioLoadingStep("📜 기획자 에이전트가 데이터를 수집하여 기획서를 작성 중...");
+        // 사용자에게 진짜 회의 중임을 알림
+        setStudioLoadingStep("🤖 AI 에이전트(기획자, 화가, 비평가)가 난상 토론을 진행 중입니다... (약 30~60초 소요)");
+        
         try {
-            const res = await axios.post(`${API_URL}/api/studio/draft`, { intent: studioData.intent });
-            setStudioData(prev => ({ ...prev, draft: res.data.draft_text }));
+            // 🚨 백엔드(8000)를 거치지 않고, AI 에이전트 서버(8002)의 진짜 A2A 주소로 직접 호출!
+            const res = await axios.post(`http://localhost:8002/studio/a2a-full`, { intent: studioData.intent });
+            
+            // 🚨 에이전트들이 도출한 세 가지 결과물을 합쳐서 하나의 텍스트로 예쁘게 만듦
+            const combinedText = `📜 [최종 전시 기획안 및 A2A 회의 결과]\n\n` +
+                                 `=========================================\n` +
+                                 `🎯 1. 기획자 초안 (Planner Draft)\n${res.data.planner_draft}\n\n` +
+                                 `=========================================\n` +
+                                 `🧐 2. 비평가 피드백 (Critic Feedback)\n${res.data.critic_feedback}\n\n` +
+                                 `=========================================\n` +
+                                 `✨ 3. AI 화가 이미지 프롬프트 (Painter Prompt)\n${res.data.painter_prompt}`;
+
+            setStudioData(prev => ({ ...prev, draft: combinedText }));
         } catch (err) { 
-            alert("기획서 생성 실패"); 
+            console.error("A2A 통신 에러:", err);
+            alert("기획서 생성 실패. 서버가 켜져 있는지 확인해주세요."); 
         }
         setIsLoading(false);
         setStudioLoadingStep(""); 
@@ -315,8 +351,6 @@ function App() {
 
         console.log("🚀 스마트 컨트랙트에 트랜잭션 전송 중...");
         
-        // 🚨 [온체인 데이터 최적화] 무작정 자르지 않고 문맥이 유지되는 '스마트 요약본' 생성
-        // 가스비 폭발을 막는 안전선(150자) 내에서, 단어가 끊기지 않게 띄어쓰기 기준으로 자름
         let onChainDescription = proposalForm.description;
         if (onChainDescription.length > 150) {
             const cutIndex = onChainDescription.lastIndexOf(' ', 150);
@@ -324,10 +358,9 @@ function App() {
             onChainDescription = onChainDescription.substring(0, safeIndex) + " ...\n\n[이 안건의 전체 기획서 원문은 ArtDAO 오프체인 DB에 영구 보존되어 있습니다.]";
         }
 
-        // ✅ 4. 컨트랙트 전송 (스마트하게 정리된 요약본 전송)
         const tx = await contract.createProposal(
             proposalForm.title, 
-            onChainDescription, // 👈 앞글자 30자가 아니라, 맥락이 보존된 150자 요약본 탑재!
+            onChainDescription, 
             finalImageIpfsUrl || proposalForm.image_url || "", 
             proposalForm.voteType,
             durationNum, 
@@ -338,7 +371,6 @@ function App() {
         alert("⛓️ 블록체인에 기록 중입니다... (약 10~20초 소요)");
         await tx.wait(); 
         
-        // ✅ 5. DB 저장 (당연히 중앙 DB에는 수천 자의 전체 원문이 1글자도 빠짐없이 보관됨)
         await axios.post(`${API_URL}/api/proposals`, { 
             wallet_address: walletAddress, 
             ...proposalForm, 
@@ -889,7 +921,7 @@ function App() {
                         <h3>1. 기획 의도 입력</h3>
                         <input type="text" placeholder="예: 외계인 도시" value={studioData.intent} onChange={(e)=>setStudioData({...studioData, intent: e.target.value})}/>
                         <div className="studio-btns">
-                            <button className="primary" onClick={()=>handleStudioAction('draft')} disabled={isLoading}>📜 기획서 생성</button>
+                            <button className="primary" onClick={()=>handleStudioAction('draft')} disabled={isLoading}>📜 기획서 생성 (A2A 시작)</button>
                         </div>
                     </div>
                     
@@ -911,7 +943,7 @@ function App() {
 
                         {studioData.draft && !isLoading && (
                             <>
-                                <textarea value={studioData.draft} readOnly />
+                                <textarea value={studioData.draft} readOnly style={{ height: "300px" }} />
                                 <button className="action-btn primary full-width" onClick={()=>handleStudioAction('image')} disabled={isLoading} style={{marginTop: '10px', marginBottom: '10px'}}>
                                     🎨 포스터 이미지 생성
                                 </button>
@@ -1032,7 +1064,7 @@ function App() {
                                     </div>
                                     <div className="a2a-step-list">
                                         <div className="a2a-step">유저 성향 및 질문 의도 파악 완료</div>
-                                        <div className="a2a-step active">비평가 에이전트와 교차 검증하며 답변 생성 중...</div>
+                                        <div className="a2a-step active">"관람객님의 질문 의도를 분석하고 있어요..."</div>
                                     </div>
                                 </div>
                             </div>
