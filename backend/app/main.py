@@ -443,7 +443,7 @@ def create_art_image(request: schemas.StudioImageRequest):
         return {"image_url": "https://dummyimage.com/600x400/000000/fff&text=Connection+Failed"}
     
 # ==========================================
-# 2. IPFS 영구 저장 (그림 업로드 -> 메타데이터 JSON 업로드)
+# 2. IPFS 영구 저장 (오직 그림 파일만 가볍게 업로드!)
 # ==========================================
 class FinalizeProposalRequest(BaseModel):
     image_url: str = ""
@@ -454,7 +454,7 @@ class FinalizeProposalRequest(BaseModel):
 
 @app.post("/api/ipfs/finalize")
 def finalize_proposal_ipfs(req: FinalizeProposalRequest):
-    print(f"🚀 [최종 제출] 메모리 데이터 -> IPFS 영구 저장 시작 (안건: {req.title})")
+    print(f"🚀 [최종 제출] 메모리 그림 데이터 -> IPFS 영구 저장 시작 (안건: {req.title})")
     try:
         import base64
         
@@ -462,47 +462,30 @@ def finalize_proposal_ipfs(req: FinalizeProposalRequest):
         if not req.image_url or not req.image_url.startswith("data:image"):
             return {"error": "Invalid image data"}
             
-        print("📥 1단계: 프론트엔드 이미지를 복원하여 IPFS에 업로드 중...")
+        print("📥 프론트엔드 이미지를 복원하여 IPFS에 업로드 중...")
         header, encoded = req.image_url.split(",", 1)
         image_bytes = base64.b64decode(encoded)
         
+        # 🚨 여기서 ipfs.py의 이미지 업로드 함수만 호출합니다!
         image_cid = upload_bytes_to_ipfs(image_bytes)
         
         if not image_cid:
             return {"error": "Image Upload Failed"}
             
         image_ipfs_url = f"ipfs://{image_cid}"
-        print(f"✅ 1단계 완료! 그림 CID: {image_cid}")
+        print(f"✅ 그림 IPFS 업로드 완료! CID: {image_cid}")
         
-        # 2. 메타데이터(기획서 전문 + 이미지 주소) JSON 생성 및 IPFS 업로드
-        print("☁️ 2단계: 전시 기획서 메타데이터 JSON을 IPFS에 업로드 중...")
-        metadata = {
-            "name": req.title,
-            "description": req.description, # 프론트에서 넘겨준 '최종 기획서' 텍스트
-            "image": image_ipfs_url,        # 1단계에서 얻은 그림 IPFS 주소
-            "attributes": [
-                {"trait_type": "Creator", "value": req.wallet_address},
-                {"trait_type": "Type", "value": "AI A2A Exhibition Proposal"}
-            ]
-        }
-        
-        # ipfs.py에 정의된 json 업로드 함수 호출
-        metadata_cid = upload_json_to_ipfs(metadata)
-        
-        if not metadata_cid:
-            return {"error": "Metadata JSON Upload Failed"}
-            
-        token_uri = f"ipfs://{metadata_cid}"
-        print(f"✅ 2단계 완료! 최종 Token URI(스마트컨트랙트용): {token_uri}")
+        # 🚨 메타데이터(JSON) 업로드 로직은 삭제! 스마트 컨트랙트에는 그림 주소만 들어갑니다.
         
         return {
             "status": "success",
             "image_ipfs_url": f"https://gateway.pinata.cloud/ipfs/{image_cid}", # 브라우저 표시용
-            "token_uri": token_uri # 컨트랙트 Mint용 최종 URI
+            "token_uri": image_ipfs_url # 스마트 컨트랙트에 들어갈 최종 그림 주소
         }
     except Exception as e:
         print(f"🔥 IPFS 파이썬 에러: {str(e)}")
         return {"error": str(e)}
+    
     
 # =======================================================================
 # 사용자 목록을 불러오는 GET 요청과 위임 처리를 위한 POST 요청 추가(Lim)
