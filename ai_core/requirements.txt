@@ -12,3 +12,4 @@ web3==6.15.1
 python-dotenv==1.0.0
 crewai
 langchain-google-genai
+crewai_tools

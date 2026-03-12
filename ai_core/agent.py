@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from crewai import Agent, Task, Crew, Process, LLM 
 from dotenv import load_dotenv
 from datetime import datetime
+from crewai_tools import SerperDevTool, PDFSearchTool
 
 load_dotenv()
 
@@ -40,6 +41,16 @@ try:
 except Exception as e:
     print(f"🔥 모델 초기화 실패: {e}")
     llm = None
+    
+# ==========================================================
+# 🔍 [추가 2] 에이전트들에게 쥐여줄 RAG 도구(무기) 생성
+# ==========================================================
+# 1. 실시간 인터넷 웹 검색 도구 (최신 미술 트렌드, 경매 낙찰가 검색용)
+search_tool = SerperDevTool()
+
+# 2. 로컬 PDF 문서 검색 도구 (예: 프로젝트 폴더에 'art_history.pdf'를 넣어두면 알아서 읽고 학습함)
+# pdf_tool = PDFSearchTool(pdf='art_history.pdf') 
+# (현재 PDF 파일이 없다면 이건 주석 처리해두고 나중에 쓰시면 됩니다)
 
 # ==================================================================
 # 🤖 1. 에이전트(Agent) 정의 (allow_delegation=True 로 소통 허용)
@@ -48,6 +59,7 @@ planner = Agent(
     role='수석 전시 기획자',
     goal='대중성과 예술성을 모두 갖춘 완벽한 전시 기획서 작성',
     backstory='당신은 20년 경력의 베테랑 큐레이터입니다. 단순한 아이디어도 거시적인 예술 비전으로 확장시킵니다.',
+    tools=[search_tool],
     llm=llm,
     allow_delegation=True, 
     verbose=True
@@ -57,6 +69,7 @@ painter = Agent(
     role='수석 디지털 아티스트',
     goal='기획서를 완벽하게 시각화할 수 있는 디테일한 영문 프롬프트 작성',
     backstory='당신은 빛, 질감, 구도를 완벽하게 이해하는 디지털 아티스트입니다. 그림 프롬프트를 짤 때 한자, 중국어, 일본어가 나오지 않도록 철저히 통제합니다.',
+    tools=[search_tool],
     llm=llm,
     allow_delegation=True,
     verbose=True
@@ -66,6 +79,7 @@ critic = Agent(
     role='수석 미술 비평가',
     goal='작품을 미술사적 맥락에서 심층적으로 분석하고 비평',
     backstory='당신은 뉴욕 MoMA 출신의 식견 높고 까칠한 비평가입니다. 색채와 구도를 날카롭게 분석합니다.',
+    tools=[search_tool],
     llm=llm,
     allow_delegation=True,
     verbose=True
@@ -75,6 +89,7 @@ marketer = Agent(
     role='MZ세대 바이럴 마케터',
     goal='전시회를 SNS에서 화제성 1위로 만들 매력적인 카피라이팅 작성',
     backstory='당신은 트렌드에 극도로 민감한 마케터입니다. 이모지와 해시태그를 적극 활용합니다.',
+    tools=[search_tool],
     llm=llm,
     verbose=True
 )
@@ -83,6 +98,7 @@ auctioneer = Agent(
     role='소더비 수석 경매사',
     goal='비평을 바탕으로 작품의 가치를 극대화하는 경매 리포트 작성',
     backstory='당신은 세계 최고의 경매사입니다. 긴장감을 조성하고 희소성을 어필합니다.',
+    tools=[search_tool],
     llm=llm,
     verbose=True
 )
@@ -97,6 +113,7 @@ ai_curator = Agent(
         '만약 관람객이 특정 작품의 아주 세부적인 기법이나 숨겨진 뒷이야기를 묻는다면, '
         '작품 해설 전문가인 "도슨트"에게 내용을 확인하여 답변하세요.' # 👈 협업 지시
     ),
+    tools=[search_tool],
     llm=llm,
     allow_delegation=True, # 👈 도슨트에게 일을 넘길 수 있게 허용
     verbose=True
@@ -111,6 +128,7 @@ ai_docent = Agent(
         '캔버스의 질감, 색채의 대비, 작가의 비하인드 스토리를 '
         '마치 옆에서 속삭여주듯 친절하게 설명하는 것이 당신의 임무입니다.'
     ),
+    tools=[search_tool],
     llm=llm,
     allow_delegation=False, # 도슨트는 해설만 하면 되므로 위임 불필요
     verbose=True
@@ -169,83 +187,55 @@ def start_tour(request: DocentRequest):
 
 
 # ==================================================================
-# 🔥 4. [최종] 기획자-비평가 명시적 피드백 루프 + 화가 체이닝
+# 🔥 4. [최종] 기획자-비평가 난상토론 루프 (백엔드 조립 방식)
 # ==================================================================
 @app.post("/studio/a2a-full")
 def a2a_full_studio(request: A2AStudioRequest):
+    print(f"🚀 [A2A 난상토론 시작] 주제: {request.intent}")
     today = datetime.now().strftime("%Y-%m-%d")
 
-    # [루프 1단계] 기획자: 기획서 초안 작성
     task_draft = Task(
         description=f"오늘 날짜({today})를 기준으로 '{request.intent}'를 주제로 전시 기획서 초안을 작성하세요.",
-        expected_output="전시 기획서 초안",
+        expected_output="마크다운 형식의 전시 기획서 초안",
         agent=planner
     )
     
-    # [루프 2단계] 비평가: 초안에 대한 피드백 및 수정 지시
     task_review = Task(
-        description="기획자가 작성한 초안을 날카롭게 분석하고, 예술성을 높이기 위한 구체적인 '수정 지시사항'을 작성하세요.",
-        expected_output="기획서 초안에 대한 비평 및 구체적인 수정 지시서",
+        description="초안을 읽고 가차없이 비판하며 예술성을 높일 3가지 수정 지시를 내리세요.",
+        expected_output="신랄한 비평문 및 수정 지시서",
         agent=critic,
         context=[task_draft]
     )
 
-    # [루프 3단계] 기획자: 피드백을 반영한 최종 기획서 완성 (토론의 결실)
     task_revise = Task(
-        description="비평가의 수정 지시사항을 100% 반영하여, 전시 기획서를 최종적으로 수정하고 완벽한 결과물을 도출하세요.",
-        expected_output="비평가의 피드백이 반영된 완벽한 최종 전시 기획서",
+        description="비평가의 지시를 수용하여 기획서를 고치세요. 대화형 멘트는 절대 배제하고, 비평이 완벽히 반영된 **'새로운 최종 전시 기획서 전문'을 마크다운 풀버전으로 다시 작성**하세요.",
+        expected_output="완벽히 재작성된 최종 전시 기획서 전문",
         agent=planner,
-        context=[task_draft, task_review] # 초안과 비평가의 피드백을 모두 읽음
+        context=[task_draft, task_review]
     )
 
-    # [체이닝] 화가: 최종 기획서를 보고 프롬프트만 단순 추출 (외부 API용)
-    task_prompt = Task(
-        description="최종 완성된 기획서를 바탕으로, 외부 이미지 생성 API에 넣을 1줄짜리 완벽한 영문 프롬프트만 추출하세요.",
-        expected_output="단 1줄의 영문 이미지 프롬프트",
-        agent=painter,
-        context=[task_revise] # 최종 기획서만 넘겨받음
-    )
+    try:
+        studio_crew = Crew(
+            agents=[planner, critic, planner], 
+            tasks=[task_draft, task_review, task_revise],
+            process=Process.sequential, 
+            verbose=True
+        )
+        
+        studio_crew.kickoff()
+        
+        def get_output(task):
+            return getattr(task.output, 'raw', str(task.output))
 
-    # Sequential로 실행하여 500 에러 방지 (순서대로 핑퐁 진행)
-    studio_crew = Crew(
-        agents=[planner, critic, planner, painter], # 기획자가 2번 등판!
-        tasks=[task_draft, task_review, task_revise, task_prompt],
-        process=Process.sequential, 
-        verbose=True,
-        max_rpm=10 
-    )
-    
-    result = studio_crew.kickoff()
-    
-    return {
-        "status": "A2A Mission Complete",
-        "planner_draft": str(task_draft.output),       # 기획자의 첫 생각
-        "critic_feedback": str(task_review.output),    # 비평가의 매서운 피드백
-        "final_conclusion": str(task_revise.output),   # 피드백이 반영된 최종안
-        "painter_prompt": str(task_prompt.output)      # 화가의 1줄 프롬프트
-    }
+        print("✅ [A2A 토론 완료] 화면 출력을 위해 최종본만 깔끔하게 전송합니다!")
+        
+        # 🚨 [수정됨] 초안과 비평은 버리고, 오직 3단계(task_revise)의 '최종 기획서'만 변수에 담습니다!
+        final_clean_text = get_output(task_revise)
 
-# [agent.py 맨 밑에 추가]
-@app.post("/chat")
-def combined_chat(request: DocentRequest):
-    # 큐레이터(ai_curator)와 도슨트(ai_docent)가 한 팀으로 묶입니다.
-    # 큐레이터는 위임(allow_delegation=True)이 켜져 있어 필요시 도슨트에게 물어봅니다.
-    chat_task = Task(
-        description=(
-            f"관람객의 질문: {request.art_info}. "
-            "질문에 대해 큐레이터로서 친절하게 답변하세요. "
-            "만약 특정 작품의 세부 기법이나 비하인드 스토리에 대한 질문이라면 "
-            "반드시 도슨트에게 물어보고 그 내용을 포함해서 답변하세요."
-        ),
-        expected_output="관람객을 위한 통합된 친절한 답변 (존댓말)",
-        agent=ai_curator # 팀장은 큐레이터
-    )
+        # 프론트가 찾고 있는 "draft_text"라는 이름표에 최종본만 딱 넣어서 보냅니다.
+        return {"draft_text": final_clean_text}
 
-    # Crew가 내부적으로 협업을 처리합니다.
-    chat_crew = Crew(
-        agents=[ai_curator, ai_docent], 
-        tasks=[chat_task], 
-        verbose=True
-    )
-    
-    return {"reply": str(chat_crew.kickoff())}
+    except Exception as e:
+        error_msg = f"🔥 AI 토론 중 서버 에러가 발생했습니다: {str(e)}"
+        print(error_msg)
+        return {"draft_text": error_msg}

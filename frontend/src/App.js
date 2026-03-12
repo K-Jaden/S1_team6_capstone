@@ -228,28 +228,29 @@ function App() {
     } catch (err) { alert("뱃지 업데이트 실패"); }
   };
 
-  const handleGenerateWithIPFS = async () => {
+ const handleGenerateWithIPFS = async () => {
     setIsLoading(true);
     setStudioLoadingStep("🎨 AI 화가 에이전트가 프롬프트를 시각화 및 렌더링 중..."); 
     try {
-        const res = await axios.post(`${API_URL}/api/studio/generate_hybrid`, {
-            prompt: studioData.intent,
-            wallet_address: walletAddress
+        // ✅ 백엔드의 새 주소(/api/studio/image)와 새 변수명(keywords)으로 맞춤!
+        const res = await axios.post(`${API_URL}/api/studio/image`, {
+            keywords: studioData.intent
         });
 
-        if (res.data.status === "success") {
+        if (res.data.image_url && !res.data.image_url.includes("Error")) {
             setStudioData(prev => ({
                 ...prev,
                 image: res.data.image_url,  
                 meta_cid: "" 
             }));
             alert("🎨 포스터 이미지가 생성되었습니다! (영구 저장은 안건 제출 시 진행됩니다)"); 
+        } else {
+            alert("이미지 생성에 실패했습니다. (서버 에러)");
         }
     } catch (err) { alert("생성 실패"); }
     setIsLoading(false);
     setStudioLoadingStep(""); 
   };
-
  const sendToProposalWrite = () => {
     // 1. 스튜디오에서 생성된 텍스트 원본 가져오기
     let cleanDescription = studioData.draft || "";
@@ -283,28 +284,19 @@ function App() {
   };
   
   // ==========================================
-  // 🔥 [수정됨] A2A 파이프라인 호출 함수 
+  // 🔥 [수정됨] A2A 파이프라인 호출 함수 (에러 해결!)
   // ==========================================
   const handleStudioAction = async (type) => {
     if (type === 'draft') {
         setIsLoading(true);
-        // 사용자에게 진짜 회의 중임을 알림
-        setStudioLoadingStep("🤖 AI 에이전트(기획자, 화가, 비평가)가 난상 토론을 진행 중입니다... (약 30~60초 소요)");
+        setStudioLoadingStep("🤖 AI 에이전트(기획자, 화가, 비평가)가 난상 토론을 진행 중입니다... (약 2분~3분 소요)");
         
         try {
-            // 🚨 백엔드(8000)를 거치지 않고, AI 에이전트 서버(8002)의 진짜 A2A 주소로 직접 호출!
-            const res = await axios.post(`http://localhost:8002/studio/a2a-full`, { intent: studioData.intent });
+            // 백엔드(main.py)의 정상적인 API 주소로 호출합니다.
+            const res = await axios.post(`${API_URL}/api/studio/draft`, { intent: studioData.intent });
             
-            // 🚨 에이전트들이 도출한 세 가지 결과물을 합쳐서 하나의 텍스트로 예쁘게 만듦
-            const combinedText = `📜 [최종 전시 기획안 및 A2A 회의 결과]\n\n` +
-                                 `=========================================\n` +
-                                 `🎯 1. 기획자 초안 (Planner Draft)\n${res.data.planner_draft}\n\n` +
-                                 `=========================================\n` +
-                                 `🧐 2. 비평가 피드백 (Critic Feedback)\n${res.data.critic_feedback}\n\n` +
-                                 `=========================================\n` +
-                                 `✨ 3. AI 화가 이미지 프롬프트 (Painter Prompt)\n${res.data.painter_prompt}`;
-
-            setStudioData(prev => ({ ...prev, draft: combinedText }));
+            // 백엔드가 이미 예쁘게 조립해서 보낸 draft_text를 그대로 화면에 넣습니다!
+            setStudioData(prev => ({ ...prev, draft: res.data.draft_text }));
         } catch (err) { 
             console.error("A2A 통신 에러:", err);
             alert("기획서 생성 실패. 서버가 켜져 있는지 확인해주세요."); 
@@ -316,8 +308,7 @@ function App() {
         await handleGenerateWithIPFS(); 
     }
   };
-
-  // ✅ 안건 제출 (단일 함수로 깔끔하게 정리됨)
+  // ✅ 안건 제출 (가스비 에러 완벽 해결)
   const submitProposal = async () => {
     if (!walletAddress) return alert("지갑이 연결되지 않았습니다.");
     if (!contract) return alert("스마트 컨트랙트 연결 중... 잠시 후 시도해주세요.");
@@ -329,19 +320,31 @@ function App() {
     if (!durationNum || durationNum <= 0) return alert("투표 기간을 1일 이상으로 입력해주세요.");
 
     setIsLoading(true);
-    let finalImageIpfsUrl = ""; 
+    let finalUriToSave = proposalForm.image_url; 
 
     try {
+        // 1. 이미지가 화면에 떠있는 Base64 글자라면? ➔ 무조건 IPFS 서버로 먼저 보냄!
         if (proposalForm.image_url && proposalForm.image_url.startsWith('data:image')) {
-            console.log("🚀 안전한 이미지를 IPFS로 전송 중...");
+            console.log("🚀 엄청나게 큰 이미지 데이터를 IPFS로 피신시키는 중...");
             const ipfsRes = await axios.post(`${API_URL}/api/ipfs/finalize`, {
-                image_url: proposalForm.image_url
+                image_url: proposalForm.image_url,
+                title: proposalForm.title,
+                description: proposalForm.description,
+                wallet_address: walletAddress
             });
 
             if (ipfsRes.data.status === "success") {
-                finalImageIpfsUrl = ipfsRes.data.image_ipfs_url;
-                console.log("✅ IPFS 이미지 저장 완벽 성공! 주소:", finalImageIpfsUrl);
+                // 🚨 IPFS 서버가 반환해준 아주 짧은 주소(ipfs://...)로 교체!
+                finalUriToSave = ipfsRes.data.token_uri || ipfsRes.data.image_ipfs_url;
+                console.log("✅ IPFS 영구 저장소 변환 완료! 짧은 주소:", finalUriToSave);
+            } else {
+                throw new Error("IPFS 업로드 실패: " + ipfsRes.data.error);
             }
+        }
+
+        // 🚨 [핵심 방어막] IPFS 통신에 실패해서 여전히 Base64라면 트랜잭션 강제 중단!
+        if (finalUriToSave && finalUriToSave.startsWith('data:image')) {
+            throw new Error("이미지 IPFS 변환에 실패했습니다. (Base64 데이터는 블록체인에 올릴 수 없습니다.)");
         }
 
         alert("지갑에서 트랜잭션을 승인해주세요...");
@@ -351,17 +354,19 @@ function App() {
 
         console.log("🚀 스마트 컨트랙트에 트랜잭션 전송 중...");
         
+        // 기획서가 너무 길면 블록체인 가스비가 터지므로 150자로 자르고 원본은 DB에 둔다고 명시
         let onChainDescription = proposalForm.description;
         if (onChainDescription.length > 150) {
             const cutIndex = onChainDescription.lastIndexOf(' ', 150);
             const safeIndex = cutIndex > 0 ? cutIndex : 150;
-            onChainDescription = onChainDescription.substring(0, safeIndex) + " ...\n\n[이 안건의 전체 기획서 원문은 ArtDAO 오프체인 DB에 영구 보존되어 있습니다.]";
+            onChainDescription = onChainDescription.substring(0, safeIndex) + " ...\n\n[이 안건의 전체 기획서 원문은 ArtDAO 오프체인 DB 및 IPFS에 영구 보존되어 있습니다.]";
         }
 
+        // 🚨 드디어 짧고 안전한 주소(finalUriToSave)를 블록체인에 전송!
         const tx = await contract.createProposal(
             proposalForm.title, 
             onChainDescription, 
-            finalImageIpfsUrl || proposalForm.image_url || "", 
+            finalUriToSave, 
             proposalForm.voteType,
             durationNum, 
             quorumWei,
@@ -371,11 +376,12 @@ function App() {
         alert("⛓️ 블록체인에 기록 중입니다... (약 10~20초 소요)");
         await tx.wait(); 
         
+        // 블록체인 기록이 끝나면 오프체인(MySQL) DB에도 저장
         await axios.post(`${API_URL}/api/proposals`, { 
             wallet_address: walletAddress, 
             ...proposalForm, 
             duration: durationNum, 
-            image_url: finalImageIpfsUrl || proposalForm.image_url || "", 
+            image_url: finalUriToSave, 
             meta_hash: tx.hash 
         });
 
@@ -393,7 +399,7 @@ function App() {
         setIsLoading(false);
     }
   };
-
+  
   const deleteProposal = async (id, e) => {
     e.stopPropagation(); 
     if (!window.confirm("정말 삭제하시겠습니까?")) return;
