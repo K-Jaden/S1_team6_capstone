@@ -28,7 +28,8 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    # allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=["*"], # 개발 편의를 위해 모든 도메인 허용 (배포 시에는 꼭 수정!)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -191,6 +192,17 @@ def get_proposals(
 # [안건 DB 저장]
 @app.post("/api/proposals", summary="안건 생성(DB저장)")
 def create_proposal(req: schemas.ProposalCreate, db: Session = Depends(get_db)):
+    # --- 🚀 [추가] 외래키 에러 방지를 위한 사용자 체크 로직 ---
+    user = db.query(models.User).filter(models.User.wallet_address == req.wallet_address).first()
+    if not user:
+        print(f"🆕 미등록 사용자 발견! 자동 가입 처리: {req.wallet_address}")
+        new_user = models.User(
+            wallet_address=req.wallet_address,
+            membership_grade="Bronze",
+            token_balance=0.0
+        )
+        db.add(new_user)
+        db.commit() # 부모 데이터를 먼저 확정지어야 합니다.
     new_p = models.ArtRequest(
         wallet_address=req.wallet_address,
         title=req.title,
