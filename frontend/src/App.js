@@ -438,9 +438,14 @@ function App() {
     setIsChatLoading(true); 
     
     try {
-      const res = await axios.post(`${API_URL}/api/a2a/chat`, null, { params: { message: userMsg.text, wallet_address: walletAddress } });
+      // 🚨 바뀐 부분: null과 params를 없애고 JSON 객체를 바로 던집니다.
+      const res = await axios.post(`${API_URL}/api/a2a/chat`, { 
+          message: userMsg.text, 
+          wallet_address: walletAddress 
+      });
       setChatMessages(prev => [...prev, { sender: "bot", text: res.data.reply }]);
     } catch (err) {
+      console.error(err);
       setChatMessages(prev => [...prev, { sender: "bot", text: "오류가 발생했습니다." }]);
     }
     

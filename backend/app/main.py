@@ -233,30 +233,37 @@ def delete_proposal(proposal_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"status": "deleted", "id": proposal_id}
 
-@app.post("/api/a2a/chat", response_model=schemas.A2AChatResponse)
-def chat_with_curator(message: str, wallet_address: str):
-    print(f"📡 [Backend] AI 협업 팀에게 질문 전달: {message}")
+# ==========================================
+# [수정] AI 큐레이터/도슨트 채팅 연결 API (422 에러 해결)
+# ==========================================
+# 프론트엔드가 보낼 데이터 규격 정의
+class ChatRequest(BaseModel):
+    message: str
+    wallet_address: str = ""
+
+@app.post("/api/a2a/chat")
+def a2a_chat(request: ChatRequest): # 🚨 query parameter가 아니라 body로 받습니다!
+    print(f"📡 [Backend] AI 협업 팀에게 질문 전달: {request.message}")
     
     try:
-        # ✅ 우리가 원래 하던 방식: requests로 agent.py(8002포트)에 외주 주기
-        # 주소는 /chat (또는 /docent) 중 하나로 통일하세요.
-        response = requests.post(
-            f"{AI_AGENT_URL}/chat", 
-            json={
-                "art_info": message,
-                "audience_type": "일반 관람객"
-            }
-        )
+        # AI 에이전트 서버로 데이터 전송 (주소줄이 아니라 json 바디에 담아서 보냅니다!)
+        payload = {
+            "message": request.message,
+            "wallet_address": request.wallet_address
+        }
+        
+        response = requests.post(f"{AI_AGENT_URL}/chat", json=payload, timeout=60)
         
         if response.status_code == 200:
             result = response.json()
-            return {"reply": result.get("reply", "답변을 준비 중입니다.")}
+            return {"reply": result.get("reply", "답변을 가져오지 못했습니다.")}
         else:
-            return {"reply": "AI 서버가 응답하지 않습니다."}
+            print(f"🔥 AI 서버 에러 ({response.status_code}): {response.text}")
+            return {"reply": "AI 팀이 응답하지 않습니다. 잠시 후 다시 시도해주세요."}
             
     except Exception as e:
-        print(f"🔥 통신 에러: {e}")
-        return {"reply": "AI 서버 연결 실패"}
+        print(f"🔥 통신 에러: {str(e)}")
+        return {"reply": "AI 서버와 연결할 수 없습니다."}
     
 # [명세서 추가 요청 2] 사용자 맞춤 작품 매칭 (A2A Recommend)
 @app.get("/api/a2a/recommend", summary="사용자 맞춤 작품 매칭")

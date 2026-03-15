@@ -239,3 +239,63 @@ def a2a_full_studio(request: A2AStudioRequest):
         error_msg = f"🔥 AI 토론 중 서버 에러가 발생했습니다: {str(e)}"
         print(error_msg)
         return {"draft_text": error_msg}
+    
+# ==================================================================
+# 💬 5. AI 큐레이터 & 도슨트 채팅 API (동시 접속 완벽 지원!)
+# ==================================================================
+class DocentRequest(BaseModel):
+    message: str
+    wallet_address: str = ""
+
+@app.post("/chat")
+def combined_chat(request: DocentRequest):
+    print(f"💬 [AI 큐레이터] 사용자 질문 수신: {request.message}")
+    
+    # 🚨 [핵심 해결책 1: Thread-Safe 설계] 
+    # 동시 접속 시 메모리가 꼬이지 않도록, 함수 '안'에서 에이전트를 매번 새롭게 생성합니다!
+    ai_curator = Agent(
+        role="수석 미술 큐레이터",
+        goal="사용자의 질문을 분석하여 미술사적 맥락에서 우아하게 답변하며, 특정 작가나 작품에 대한 상세한 해설이 필요할 경우 '전문 도슨트'에게 즉시 업무를 위임(Delegate)한다.",
+        backstory="세계 유수의 현대미술관에서 20년간 기획을 담당한 베테랑. 팀원의 능력을 100% 활용할 줄 아는 탁월한 리더입니다.",
+        allow_delegation=True, # 도슨트에게 질문을 넘길 수 있는 권한
+        llm=llm,
+        verbose=True
+    )
+
+    ai_docent = Agent(
+        role="전문 도슨트",
+        goal="수석 큐레이터가 넘겨준 질문(작가 추천, 기법, 작품 해설 등)에 대해, 관람객의 눈높이에 맞춰 아주 상세하게 설명한다.",
+        backstory="어려운 예술의 세계를 가장 쉽고 재미있게 스토리텔링해 주는 미술관 최고 인기 도슨트입니다.",
+        allow_delegation=False, 
+        llm=llm,
+        verbose=True
+    )
+
+    task_chat = Task(
+        description=f"""사용자의 다음 질문에 대해 가장 완벽한 답변을 제공하세요: '{request.message}'
+        [지시사항]
+        1. 거시적인 내용이라면 수석 큐레이터가 직접 답변하세요.
+        2. 특정 작가 추천, 기법, 작품 해설 등은 반드시 '전문 도슨트'에게 위임(Ask question to coworker)하여 그 결과를 바탕으로 답변하세요.
+        3. 최종 답변은 마크다운 포맷으로 깔끔하게 정리하여 한국어로 출력하세요.""",
+        expected_output="미술관 전문가의 친절하고 깊이 있는 최종 답변",
+        agent=ai_curator 
+    )
+    
+    try:
+        chat_crew = Crew(
+            agents=[ai_curator, ai_docent], 
+            tasks=[task_chat],
+            verbose=True,
+            max_rpm=10 # 🚨 [핵심 해결책 2] 구글 API 과부하 방지 (1분에 10번까지만 호출하도록 속도 조절)
+        )
+        
+        chat_crew.kickoff()
+        
+        final_reply = getattr(task_chat.output, 'raw', str(task_chat.output))
+        
+        print("✅ [AI 큐레이터 팀] 답변 전송 완료!")
+        return {"reply": final_reply}
+        
+    except Exception as e:
+        print(f"🔥 AI 챗 에러: {str(e)}")
+        return {"reply": "앗, 큐레이터와 도슨트가 지금 다른 관람객을 응대 중입니다. 잠시 후 다시 질문해 주세요!"}
