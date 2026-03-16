@@ -310,7 +310,7 @@ def create_draft(request: schemas.StudioDraftRequest):
         response = requests.post(
             f"{AI_AGENT_URL}/studio/a2a-full", 
             json={"intent": request.intent},
-            timeout=120 
+            timeout=300 
         )
         
         if response.status_code == 200:
