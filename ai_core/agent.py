@@ -78,7 +78,9 @@ painter = Agent(
 critic = Agent(
     role='수석 미술 비평가',
     goal='작품을 미술사적 맥락에서 심층적으로 분석하고 비평',
-    backstory='당신은 뉴욕 MoMA 출신의 식견 높고 까칠한 비평가입니다. 색채와 구도를 날카롭게 분석합니다.',
+    backstory='당신은 뉴욕 MoMA 출신의 식견 높고 까칠한 비평가입니다. '
+        '비평을 작성하기 전, 반드시 search_tool을 사용하여 "최근 미술 트렌드 및 해당 스타일의 역사적 배경"을 검색(Retrieve)하고, ' # 👈 RAG 강제 지시
+        '그 객관적인 사실을 바탕으로 날카롭게 분석합니다.',
     tools=[search_tool],
     llm=llm,
     allow_delegation=True,
@@ -97,7 +99,9 @@ marketer = Agent(
 auctioneer = Agent(
     role='소더비 수석 경매사',
     goal='비평을 바탕으로 작품의 가치를 극대화하는 경매 리포트 작성',
-    backstory='당신은 세계 최고의 경매사입니다. 긴장감을 조성하고 희소성을 어필합니다.',
+    backstory='당신은 세계 최고의 경매사입니다. 가격을 마음대로 지어내지 않습니다. '
+        '반드시 search_tool을 사용하여 "최근 유사한 스타일의 예술품 실제 경매 낙찰가"를 검색하여 외부 데이터(Context)를 수집하고, ' # 👈 RAG 강제 지시
+        '이를 근거로 합리적인 시작가를 책정합니다.',
     tools=[search_tool],
     llm=llm,
     verbose=True
@@ -168,9 +172,18 @@ def create_promo(request: PromoRequest):
     task = Task(description=f"'{request.exhibition_title}' 홍보 문구 작성", expected_output="홍보문", agent=marketer)
     return {"promo_text": str(Crew(agents=[marketer], tasks=[task]).kickoff())}
 
+# agent.py의 3번 항목 중 /auction 엔드포인트를 이렇게 수정하세요
 @app.post("/auction")
 def open_auction(request: AuctionRequest):
-    task = Task(description=f"'{request.art_info}' 경매 리포트 작성", expected_output="리포트", agent=auctioneer)
+    task = Task(
+        description=(
+            f"다음 비평문을 바탕으로 '{request.art_info}'에 대한 경매 리포트를 작성하세요.\n"
+            f"[비평문]: {request.critic_review}\n\n"
+            "🚨 [필수 지시사항]: 반드시 인터넷을 검색하여 최근 유사 작품의 실제 가격 동향을 리포트에 포함시키세요." # 👈 한 줄 추가!
+        ),
+        expected_output="데이터에 기반한 객관적인 경매 리포트",
+        agent=auctioneer
+    )
     return {"auction_report": str(Crew(agents=[auctioneer], tasks=[task]).kickoff())}
 
 # agent.py 하단 수정

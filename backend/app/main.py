@@ -152,7 +152,7 @@ def generate_docent_script(item_id: int = 0):
             "audience_type": "일반 관람객"
         }
         # agent.py의 /docent 엔드포인트 호출
-        response = requests.post(f"{AI_AGENT_URL}/docent", json=payload, timeout=10)
+        response = requests.post(f"{AI_AGENT_URL}/docent", json=payload, timeout=20)
         
         if response.status_code == 200:
             script = response.json().get("commentary", "작품 설명을 불러오지 못했습니다.")
@@ -298,7 +298,7 @@ def create_draft(request: schemas.StudioDraftRequest):
         response = requests.post(
             f"{AI_AGENT_URL}/studio/a2a-full", 
             json={"intent": request.intent},
-            timeout=120 
+            timeout=300 
         )
         
         if response.status_code == 200:
@@ -395,7 +395,7 @@ def create_art_image(request: schemas.StudioImageRequest):
     try:
         print("🧠 [CrewAI] 화가 에이전트에게 완벽한 프롬프트 엔지니어링 의뢰 중...")
         payload = {"topic": request.keywords, "style": "Digital Art", "wallet_address": "0xSystem"}
-        response = requests.post(f"{AI_AGENT_URL}/generate", json=payload, timeout=15)
+        response = requests.post(f"{AI_AGENT_URL}/generate", json=payload, timeout=30)
         
         if response.status_code == 200:
             enhanced_english_prompt = response.json().get("final_prompt", enhanced_english_prompt)
@@ -417,7 +417,7 @@ def create_art_image(request: schemas.StudioImageRequest):
             "prompt": enhanced_english_prompt[:1000] # 프롬프트 길이 제한
         }
 
-        img_res = requests.post(cf_url, headers=headers, json=data, timeout=30)
+        img_res = requests.post(cf_url, headers=headers, json=data, timeout=60)
 
         if img_res.status_code == 200:
             # 🚨 [핵심 수정] Cloudflare가 주는 JSON 껍데기를 벗겨서 진짜 이미지 데이터만 추출!
