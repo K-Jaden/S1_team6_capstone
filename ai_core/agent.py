@@ -262,15 +262,14 @@ class DocentRequest(BaseModel):
 
 @app.post("/chat")
 def combined_chat(request: DocentRequest):
-    print(f"💬 [AI 큐레이터] 사용자 질문 수신: {request.message}")
+    print(f"💬 [AI 어시스턴트] 사용자 질문 수신: {request.message}")
     
-    # 🚨 [핵심 해결책 1: Thread-Safe 설계] 
-    # 동시 접속 시 메모리가 꼬이지 않도록, 함수 '안'에서 에이전트를 매번 새롭게 생성합니다!
+    # 🚨 AI의 정체성을 '만능 가이드'로 확장합니다.
     ai_curator = Agent(
-        role="수석 미술 큐레이터",
-        goal="사용자의 질문을 분석하여 미술사적 맥락에서 우아하게 답변하며, 특정 작가나 작품에 대한 상세한 해설이 필요할 경우 '전문 도슨트'에게 즉시 업무를 위임(Delegate)한다.",
-        backstory="세계 유수의 현대미술관에서 20년간 기획을 담당한 베테랑. 팀원의 능력을 100% 활용할 줄 아는 탁월한 리더입니다.",
-        allow_delegation=True, # 도슨트에게 질문을 넘길 수 있는 권한
+        role="ArtDAO 총괄 가이드 AI",
+        goal="사용자의 미술 관련 질문에 우아하게 답변할 뿐만 아니라, ArtDAO 플랫폼의 이용 방법(안건 등록, 투표, 블록체인 위임 등)에 대해서도 완벽하게 안내한다.",
+        backstory="당신은 ArtDAO 플랫폼의 모든 것을 알고 있는 만능 어시스턴트입니다. 미술사적 지식은 물론, DAO(탈중앙화 자율조직)의 투표 시스템 원리까지 친절하게 설명할 수 있습니다. 특정 미술 작품에 대한 매우 깊은 해설이 필요할 때만 '전문 도슨트'에게 위임합니다.",
+        allow_delegation=True, 
         llm=llm,
         verbose=True
     )
@@ -284,13 +283,15 @@ def combined_chat(request: DocentRequest):
         verbose=True
     )
 
+    # 🚨 지시사항(Prompt)에 플랫폼 안내 기능을 명시합니다.
     task_chat = Task(
         description=f"""사용자의 다음 질문에 대해 가장 완벽한 답변을 제공하세요: '{request.message}'
         [지시사항]
-        1. 거시적인 내용이라면 수석 큐레이터가 직접 답변하세요.
-        2. 특정 작가 추천, 기법, 작품 해설 등은 반드시 '전문 도슨트'에게 위임(Ask question to coworker)하여 그 결과를 바탕으로 답변하세요.
-        3. 최종 답변은 마크다운 포맷으로 깔끔하게 정리하여 한국어로 출력하세요.""",
-        expected_output="미술관 전문가의 친절하고 깊이 있는 최종 답변",
+        1. 질문이 'ArtDAO 플랫폼 이용 방법(투표 방법, 안건 작성, 위임 등)'이라면, 시스템의 원리를 초보자도 이해하기 쉽게 설명하세요.
+        2. 질문이 '전반적인 미술 추천, 예술사'라면 총괄 큐레이터의 지식으로 직접 답변하세요.
+        3. 질문이 '특정 작가 추천, 기법, 작품 해설' 등 세부적인 미술 지식이라면, 반드시 '전문 도슨트'에게 위임(Ask question to coworker)하여 그 결과를 바탕으로 답변하세요.
+        4. 최종 답변은 마크다운 포맷으로 깔끔하게 정리하여 한국어로 출력하세요.""",
+        expected_output="플랫폼 가이드 혹은 미술관 전문가의 친절하고 완벽한 답변",
         agent=ai_curator 
     )
     
@@ -299,14 +300,14 @@ def combined_chat(request: DocentRequest):
             agents=[ai_curator, ai_docent], 
             tasks=[task_chat],
             verbose=True,
-            max_rpm=10 # 🚨 [핵심 해결책 2] 구글 API 과부하 방지 (1분에 10번까지만 호출하도록 속도 조절)
+            max_rpm=10
         )
         
         chat_crew.kickoff()
         
         final_reply = getattr(task_chat.output, 'raw', str(task_chat.output))
         
-        print("✅ [AI 큐레이터 팀] 답변 전송 완료!")
+        print("✅ [AI 어시스턴트 팀] 답변 전송 완료!")
         return {"reply": final_reply}
         
     except Exception as e:
