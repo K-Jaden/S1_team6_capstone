@@ -43,40 +43,37 @@ class ProposalAgentResponse(BaseModel):
     proposal_text: str
     suggested_title: str
 
-# === 안건 (Proposals) ===
-class ProposalCreate(BaseModel):
-    wallet_address: str
-    title: str
-    meta_hash: str | None = None
-    description: str | None = None
-    style: str | None = "General"
-    image_url: str | None = None
-    voteType: int | None = 0
-    duration: int | None = 3
-    quorum: int | None = 10
-    fundingAmount: float | None = 0.0
+# ==========================================
+# === [NEW] Botto DAO 라운드 & 후보작 ===
+# ==========================================
 
-class ProposalUpdate(BaseModel):
-    title: str | None = None
-    meta_hash: str | None = None
-    description: str | None = None
-    image_url: str | None = None
-
-class ProposalResponse(BaseModel):
+class CandidateResponse(BaseModel):
     id: int
-    wallet_address: str
+    round_id: int
     title: str
-    meta_hash: str | None
-    description: str | None
-    status: str
-    image_url: str | None
-    created_at: datetime
-    voteType: int | None = 0
-    duration: int | None = 3
-    quorum: int | None = 10
-    fundingAmount: float | None = 0.0
+    description: str
+    image_url: str
+    vp_votes: int
+    is_winner: bool
+    auction_price: int | None = None
+
     class Config:
         from_attributes = True
+
+class RoundResponse(BaseModel):
+    id: int
+    round_number: int
+    status: str
+    candidates: List[CandidateResponse] = []
+
+    class Config:
+        from_attributes = True
+
+# 유저가 프론트엔드에서 투표할 때 백엔드로 보낼 데이터
+class VoteRequest(BaseModel):
+    wallet_address: str
+    candidate_id: int
+    vp_amount: int
 
 # === AI 스튜디오 ===
 class StudioDraftRequest(BaseModel):

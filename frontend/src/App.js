@@ -13,12 +13,17 @@ const ADMIN_WALLETS = [
 ];
 
 function App() {
+    
   // ==========================================
   // 1. 상태 관리 (State)
   // ==========================================
   const [activeTab, setActiveTab] = useState("main"); 
   const [walletAddress, setWalletAddress] = useState("");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  
+  // --- [NEW] Botto DAO 라운드 상태 ---
+  const [currentRound, setCurrentRound] = useState(null);
+  const [vpInputs, setVpInputs] = useState({}); // 각 후보작별 입력한 VP 값 저장
   
   const [users, setUsers] = useState([]);
   const [proposals, setProposals] = useState([]);
@@ -100,6 +105,12 @@ function App() {
     fetchGallery();   
   }, [isLoggedIn, walletAddress, contract]);
 
+  useEffect(() => {
+      if (activeTab === "proposals") {
+          fetchCurrentRound();
+      }
+  }, [activeTab]);
+
   const connectWallet = async () => {
     if (!window.ethereum) return alert("메타마스크를 설치해주세요!");
     try {
@@ -139,11 +150,70 @@ function App() {
   // 3. 데이터 조회 및 액션 함수
   // ==========================================
   
+  // 1. 현재 라운드 정보 불러오기
+  const fetchCurrentRound = async () => {
+      try {
+          const res = await axios.get(`${API_URL}/api/rounds/current`);
+          setCurrentRound(res.data);
+      } catch (err) {
+          console.log("진행 중인 라운드가 없습니다.");
+          setCurrentRound(null);
+      }
+  };
+
+  // 2. VP 투표하기
+  const handleVoteVP = async (candidateId) => {
+      const amount = vpInputs[candidateId];
+      if (!amount || amount <= 0) return alert("투표할 VP를 입력하세요!");
+      if (!isLoggedIn) return alert("지갑을 먼저 연결해주세요!");
+
+      try {
+          const res = await axios.post(`${API_URL}/api/vote`, {
+              wallet_address: walletAddress,
+              candidate_id: candidateId,
+              vp_amount: parseInt(amount)
+          });
+          alert(res.data.message);
+          fetchCurrentRound(); // 투표 후 데이터 새로고침
+          setVpInputs({ ...vpInputs, [candidateId]: "" }); // 입력창 초기화
+      } catch (err) {
+          alert(err.response?.data?.detail || "투표 실패");
+      }
+  };
+
+  // 3. [데모용] 관리자 강제 라운드 생성
+  const handleGenerateRoundDemo = async () => {
+      setIsLoading(true);
+      alert("AI 에이전트들이 기획 토론 및 이미지 렌더링을 시작합니다. (약 30초~1분 소요)");
+      try {
+          await axios.post(`${API_URL}/api/admin/generate-round`);
+          alert("새 라운드와 4개의 후보작이 성공적으로 생성되었습니다!");
+          fetchCurrentRound();
+      } catch (err) {
+          alert("라운드 생성 실패");
+      }
+      setIsLoading(false);
+  };
+
+  // 4. [데모용] 관리자 강제 투표 종료 및 가치 산정
+  const handleEndRoundDemo = async () => {
+      setIsLoading(true);
+      alert("투표를 마감하고 AI 경매사가 우승작의 가치를 평가합니다...");
+      try {
+          const res = await axios.post(`${API_URL}/api/admin/end-round`);
+          alert(`🎉 1등 우승작: ${res.data.winner_title}\n💰 AI 책정가: ${res.data.auction_price} TUK`);
+          fetchCurrentRound(); // 현재 진행중인 라운드가 없어지므로 화면이 비워짐
+      } catch (err) {
+          alert("라운드 종료 실패");
+      }
+      setIsLoading(false);
+  };
+
   const fetchProposals = async (status = null) => {
     try {
       const params = status ? { status } : {};
-      const res = await axios.get(`${API_URL}/api/proposals`, { params });
-      let dbProposals = res.data;
+      const res = await axios.get(`${API_URL}/api/proposals`).catch(() => ({data: []})); // 구 API 에러 방지용
+      let dbProposals = res.data || [];
 
       if (contract) {
         try {
@@ -156,8 +226,6 @@ function App() {
             const statusMap = ["OPEN", "ACCEPTED", "REJECTED", "EXECUTED"];
 
             dbProposals = dbProposals.map(p => {
-                const chainP = chainProposals[Number(p.id) - 1];
-                // 블록체인 배열 길이보다 DB의 p.id가 크면 접근하지 않도록 보호
                 if (chainProposals.length >= Number(p.id)) {
                     const chainP = chainProposals[Number(p.id) - 1];
                     if (chainP) {
@@ -179,7 +247,7 @@ function App() {
                         };
                     }
                 }
-                return p; // 👈 에러 나면 그냥 DB 데이터만 반환
+                return p;
             });
         } catch (e) {
             console.error("블록체인 데이터 동기화 실패:", e);
@@ -199,7 +267,7 @@ function App() {
         axios.get(`${API_URL}/api/dao/delegation`, { params: { wallet_address: walletAddress } }),
         axios.get(`${API_URL}/api/user/activity`, { params: { wallet_address: walletAddress } }),
         axios.get(`${API_URL}/api/user/referral`, { params: { wallet_address: walletAddress } }),
-        axios.get(`${API_URL}/api/user/proposals`, { params: { wallet_address: walletAddress } }),
+        axios.get(`${API_URL}/api/user/proposals`, { params: { wallet_address: walletAddress } }).catch(() => ({ data: [] })),
         axios.get(`${API_URL}/api/user/recommend`, { params: { wallet_address: walletAddress } }).catch(() => ({ data: null }))
       ]);
       setMyInfo({
@@ -209,15 +277,19 @@ function App() {
         delegation: resDel.data,
         activity: resAct.data,
         referral: resRef.data,
-        myProposals: resMyProp.data,
+        myProposals: resMyProp.data || [],
         recommendation: resRec ? resRec.data : null
       });
     } catch (err) { console.error("내 정보 로드 실패", err); }
   };
 
   const fetchGallery = async () => {
-    const res = await axios.get(`${API_URL}/api/gallery/items`);
-    setGalleryItems(res.data);
+    try {
+        const res = await axios.get(`${API_URL}/api/gallery/items`);
+        setGalleryItems(res.data);
+    } catch (err) {
+        console.error("갤러리 로드 실패");
+    }
   };
 
   const handleBadgeUpdate = async () => {
@@ -232,7 +304,6 @@ function App() {
     setIsLoading(true);
     setStudioLoadingStep("🎨 AI 화가 에이전트가 프롬프트를 시각화 및 렌더링 중..."); 
     try {
-        // ✅ 백엔드의 새 주소(/api/studio/image)와 새 변수명(keywords)으로 맞춤!
         const res = await axios.post(`${API_URL}/api/studio/image`, {
             keywords: studioData.intent
         });
@@ -252,26 +323,18 @@ function App() {
     setStudioLoadingStep(""); 
   };
  const sendToProposalWrite = () => {
-    // 1. 스튜디오에서 생성된 텍스트 원본 가져오기
     let cleanDescription = studioData.draft || "";
-
-    // 2. [필터링 1] "3. AI 화가 이미지 프롬프트" 아랫부분 싹둑 자르기
     const splitKeyword = "=========================================\n✨ 3. AI 화가 이미지 프롬프트";
     if (cleanDescription.includes(splitKeyword)) {
         cleanDescription = cleanDescription.split(splitKeyword)[0];
     }
-
-    // 3. [필터링 2] "**큐레이터:** [이름]..." 또는 "큐레이터: [이름]..." 들어간 줄 삭제 (정규식 사용)
     cleanDescription = cleanDescription.replace(/\*\*큐레이터:\*\*\s*\[이름\].*\n?/g, "");
     cleanDescription = cleanDescription.replace(/큐레이터:\s*\[이름\].*\n?/g, "");
-
-    // 4. 위아래 쓸데없는 줄바꿈(엔터) 깔끔하게 정리
     cleanDescription = cleanDescription.trim();
 
-    // 정제된 텍스트를 안건 작성 폼에 세팅하고 화면 이동!
     setProposalForm({
         title: studioData.intent || "AI 기획 안건",
-        description: cleanDescription, // 👈 깔끔하게 다듬어진 텍스트 삽입!
+        description: cleanDescription, 
         image_url: studioData.image || "", 
         style: "AI Generated",
         meta_hash: "", 
@@ -283,19 +346,13 @@ function App() {
     setActiveTab("write");
   };
   
-  // ==========================================
-  // 🔥 [수정됨] A2A 파이프라인 호출 함수 (에러 해결!)
-  // ==========================================
   const handleStudioAction = async (type) => {
     if (type === 'draft') {
         setIsLoading(true);
         setStudioLoadingStep("🤖 AI 에이전트(기획자, 화가, 비평가)가 난상 토론을 진행 중입니다... (약 2분~3분 소요)");
         
         try {
-            // 백엔드(main.py)의 정상적인 API 주소로 호출합니다.
             const res = await axios.post(`${API_URL}/api/studio/draft`, { intent: studioData.intent });
-            
-            // 백엔드가 이미 예쁘게 조립해서 보낸 draft_text를 그대로 화면에 넣습니다!
             setStudioData(prev => ({ ...prev, draft: res.data.draft_text }));
         } catch (err) { 
             console.error("A2A 통신 에러:", err);
@@ -308,7 +365,7 @@ function App() {
         await handleGenerateWithIPFS(); 
     }
   };
-  // ✅ 안건 제출 (가스비 에러 완벽 해결)
+
   const submitProposal = async () => {
     if (!walletAddress) return alert("지갑이 연결되지 않았습니다.");
     if (!contract) return alert("스마트 컨트랙트 연결 중... 잠시 후 시도해주세요.");
@@ -323,7 +380,6 @@ function App() {
     let finalUriToSave = proposalForm.image_url; 
 
     try {
-        // 1. 이미지가 화면에 떠있는 Base64 글자라면? ➔ 무조건 IPFS 서버로 먼저 보냄!
         if (proposalForm.image_url && proposalForm.image_url.startsWith('data:image')) {
             console.log("🚀 엄청나게 큰 이미지 데이터를 IPFS로 피신시키는 중...");
             const ipfsRes = await axios.post(`${API_URL}/api/ipfs/finalize`, {
@@ -334,7 +390,6 @@ function App() {
             });
 
             if (ipfsRes.data.status === "success") {
-                // 🚨 IPFS 서버가 반환해준 아주 짧은 주소(ipfs://...)로 교체!
                 finalUriToSave = ipfsRes.data.token_uri || ipfsRes.data.image_ipfs_url;
                 console.log("✅ IPFS 영구 저장소 변환 완료! 짧은 주소:", finalUriToSave);
             } else {
@@ -342,7 +397,6 @@ function App() {
             }
         }
 
-        // 🚨 [핵심 방어막] IPFS 통신에 실패해서 여전히 Base64라면 트랜잭션 강제 중단!
         if (finalUriToSave && finalUriToSave.startsWith('data:image')) {
             throw new Error("이미지 IPFS 변환에 실패했습니다. (Base64 데이터는 블록체인에 올릴 수 없습니다.)");
         }
@@ -354,7 +408,6 @@ function App() {
 
         console.log("🚀 스마트 컨트랙트에 트랜잭션 전송 중...");
         
-        // 기획서가 너무 길면 블록체인 가스비가 터지므로 150자로 자르고 원본은 DB에 둔다고 명시
         let onChainDescription = proposalForm.description;
         if (onChainDescription.length > 150) {
             const cutIndex = onChainDescription.lastIndexOf(' ', 150);
@@ -362,7 +415,6 @@ function App() {
             onChainDescription = onChainDescription.substring(0, safeIndex) + " ...\n\n[이 안건의 전체 기획서 원문은 ArtDAO 오프체인 DB 및 IPFS에 영구 보존되어 있습니다.]";
         }
 
-        // 🚨 드디어 짧고 안전한 주소(finalUriToSave)를 블록체인에 전송!
         const tx = await contract.createProposal(
             proposalForm.title, 
             onChainDescription, 
@@ -376,7 +428,6 @@ function App() {
         alert("⛓️ 블록체인에 기록 중입니다... (약 10~20초 소요)");
         await tx.wait(); 
         
-        // 블록체인 기록이 끝나면 오프체인(MySQL) DB에도 저장
         await axios.post(`${API_URL}/api/proposals`, { 
             wallet_address: walletAddress, 
             ...proposalForm, 
@@ -438,7 +489,6 @@ function App() {
     setIsChatLoading(true); 
     
     try {
-      // 🚨 바뀐 부분: null과 params를 없애고 JSON 객체를 바로 던집니다.
       const res = await axios.post(`${API_URL}/api/a2a/chat`, { 
           message: userMsg.text, 
           wallet_address: walletAddress 
@@ -558,7 +608,7 @@ function App() {
   };
 
 // ==========================================
-  // 5. UI 렌더링 (Botto DAO 스타일 3단 레이아웃 완벽 병합본)
+  // 5. UI 렌더링
   // ==========================================
   return (
     <div className="App">
@@ -576,7 +626,6 @@ function App() {
           <button className={activeTab==="mypage"?"active":""} onClick={()=>setActiveTab("mypage")}>👤 Profile</button>
         </nav>
 
-        {/* 블록체인 시간 동기화 (다크모드 맞춤) */}
         <div style={{ marginTop: "auto", padding: "15px", background: "#0F0F0F", borderRadius: "8px", border: "1px solid #2A2A2A", textAlign: "center" }}>
             <div style={{ fontSize: "0.8rem", color: "#9CA3AF", marginBottom: "5px" }}>Current Block Time</div>
             <strong style={{ color: "#F3F4F6", fontSize: "0.9rem", display: "block", marginBottom: "10px" }}>
@@ -590,7 +639,6 @@ function App() {
 
       {/* 2. 중앙 메인 컨텐츠 */}
       <main className="main-content">
-        {/* 상단 지갑 연결 헤더 */}
         <header className="top-header">
             {isLoggedIn ? (
                 <div className="logged-in-box">
@@ -602,7 +650,6 @@ function App() {
             )}
         </header>
 
-        {/* 탭: 메인 (대시보드) */}
         {activeTab === "main" && (
           <div className="page fade-in">
             <h2>ArtDAO Engine</h2>
@@ -611,14 +658,12 @@ function App() {
             </p>
             
             <div className="dashboard-grid">
-                {/* 좌측 요약 카드 */}
                 <div className="card summary" onClick={()=>setActiveTab("proposals")}>
                     <h3>Active Proposals</h3>
                     <p className="highlight">{proposals.filter(p=>p.status==="OPEN").length} <span style={{fontSize: '1rem', color: '#9CA3AF', fontWeight: 'normal'}}>ongoing</span></p>
                     <span>View all &rarr;</span>
                 </div>
                 
-                {/* 우측 컬렉션 리스트 */}
                 <div className="card summary" style={{ cursor: 'default' }}>
                     <h3>Collections Overview</h3>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginTop: '15px', color: '#9CA3AF', fontSize: '0.9rem' }}>
@@ -640,326 +685,84 @@ function App() {
           </div>
         )}
 
-{/* ✅ 안건 목록 */}
+        {/* ✅ DAO 투표 갤러리 */}
         {activeTab === "proposals" && (
           <div className="page fade-in">
-            <div className="proposals-header-wrap">
+            <div className="proposals-header-wrap" style={{borderBottom: 'none', marginBottom: '10px'}}>
                 <div>
-                    <h2>🗳️ Governance Proposals</h2>
-                    <p style={{color: '#9CA3AF', marginTop: '5px', fontSize: '0.95rem'}}>ArtDAO의 미래를 결정할 기획 안건에 투표하세요.</p>
-                </div>
-                <div className="filter-group">
-                    <button className="filter-btn active" onClick={()=>fetchProposals("OPEN")}>진행중</button>
-                    <button className="filter-btn" onClick={()=>fetchProposals(null)}>전체 보기</button>
+                    <h2 style={{fontFamily: "'Playfair Display', serif", fontSize: "2.5rem", margin: 0}}>🗳️ Curate the Next Masterpiece</h2>
+                    <p style={{color: '#9CA3AF', marginTop: '10px', fontSize: '1rem'}}>AI가 창작한 후보작 중, 최고의 가치를 지닌 작품에 VP(투표력)를 투자하세요.</p>
                 </div>
             </div>
-            
-            <div className="list">
-                {proposals.map(p => (
-                    <div key={p.id} className="proposal-premium-card" onClick={() => setSelectedProposal(p)}>
-                        
-                        <div className="proposal-content-left">
-                            <div className="proposal-meta">
-                                <span className={`badge-premium ${p.status === 'CLOSED' ? 'CLOSED' : p.status}`}>
-                                    {p.status === "CLOSED" ? "CLOSED (결산 대기)" : p.status}
-                                </span>
-                                <span style={{color: '#6B7280', fontSize: '0.85rem', fontFamily: 'monospace'}}>
-                                    ID: #{p.id}
-                                </span>
-                            </div>
-                            
-                            <h3 className="proposal-premium-title">{p.title}</h3>
-                            <p className="proposal-premium-desc">
-                                {p.description ? p.description : "상세 내용이 없습니다."}
-                            </p>
-                            
-                            <div className="proposal-footer-info">
-                                <span>🗳️ 현재 참여: {p.voteCount + p.againstCount || 0} Votes</span>
-                                <span className="read-more-premium">자세히 보기 &rarr;</span>
-                            </div>
-                        </div>
 
-                        {/* 우측 썸네일 이미지 영역 */}
-                        <div className="proposal-thumbnail-box">
-                            {p.image_url ? (
-                                <img 
-                                    src={p.image_url.startsWith('data:image') ? p.image_url : p.image_url.replace("ipfs://", "https://ipfs.io/ipfs/")} 
-                                    alt="Thumbnail" 
-                                    onError={(e) => { e.target.style.display = 'none'; }}
-                                />
-                            ) : (
-                                <span style={{fontSize: '2rem', opacity: 0.3}}>🖼️</span>
-                            )}
-                            
-                            {/* 관리자용 삭제 버튼 (이미지 위에 작게 플로팅) */}
-                            {isLoggedIn && ADMIN_WALLETS.map(w => w.toLowerCase()).includes(walletAddress.toLowerCase()) && (
-                                <button 
-                                    onClick={(e) => deleteProposal(p.id, e)}
-                                    style={{position: 'absolute', top: '5px', right: '5px', background: 'rgba(239, 68, 68, 0.8)', color: 'white', border: 'none', borderRadius: '50%', width: '25px', height: '25px', cursor: 'pointer', zIndex: 10}}
-                                >
-                                    ✕
-                                </button>
-                            )}
-                        </div>
+            <div className="admin-demo-panel">
+                <div>
+                    <strong style={{color: '#EF4444'}}>⚙️ Admin Demo Controls</strong>
+                    <span style={{color: '#F87171', fontSize: '0.85rem', marginLeft: '10px'}}>(시연용 기능)</span>
+                </div>
+                <div style={{display: 'flex', gap: '10px'}}>
+                    <button onClick={handleGenerateRoundDemo} disabled={isLoading} style={{background: '#B91C1C', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
+                        {isLoading ? "AI 생성 중..." : "1. 새 라운드(후보작 4개) 생성"}
+                    </button>
+                    <button onClick={handleEndRoundDemo} disabled={isLoading} style={{background: '#991B1B', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
+                        2. 투표 마감 및 가치 평가
+                    </button>
+                </div>
+            </div>
+
+            {currentRound ? (
+                <>
+                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0F0F0F', padding: '15px 20px', borderRadius: '12px', border: '1px solid #2A2A2A'}}>
+                        <span style={{color: '#38BDF8', fontWeight: 'bold', fontSize: '1.1rem'}}>🟢 Round #{currentRound.round_number} 진행 중</span>
+                        <span style={{color: '#9CA3AF'}}>내 남은 TUK 잔고: <strong style={{color: 'white'}}>{myInfo.balance} TUK</strong></span>
                     </div>
-                ))}
-            </div>
 
-            <button 
-                className="glow-btn" 
-                style={{marginTop: '20px', maxWidth: '300px', display: 'block', marginLeft: 'auto', marginRight: 'auto'}}
-                onClick={()=>{
-                    setProposalForm({ title: "", description: "", style: "General", image_url: "", meta_hash: "", voteType: 0, duration: 3, quorum: 10, fundingAmount: 100 });
-                    setActiveTab("write");
-                }}
-            >
-                ✨ 새 기획 안건 작성하기
-            </button>
+                    <div className="candidate-grid">
+                        {currentRound.candidates.map(candidate => (
+                            <div key={candidate.id} className="candidate-card">
+                                <div className="candidate-img-box">
+                                    <img src={candidate.image_url.replace("ipfs://", "https://ipfs.io/ipfs/")} alt={candidate.title} />
+                                </div>
+                                <div className="candidate-info">
+                                    <h3 className="candidate-title">{candidate.title}</h3>
+                                    <p className="candidate-desc">{candidate.description}</p>
+                                    
+                                    <div className="candidate-stats">
+                                        <span style={{color: '#6B7280', fontSize: '0.9rem'}}>현재 누적 투자금</span>
+                                        <span className="vp-count">{candidate.vp_votes} VP</span>
+                                    </div>
+
+                                    <div className="vote-action-box">
+                                        <input 
+                                            type="number" 
+                                            className="vp-input" 
+                                            placeholder="VP 입력" 
+                                            value={vpInputs[candidate.id] || ""}
+                                            onChange={(e) => setVpInputs({...vpInputs, [candidate.id]: e.target.value})}
+                                        />
+                                        <button className="vote-btn" onClick={() => handleVoteVP(candidate.id)}>투자하기</button>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </>
+            ) : (
+                <div style={{textAlign: 'center', padding: '60px 20px', background: '#1A1A1A', borderRadius: '16px', border: '1px dashed #2A2A2A'}}>
+                    <span style={{fontSize: '3rem'}}>😴</span>
+                    <h3 style={{color: '#D1D5DB', marginTop: '20px'}}>현재 진행 중인 투표 라운드가 없습니다.</h3>
+                    <p style={{color: '#6B7280'}}>관리자가 다음 시즌을 준비 중입니다.</p>
+                </div>
+            )}
           </div>
         )}
-        {/* ✅ 상세 보기 모달 */}
-        {selectedProposal && (
-            <div className="modal-overlay" onClick={closeModal} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.8)', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000, padding: '20px' }}>
-                <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ background: '#1A1A1A', color: '#F3F4F6', width: '100%', maxWidth: '850px', maxHeight: '90vh', overflowY: 'auto', borderRadius: '16px', padding: '30px', position: 'relative', border: '1px solid #2A2A2A' }}>
-                    
-                    <button onClick={closeModal} style={{ position: 'absolute', top: '20px', right: '20px', background: '#0F0F0F', border: '1px solid #2A2A2A', borderRadius: '50%', width: '40px', height: '40px', fontSize: '20px', cursor: 'pointer', color: '#9CA3AF', zIndex: 10 }}>✖</button>
-                    
-                    <div className="modal-header" style={{borderBottom: '1px solid #2A2A2A', background: 'transparent'}}>
-                        <div style={{ background: "#0F0F0F", padding: "10px", borderRadius: "8px", marginBottom: "15px", border: "1px solid #2A2A2A", fontSize: "0.9em", color: "#3B82F6" }}>
-                            <strong>🔗 Blockchain Verified</strong>
-                            <div style={{ marginTop: "4px", fontFamily: "monospace", wordBreak: "break-all", color: '#9CA3AF' }}>
-                                Tx Hash: {selectedProposal.meta_hash || "처리 중..."}
-                            </div>
-                        </div>
-                        
-                        <span 
-                            className={`status-badge ${selectedProposal.status === 'CLOSED' ? 'REJECTED' : selectedProposal.status}`} 
-                            style={selectedProposal.status === 'CLOSED' ? {backgroundColor: '#374151', color: '#9CA3AF', display: 'inline-block', padding: '4px 8px', borderRadius: '12px', fontWeight: 'bold', fontSize: '0.8rem', marginBottom: '10px'} : {backgroundColor: '#10B981', color: '#fff', display: 'inline-block', padding: '4px 8px', borderRadius: '12px', fontWeight: 'bold', fontSize: '0.8rem', marginBottom: '10px'}}
-                        >
-                            {selectedProposal.status === "CLOSED" ? "CLOSED (결산 대기)" : selectedProposal.status}
-                        </span>
-                        <h2 style={{color: '#fff'}}>{selectedProposal.title}</h2>
-                        
-                        <div style={{ fontSize: "0.95rem", color: "#9CA3AF", marginTop: "15px", background: "#0F0F0F", padding: "12px", borderRadius: "8px", border: '1px solid #2A2A2A' }}>
-                            <div style={{ marginBottom: "6px" }}>
-                                ⏳ <strong>투표 기간:</strong> {selectedProposal.duration || 3}일
-                            </div>
-                            <div style={{ marginBottom: "6px" }}>
-                                🛑 <strong>마감:</strong> {selectedProposal.deadline 
-                                    ? new Date(selectedProposal.deadline * 1000).toLocaleString() 
-                                    : "데이터 로딩 중..."}
-                            </div>
-                            <div style={{ borderTop: "1px solid #2A2A2A", paddingTop: "6px", marginTop: "6px" }}>
-                                🎯 <strong>목표 정족수:</strong> {selectedProposal.quorum || 0}표
-                            </div>
-                        </div>
-                    </div>
 
-                    {/* 모달 본문 */}
-                    <div style={{ display: 'flex', flexDirection: 'row', gap: '20px', margin: '20px 0', minHeight: '400px', width: '100%', alignItems: 'stretch' }}>
-                        <div style={{ flex: '1', width: '50%', backgroundColor: '#0F0F0F', borderRadius: '16px', display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid #2A2A2A' }}>
-                            {selectedProposal.image_url ? (
-                                <div style={{ flex: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '15px' }}>
-                                    <img 
-                                        src={selectedProposal.image_url.startsWith('data:image') ? selectedProposal.image_url : selectedProposal.image_url.replace("ipfs://", "https://ipfs.io/ipfs/")} 
-                                        alt="Proposal Art" 
-                                        style={{ maxWidth: '100%', maxHeight: '350px', objectFit: 'contain' }}
-                                    />
-                                </div>
-                            ) : (
-                                <div style={{ flex: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>첨부된 이미지가 없습니다.</div>
-                            )}
-                        </div>
-                        <div style={{ flex: '1', width: '50%', background: '#0F0F0F', padding: '25px', borderRadius: '16px', border: '1px solid #2A2A2A', overflowY: 'auto', maxHeight: '420px' }}>
-                            <h3 style={{ marginTop: 0, color: '#fff', borderBottom: '1px solid #2A2A2A', paddingBottom: '12px' }}>📜 안건 내용</h3>
-                            <div style={{ whiteSpace: 'pre-wrap', color: '#D1D5DB', fontSize: '1rem', lineHeight: '1.8', marginTop: '15px' }}>
-                                {selectedProposal.description || "안건 내용이 등록되지 않았습니다."}
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="modal-footer" style={{ flexDirection: 'column', alignItems: 'stretch', marginTop: '10px', borderTop: '1px solid #2A2A2A', paddingTop: '20px', background: 'transparent' }}>
-                        <div style={{ padding: '20px', background: '#0F0F0F', borderRadius: '12px', border: '1px solid #2A2A2A', marginBottom: '20px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                <label style={{ fontWeight: 'bold', color: '#fff', fontSize: '1.1rem' }}>투표할 토큰 수량 (TUK)</label>
-                                <span style={{ fontSize: '0.9rem', color: '#3b82f6', background: '#1A1A1A', padding: '6px 12px', borderRadius: '20px', border: '1px solid #2A2A2A' }}>내 보유량: {myInfo.balance} TUK</span>
-                            </div>
-                            <input 
-                                type="number" 
-                                value={voteAmount} 
-                                onChange={(e) => setVoteAmount(e.target.value)}
-                                placeholder="사용할 토큰 수량을 입력하세요 (예: 10)"
-                                style={{ width: '100%', padding: '15px', borderRadius: '10px', border: '1px solid #2A2A2A', background: '#1A1A1A', color: '#fff', fontSize: '1rem', boxSizing: 'border-box', outline: 'none' }}
-                            />
-                        </div>
-                        <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-                            <button className="vote-btn yes" onClick={() => handleVote(selectedProposal.id, true)} disabled={selectedProposal.status === "CLOSED" || selectedProposal.deadline < currentBlockTime} style={{ flex: 1, padding: '15px', fontSize: '1.1rem' }}>👍 찬성 투표</button>
-                            <button className="vote-btn no" onClick={() => handleVote(selectedProposal.id, false)} disabled={selectedProposal.status === "CLOSED" || selectedProposal.deadline < currentBlockTime} style={{ flex: 1, padding: '15px', fontSize: '1.1rem' }}>👎 반대 투표</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        )}
-
-        {/* 안건 작성 */}
-        {activeTab === "write" && (
-            <div className="page fade-in">
-                <h2 style={{fontFamily: "'Playfair Display', serif", fontSize: "2.5rem", marginBottom: "10px"}}>📝 Create Proposal</h2>
-                <p style={{color: '#9CA3AF', marginBottom: '30px'}}>새로운 전시 안건이나 DAO 정책을 제안해 주세요.</p>
-                
-                <div className="card form-card" style={{background: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '16px', padding: '30px'}}>
-                    
-                    <label style={{color: '#D1D5DB', fontWeight: '600', marginBottom: '8px'}}>안건 제목 (Title)</label>
-                    <input type="text" value={proposalForm.title} onChange={(e)=>setProposalForm({...proposalForm, title: e.target.value})} placeholder="제목 입력" style={{background: '#0F0F0F', color: '#fff', border: '1px solid #2A2A2A', padding: '14px', borderRadius: '8px', width: '100%', marginBottom: '20px', outline: 'none', boxSizing: 'border-box'}}/>
-            
-                    <label style={{color: '#D1D5DB', fontWeight: '600', marginBottom: '8px'}}>상세 내용</label>
-                    <textarea rows="6" value={proposalForm.description} onChange={(e)=>setProposalForm({...proposalForm, description: e.target.value})} placeholder="내용 입력" style={{background: '#0F0F0F', color: '#fff', border: '1px solid #2A2A2A', padding: '14px', borderRadius: '8px', width: '100%', marginBottom: '20px', outline: 'none', resize: 'vertical', boxSizing: 'border-box'}}/>
-
-                    <label style={{color: '#D1D5DB', fontWeight: '600', marginBottom: '8px'}}>스타일 (Style)</label>
-                    <select value={proposalForm.style} onChange={(e)=>setProposalForm({...proposalForm, style: e.target.value})} style={{background: '#0F0F0F', color: '#fff', border: '1px solid #2A2A2A', padding: '14px', borderRadius: '8px', width: '100%', marginBottom: '20px', outline: 'none', boxSizing: 'border-box'}}>
-                        <option value="General">General</option>
-                        <option value="Cyberpunk">Cyberpunk</option>
-                        <option value="Abstract">Abstract</option>
-                        <option value="Realistic">Realistic</option>
-                        <option value="AI Generated">AI Generated</option>
-                    </select>
-
-                    <label style={{color: '#D1D5DB', fontWeight: '600', marginBottom: '8px'}}>투표 방식 설정 (Vote Type)</label>
-                    <select value={proposalForm.voteType} onChange={(e) => setProposalForm({...proposalForm, voteType: parseInt(e.target.value)})} style={{background: '#0F0F0F', color: '#fff', border: '1px solid #2A2A2A', padding: '14px', borderRadius: '8px', width: '100%', marginBottom: '20px', outline: 'none', boxSizing: 'border-box'}}>
-                        <option value={0}>가중치 투표 (1 TUK = 1 표)</option>
-                        <option value={1}>제곱근 투표 (Quadratic Voting)</option>
-                    </select>
-
-                    <div style={{ display: "flex", gap: "20px", marginBottom: "20px" }}>
-                        <div style={{ flex: 1 }}>
-                            <label style={{color: '#D1D5DB', fontWeight: '600', display: 'block', marginBottom: '8px'}}>투표 기간 (일)</label>
-                            <input type="number" value={proposalForm.duration} onChange={(e) => setProposalForm({...proposalForm, duration: e.target.value})} placeholder="예: 3" style={{background: '#0F0F0F', color: '#fff', border: '1px solid #2A2A2A', padding: '14px', borderRadius: '8px', width: '100%', outline: 'none', boxSizing: 'border-box'}} />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                            <label style={{color: '#D1D5DB', fontWeight: '600', display: 'block', marginBottom: '8px'}}>목표 정족수</label>
-                            <input type="number" value={proposalForm.quorum} onChange={(e) => setProposalForm({...proposalForm, quorum: e.target.value})} placeholder="예: 10" style={{background: '#0F0F0F', color: '#fff', border: '1px solid #2A2A2A', padding: '14px', borderRadius: '8px', width: '100%', outline: 'none', boxSizing: 'border-box'}} />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                            <label style={{color: '#D1D5DB', fontWeight: '600', display: 'block', marginBottom: '8px'}}>지원금 (TUK)</label>
-                            <input type="number" value={proposalForm.fundingAmount} onChange={(e) => setProposalForm({...proposalForm, fundingAmount: e.target.value})} placeholder="예: 100" style={{background: '#0F0F0F', color: '#fff', border: '1px solid #2A2A2A', padding: '14px', borderRadius: '8px', width: '100%', outline: 'none', boxSizing: 'border-box'}} />
-                        </div>
-                    </div>
-
-                    {proposalForm.image_url && (
-                        <div className="img-preview" style={{background: '#0F0F0F', padding: '15px', borderRadius: '12px', border: '1px solid #2A2A2A', marginBottom: '20px', textAlign: 'center'}}>
-                            <p style={{color: '#9CA3AF', marginTop: 0, marginBottom: '10px', textAlign: 'left', fontWeight: 'bold'}}>🖼️ 첨부된 이미지 미리보기</p>
-                            <img src={proposalForm.image_url} alt="attached" style={{maxWidth: '100%', maxHeight: '300px', borderRadius: '8px', objectFit: 'contain', border: '1px solid #2A2A2A'}}/>
-                        </div>
-                    )}
-            
-                    <div className="btn-group" style={{marginTop: '10px', display: 'flex', gap: '15px'}}>
-                        <button className="cancel" onClick={()=>setActiveTab("proposals")} style={{background: '#374151', color: '#fff', padding: '14px 24px', border: 'none', borderRadius: '8px', cursor: 'pointer', flex: 1, fontSize: '1.05rem', fontWeight: 'bold'}}>취소</button>
-                        <button className="primary" onClick={submitProposal} style={{background: '#3B82F6', color: '#fff', padding: '14px 24px', border: 'none', borderRadius: '8px', cursor: 'pointer', flex: 2, fontSize: '1.05rem', fontWeight: 'bold'}}>제출하기</button>
-                    </div>
-                </div>
-            </div>
-        )}
-
-       {/* AI 스튜디오 */}
-        {activeTab === "studio" && (
-            <div className="page fade-in">
-                <h2>🎨 AI Art Studio</h2>
-                <p className="page-desc">최첨단 AI 에이전트들과 함께 당신만의 전시 기획서와 메인 아트워크를 창조하세요.</p>
-                <div className="studio-layout">
-                    {/* 왼쪽 카드 */}
-                    <div className="studio-card">
-                        <h3 style={{color: '#F3F4F6', fontSize: '1.2rem', marginBottom: '20px', display:'flex', alignItems:'center', gap:'10px'}}>
-                           <span>💡</span> 1. 기획 의도 입력
-                        </h3>
-                        <input 
-                            type="text" 
-                            className="glass-input"
-                            placeholder="예: 네온사인이 빛나는 사이버펑크 고양이 도시" 
-                            value={studioData.intent} 
-                            onChange={(e)=>setStudioData({...studioData, intent: e.target.value})} 
-                        />
-                        <button 
-                            className="glow-btn" 
-                            onClick={()=>handleStudioAction('draft')} 
-                            disabled={isLoading || !studioData.intent.trim()}
-                        >
-                            📜 기획서 생성 (A2A 시작)
-                        </button>
-                    </div>
-                    
-                    {/* 오른쪽 카드 */}
-                    <div className="studio-card">
-                        <h3 style={{color: '#F3F4F6', fontSize: '1.2rem', marginBottom: '20px', display:'flex', alignItems:'center', gap:'10px'}}>
-                            <span>✨</span> 2. 결과물 확인
-                        </h3>
-                        
-                       {isLoading && studioLoadingStep && (
-                            <div className="a2a-premium-thinking">
-                                <div className="a2a-header-title">
-                                    <span 
-                                        className="loading-spinner" 
-                                        style={{width: '20px', height: '20px', borderTopColor: '#38BDF8', borderColor: 'rgba(56,189,248,0.2)'}}>
-                                    </span>
-                                    Agent Network Protocol
-                                </div>
-                                <div className="a2a-steps-wrapper">
-                                    <div className="a2a-step-item done">
-                                        유저 인텐트(의도) 분석 및 기초 데이터 수집 완료
-                                    </div>
-                                    <div className="a2a-step-item active">
-                                        <span style={{fontSize: '1.2rem', marginRight: '6px', verticalAlign: 'middle'}}>🤖</span>
-                                        {studioLoadingStep}
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {!isLoading && !studioData.draft && !studioData.image && (
-                            <div style={{flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4B5563', border: '1px dashed #333', borderRadius: '12px', minHeight: '200px'}}>
-                                아직 생성된 결과물이 없습니다.
-                            </div>
-                        )}
-
-                        {studioData.draft && !isLoading && (
-                            <>
-                                <textarea 
-                                    className="glass-textarea" 
-                                    value={studioData.draft} 
-                                    readOnly 
-                                    style={{ height: "250px", marginBottom: "15px" }} 
-                                />
-                                <button 
-                                    className="glow-btn" 
-                                    onClick={()=>handleStudioAction('image')} 
-                                    disabled={isLoading}
-                                >
-                                    🎨 메인 포스터 렌더링
-                                </button>
-                            </>
-                        )}
-                        {studioData.image && !isLoading && (
-                            <div className="final-result" style={{marginTop: '20px'}}>
-                                <img 
-                                    src={studioData.image} 
-                                    alt="Generated" 
-                                    style={{borderRadius: '12px', border: '1px solid #333', width: '100%', boxShadow: '0 4px 20px rgba(0,0,0,0.5)'}} 
-                                />
-                                <button className="glow-btn" onClick={sendToProposalWrite} style={{background: '#3B82F6', color: '#fff'}}>
-                                    👉 이 결과물로 안건 제출하기
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
-        )}
         {/* 에이전트 센터 */}
         {activeTab === "agents" && (
             <div className="page fade-in">
                 <h2 style={{fontFamily: "'Playfair Display', serif", fontSize: "2.5rem", marginBottom: "10px"}}>💼 AI Agent Squad</h2>
                 <p style={{color: '#9CA3AF', marginBottom: '30px'}}>각 분야의 AI 전문가들에게 작품 비평, 마케팅, 경매 산정을 의뢰하세요.</p>
                 
-                {/* 👇 무조건 가로로 3개 나란히 배치되도록 Grid 강제 고정! */}
                 <div className="agent-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px', alignItems: 'stretch' }}>
                     
                     {/* 1. 비평가 */}
@@ -1034,7 +837,6 @@ function App() {
                             </div>
                         )}
                     </div>
-                    
                 </div>
             </div>
         )}
@@ -1079,7 +881,7 @@ function App() {
         )}
       </main>
 
-      {/* 3. 우측 고정 패널 (AI 만능 어시스턴트) */}
+      {/* 3. 우측 고정 패널 */}
       <aside className="right-panel">
         <div className="right-panel-header">
             <span style={{ fontSize: '1.2rem' }}>🤖</span> # ai-assistant
@@ -1097,7 +899,6 @@ function App() {
                     </div>
                 ))}
                 
-                {/* 세련된 타이핑 인디케이터 (점 3개 애니메이션) */}
                 {isChatLoading && (
                     <div className="msg bot">
                         <div className="bot-name"><span>🤖</span> ArtDAO Guide</div>
@@ -1110,7 +911,6 @@ function App() {
                 )}
             </div>
             
-            {/* 전송 버튼이 포함된 둥근 입력창 */}
             <div className="chat-input-wrapper">
                 <input 
                     type="text" 

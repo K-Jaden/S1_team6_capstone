@@ -15,6 +15,8 @@ import urllib.parse
 import random
 import os
 import base64  # 👈 추가 확인
+from datetime import datetime
+from sqlalchemy import func
 
 
 
@@ -95,10 +97,6 @@ def get_user_activity(wallet_address: str):
 def get_referral_stats(wallet_address: str):
     return {"invite_count": 0, "reward": 0}
 
-@app.get("/api/user/proposals")
-def get_my_proposals(wallet_address: str, db: Session = Depends(get_db)):
-    return db.query(models.ArtRequest).filter(models.ArtRequest.wallet_address == wallet_address).all()
-
 # [복구] 마이페이지 개인별 전시 추천 (명세서: GET /api/user/recommend)
 @app.get("/api/user/recommend", response_model=schemas.RecommendationResponse)
 def get_user_recommendation(wallet_address: str, db: Session = Depends(get_db)):
@@ -163,76 +161,106 @@ def generate_docent_script(item_id: int = 0):
     except Exception as e:
         print(f"🔥 도슨트 에러: {str(e)}")
         return {"text_script": "잠시 후 다시 시도해주세요."}
-
-
 # =========================================================
-# 3. 안건 (Proposals)
+# 🚨 [NEW] Botto DAO 라운드 & 후보작 시스템 API
 # =========================================================
-@app.get("/api/proposals", response_model=List[schemas.ProposalResponse], summary="안건 목록 조회")
-def get_proposals(
-    status: Optional[str] = Query(None),
-    sort: Optional[str] = Query("latest"),
-    page: int = Query(1, ge=1),
-    limit: int = Query(10, ge=1, le=100),
-    db: Session = Depends(get_db)
-):
-    query = db.query(models.ArtRequest)
-    if status:
-        query = query.filter(models.ArtRequest.status == status)
-    
-    if sort == "latest":
-        query = query.order_by(models.ArtRequest.created_at.desc())
-    elif sort == "oldest":
-        query = query.order_by(models.ArtRequest.created_at.asc())
-    
-    offset = (page - 1) * limit
-    return query.offset(offset).limit(limit).all()
 
-# [안건 DB 저장]
-@app.post("/api/proposals", summary="안건 생성(DB저장)")
-def create_proposal(req: schemas.ProposalCreate, db: Session = Depends(get_db)):
-    new_p = models.ArtRequest(
-        wallet_address=req.wallet_address,
-        title=req.title,
-        meta_hash=req.meta_hash,
-        description=req.description,
-        style=req.style,
-        image_url=req.image_url,
-        voteType=req.voteType,
-        duration=req.duration,
-        quorum=req.quorum,
-        funding_amount=req.fundingAmount,
-        status="OPEN"
+# 1. 🌟 [데모용] 새로운 라운드 강제 시작 & 4개 후보작 자동 생성
+@app.post("/api/admin/generate-round", summary="새 라운드 생성 및 A2A 그림 4장 뽑기")
+def generate_new_round(db: Session = Depends(get_db)):
+    # 기존에 진행 중이던 라운드가 있다면 강제 종료 (데모용)
+    active_round = db.query(models.Round).filter(models.Round.status == "ACTIVE").first()
+    if active_round:
+        active_round.status = "ENDED"
+        active_round.end_time = datetime.utcnow()
+        db.commit()
+
+    # 새 라운드 번호 채번
+    last_round = db.query(models.Round).order_by(models.Round.round_number.desc()).first()
+    next_round_num = (last_round.round_number + 1) if last_round else 1
+
+    # 새 라운드 DB 생성
+    new_round = models.Round(round_number=next_round_num, status="ACTIVE")
+    db.add(new_round)
+    db.commit()
+    db.refresh(new_round)
+
+    # -------------------------------------------------------------
+    # 🚨 [핵심] 여기서 agent.py를 호출해서 JSON 형태의 4개 컨셉을 받아와야 함!
+    # (일단 API 뼈대만 잡기 위해 가짜(Dummy) 데이터를 넣습니다. 
+    # 다음 스텝에서 agent 연동 코드로 바꿀 예정입니다.)
+    # -------------------------------------------------------------
+    dummy_candidates = [
+        {"title": "사이버펑크 고양이", "description": "네온 사인이 빛나는 츄르 골목", "image_url": "https://dummyimage.com/600x400/000/0f0&text=Cyber+Cat", "ipfs_hash": "QmFakeHash1"},
+        {"title": "우주 유영 강아지", "description": "무중력 상태에서 뼈다귀를 쫓는 퍼그", "image_url": "https://dummyimage.com/600x400/000/0f0&text=Space+Dog", "ipfs_hash": "QmFakeHash2"},
+        {"title": "스팀펑크 펭귄", "description": "톱니바퀴로 돌아가는 빙하 도시", "image_url": "https://dummyimage.com/600x400/000/0f0&text=Steam+Penguin", "ipfs_hash": "QmFakeHash3"},
+        {"title": "디스토피아 토끼", "description": "당근이 화폐가 된 미래 사회", "image_url": "https://dummyimage.com/600x400/000/0f0&text=Dystopia+Rabbit", "ipfs_hash": "QmFakeHash4"}
+    ]
+
+    for c_data in dummy_candidates:
+        candidate = models.Candidate(
+            round_id=new_round.id,
+            title=c_data["title"],
+            description=c_data["description"],
+            image_url=c_data["image_url"],
+            ipfs_hash=c_data["ipfs_hash"]
+        )
+        db.add(candidate)
+    
+    db.commit()
+
+    return {"status": "success", "message": f"Round {next_round_num} 생성 및 4개 후보작 세팅 완료!", "round_id": new_round.id}
+
+
+# 2. 🖼️ 프론트엔드 갤러리/투표창에 뿌려줄 현재 라운드 정보 가져오기
+@app.get("/api/rounds/current", response_model=schemas.RoundResponse, summary="현재 진행중인 라운드 조회")
+def get_current_round(db: Session = Depends(get_db)):
+    active_round = db.query(models.Round).filter(models.Round.status == "ACTIVE").first()
+    
+    if not active_round:
+        raise HTTPException(status_code=404, detail="현재 진행 중인 투표 라운드가 없습니다.")
+    
+    return active_round
+
+
+# 3. 🗳️ 유저 VP 투표 처리 (오프체인 가스비 무료 투표!)
+@app.post("/api/vote", summary="후보작에 VP 투표하기")
+def cast_vote(req: schemas.VoteRequest, db: Session = Depends(get_db)):
+    # 1. 지갑 정보 및 유저 확인
+    user = get_user_or_404(req.wallet_address, db)
+    
+    # 2. 해당 후보작이 존재하는지, 현재 진행중인 라운드인지 확인
+    candidate = db.query(models.Candidate).filter(models.Candidate.id == req.candidate_id).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="존재하지 않는 후보작입니다.")
+    
+    current_round = db.query(models.Round).filter(models.Round.id == candidate.round_id).first()
+    if current_round.status != "ACTIVE":
+        raise HTTPException(status_code=400, detail="이미 종료된 라운드의 투표입니다.")
+
+    # 3. 투표력(VP) 검증 (내 잔고 TUK보다 많이 썼는지 확인)
+    # 현재 라운드에 이 유저가 지금까지 쓴 총 VP 계산
+    used_vp_record = db.query(func.sum(models.VoteLog.vp_used)).filter(
+        models.VoteLog.round_id == current_round.id,
+        models.VoteLog.voter_wallet == req.wallet_address
+    ).scalar() or 0
+
+    if (used_vp_record + req.vp_amount) > user.token_balance:
+        raise HTTPException(status_code=400, detail=f"VP가 부족합니다. (내 잔고: {user.token_balance}, 사용가능: {user.token_balance - used_vp_record})")
+
+    # 4. 투표 기록(VoteLog) 남기기 & 후보작 총 득표수(vp_votes) 올리기
+    new_vote = models.VoteLog(
+        round_id=current_round.id,
+        candidate_id=candidate.id,
+        voter_wallet=req.wallet_address,
+        vp_used=req.vp_amount
     )
-    db.add(new_p)
-    db.commit()
-    db.refresh(new_p)
-    return new_p
-
-@app.patch("/api/proposals/{proposal_id}")
-def update_proposal(proposal_id: int, req: schemas.ProposalUpdate, db: Session = Depends(get_db)):
-    proposal = db.query(models.ArtRequest).filter(models.ArtRequest.id == proposal_id).first()
-    if not proposal:
-        raise HTTPException(status_code=404, detail="Proposal not found")
+    db.add(new_vote)
     
-    if req.title: proposal.title = req.title
-    if req.description: proposal.description = req.description
-    if req.meta_hash: proposal.meta_hash = req.meta_hash
-    if req.image_url: proposal.image_url = req.image_url
-    
+    candidate.vp_votes += req.vp_amount
     db.commit()
-    return {"status": "updated", "id": proposal_id}
 
-@app.delete("/api/proposals/{proposal_id}")
-def delete_proposal(proposal_id: int, db: Session = Depends(get_db)):
-    proposal = db.query(models.ArtRequest).filter(models.ArtRequest.id == proposal_id).first()
-    if not proposal:
-        raise HTTPException(status_code=404, detail="Proposal not found")
-    
-    db.delete(proposal)
-    db.commit()
-    return {"status": "deleted", "id": proposal_id}
-
+    return {"status": "success", "message": f"{candidate.title}에 {req.vp_amount} VP 투표 완료!"}
 # ==========================================
 # [수정] AI 큐레이터/도슨트 채팅 연결 API (422 에러 해결)
 # ==========================================
@@ -506,7 +534,7 @@ def get_user_list(db: Session = Depends(get_db)):
     # 일단은 전체 목록을 반환하는 기본 로직으로 작성합니다.
     result = []
     for user in users:
-        activity_count = db.query(models.ArtRequest).filter(models.ArtRequest.wallet_address == user.wallet_address).count()
+        activity_count = 0
         result.append({
             "wallet_address": user.wallet_address,
             "membership_grade": user.membership_grade,

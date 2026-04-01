@@ -716,3 +716,125 @@ body {
   0%, 80%, 100% { transform: scale(0); opacity: 0.5; }
   40% { transform: scale(1); background: var(--primary); opacity: 1; }
 }
+/* ==========================================
+   [NEW] Botto DAO 스타일 후보작 투표 갤러리
+   ========================================== */
+.candidate-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 25px;
+  margin-top: 20px;
+}
+
+.candidate-card {
+  background: #1A1A1A;
+  border: 1px solid #2A2A2A;
+  border-radius: 16px;
+  overflow: hidden;
+  transition: transform 0.3s ease, border-color 0.3s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.candidate-card:hover {
+  transform: translateY(-5px);
+  border-color: #38BDF8;
+  box-shadow: 0 10px 25px rgba(56, 189, 248, 0.1);
+}
+
+.candidate-img-box {
+  width: 100%;
+  height: 250px;
+  background: #0F0F0F;
+  overflow: hidden;
+  position: relative;
+}
+
+.candidate-img-box img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.candidate-info {
+  padding: 20px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.candidate-title {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.4rem;
+  color: #F3F4F6;
+  margin: 0 0 10px 0;
+}
+
+.candidate-desc {
+  color: #9CA3AF;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin-bottom: 20px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.candidate-stats {
+  margin-top: auto;
+  padding-top: 15px;
+  border-top: 1px dashed #2A2A2A;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.vp-count {
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: #10B981;
+}
+
+/* VP 투표 입력창 & 버튼 */
+.vote-action-box {
+  display: flex;
+  gap: 10px;
+}
+.vp-input {
+  flex: 1;
+  background: #0F0F0F;
+  border: 1px solid #2A2A2A;
+  color: #fff;
+  padding: 10px;
+  border-radius: 8px;
+  outline: none;
+  text-align: center;
+  font-weight: bold;
+}
+.vp-input:focus { border-color: #38BDF8; }
+.vote-btn {
+  background: #3B82F6;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: background 0.2s;
+}
+.vote-btn:hover { background: #2563EB; }
+
+/* 데모용 관리자 패널 */
+.admin-demo-panel {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  padding: 15px 20px;
+  border-radius: 12px;
+  margin-bottom: 30px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
