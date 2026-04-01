@@ -149,8 +149,21 @@ def generate_candidates():
     )
 
     task_format = Task(
-        description="최종 4가지 컨셉을 바탕으로, 이미지 생성 AI용 '영문 프롬프트(image_prompt)'를 작성하세요. 반드시 순수 JSON 배열(Array) 형식으로만 출력하세요. 마크다운 기호는 절대 사용하지 마세요.",
-        expected_output="순수 JSON 배열 문자열",
+        description='''
+        최종 4가지 컨셉을 바탕으로 이미지 생성용 데이터를 작성하세요.
+        반드시 아래와 같은 구조의 'JSON 객체 배열' 형식으로만 출력해야 합니다.
+        마크다운(```json)이나 다른 설명은 절대 포함하지 마세요.
+
+        [
+            {
+                "title": "작품 제목 (한국어)",
+                "description": "작품 세계관 설명 (한국어)",
+                "image_prompt": "상세한 영문 이미지 생성 프롬프트"
+            },
+            ... (총 4개)
+        ]
+        ''',
+        expected_output="순수 JSON 객체 배열 (List of Dicts)",
         agent=painter
     )
 

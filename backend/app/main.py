@@ -162,55 +162,167 @@ def generate_docent_script(item_id: int = 0):
         print(f"🔥 도슨트 에러: {str(e)}")
         return {"text_script": "잠시 후 다시 시도해주세요."}
 # =========================================================
-# 🚨 [NEW] Botto DAO 라운드 & 후보작 시스템 API
+# 🚨 [수정완료] Botto DAO 라운드 & 후보작 시스템 API
 # =========================================================
 
-# 1. 🌟 [데모용] 새로운 라운드 강제 시작 & 4개 후보작 자동 생성
 @app.post("/api/admin/generate-round", summary="새 라운드 생성 및 A2A 그림 4장 뽑기")
 def generate_new_round(db: Session = Depends(get_db)):
-    # 기존에 진행 중이던 라운드가 있다면 강제 종료 (데모용)
+    # 1. 기존 라운드 종료 처리
     active_round = db.query(models.Round).filter(models.Round.status == "ACTIVE").first()
     if active_round:
         active_round.status = "ENDED"
         active_round.end_time = datetime.utcnow()
         db.commit()
 
-    # 새 라운드 번호 채번
+    # 2. 새 라운드 번호 채번
     last_round = db.query(models.Round).order_by(models.Round.round_number.desc()).first()
     next_round_num = (last_round.round_number + 1) if last_round else 1
 
-    # 새 라운드 DB 생성
     new_round = models.Round(round_number=next_round_num, status="ACTIVE")
     db.add(new_round)
     db.commit()
     db.refresh(new_round)
 
-    # -------------------------------------------------------------
-    # 🚨 [핵심] 여기서 agent.py를 호출해서 JSON 형태의 4개 컨셉을 받아와야 함!
-    # (일단 API 뼈대만 잡기 위해 가짜(Dummy) 데이터를 넣습니다. 
-    # 다음 스텝에서 agent 연동 코드로 바꿀 예정입니다.)
-    # -------------------------------------------------------------
-    dummy_candidates = [
-        {"title": "사이버펑크 고양이", "description": "네온 사인이 빛나는 츄르 골목", "image_url": "https://dummyimage.com/600x400/000/0f0&text=Cyber+Cat", "ipfs_hash": "QmFakeHash1"},
-        {"title": "우주 유영 강아지", "description": "무중력 상태에서 뼈다귀를 쫓는 퍼그", "image_url": "https://dummyimage.com/600x400/000/0f0&text=Space+Dog", "ipfs_hash": "QmFakeHash2"},
-        {"title": "스팀펑크 펭귄", "description": "톱니바퀴로 돌아가는 빙하 도시", "image_url": "https://dummyimage.com/600x400/000/0f0&text=Steam+Penguin", "ipfs_hash": "QmFakeHash3"},
-        {"title": "디스토피아 토끼", "description": "당근이 화폐가 된 미래 사회", "image_url": "https://dummyimage.com/600x400/000/0f0&text=Dystopia+Rabbit", "ipfs_hash": "QmFakeHash4"}
-    ]
+    # 3. 🚨 AI 에이전트(agent.py)에게 4개의 컨셉 JSON 받아오기 (위치 변경)
+    print(f"📡 AI 요원들에게 {next_round_num}주차 후보작 4개 기획 지시 중... (약 1분 소요)")
+    
+    try:
+        agent_res = requests.post(f"{AI_AGENT_URL}/api/agent/generate-candidates", timeout=180)
+        if agent_res.status_code != 200:
+            raise Exception(f"AI Core 서버 응답 에러: {agent_res.text}")
+            
+        ai_data = agent_res.json().get("candidates", [])
+    except Exception as e:
+        print(f"🔥 AI 통신 에러: {e}")
+        raise HTTPException(status_code=500, detail="AI 기획자 호출에 실패했습니다.")
 
-    for c_data in dummy_candidates:
+    # 4. 🎨 받아온 데이터를 바탕으로 이미지 생성 및 DB 저장
+    import base64
+    for c_data in ai_data:
+        # ✨ [핵심] 에러 방지 로직 적용
+        if isinstance(c_data, str):
+            title = f"AI Masterpiece {next_round_num}"
+            desc_text = "AI가 생성한 예술 작품입니다."
+            prompt = c_data  # 문자열 그대로 프롬프트로 사용
+        else:
+            title = c_data.get("title", "제목 없음")
+            desc_text = c_data.get("description", "설명 없음")
+            prompt = c_data.get("image_prompt", "digital art masterpiece")  
+    # -------------------------------------------------------------
+    # 🚨 AI 에이전트(agent.py)에게 4개의 컨셉 JSON 받아오기
+    # -------------------------------------------------------------
+    print(f"📡 AI 요원들에게 {next_round_num}주차 후보작 4개 기획 지시 중... (약 1분 소요)")
+    
+    try:
+        agent_res = requests.post(f"{AI_AGENT_URL}/api/agent/generate-candidates", timeout=180)
+        if agent_res.status_code != 200:
+            raise Exception(f"AI Core 서버 응답 에러: {agent_res.text}")
+            
+        ai_data = agent_res.json().get("candidates", [])
+    except Exception as e:
+        print(f"🔥 AI 통신 에러: {e}")
+        raise HTTPException(status_code=500, detail="AI 기획자 호출에 실패했습니다.")
+
+    # -------------------------------------------------------------
+    # 🎨 받아온 영문 프롬프트로 Cloudflare 그림 그리고 IPFS 올리기
+    # -------------------------------------------------------------
+    import base64
+    CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
+    CF_API_TOKEN = os.getenv("CF_API_TOKEN")
+
+    for c_data in ai_data:
+        title = c_data.get("title", "제목 없음")
+        desc_text = c_data.get("description", "설명 없음")
+        prompt = c_data.get("image_prompt", "digital art masterpiece")
+
+        print(f"🖌️ [{title}] 이미지 렌더링 중...")
+        
+        # Cloudflare FLUX에 이미지 요청
+        cf_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/@cf/black-forest-labs/flux-1-schnell"
+        headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
+        img_res = requests.post(cf_url, headers=headers, json={"prompt": prompt}, timeout=60)
+        
+        ipfs_hash = "QmError"
+        image_url = "https://dummyimage.com/600x400/000/fff&text=CF+Error"
+
+        if img_res.status_code == 200:
+            res_json = img_res.json()
+            if "result" in res_json and "image" in res_json["result"]:
+                b64_encoded = res_json["result"]["image"]
+                image_bytes = base64.b64decode(b64_encoded)
+                
+                # IPFS에 생성된 그림 업로드
+                uploaded_cid = upload_bytes_to_ipfs(image_bytes, filename=f"round{next_round_num}_candidate.png")
+                if uploaded_cid:
+                    ipfs_hash = uploaded_cid
+                    image_url = f"https://gateway.pinata.cloud/ipfs/{uploaded_cid}"
+
+        # DB에 저장
         candidate = models.Candidate(
             round_id=new_round.id,
-            title=c_data["title"],
-            description=c_data["description"],
-            image_url=c_data["image_url"],
-            ipfs_hash=c_data["ipfs_hash"]
+            title=title,
+            description=desc_text,
+            image_url=image_url,
+            ipfs_hash=ipfs_hash
         )
         db.add(candidate)
     
     db.commit()
+    print("🎉 새 라운드 4개 후보작 세팅 완벽 성공!")
 
-    return {"status": "success", "message": f"Round {next_round_num} 생성 및 4개 후보작 세팅 완료!", "round_id": new_round.id}
+    return {"status": "success", "message": f"Round {next_round_num} 4개 후보작 세팅 완료!", "round_id": new_round.id}
 
+
+# 2. [NEW] 투표 종료, 1등 확정 및 AI 경매 가치 산정
+@app.post("/api/admin/end-round", summary="투표 종료 및 AI 경매 가치 산정 (블록체인 연동 보류)")
+def end_round_and_evaluate(db: Session = Depends(get_db)):
+    # 1. 현재 라운드 찾기
+    active_round = db.query(models.Round).filter(models.Round.status == "ACTIVE").first()
+    if not active_round:
+        raise HTTPException(status_code=400, detail="진행 중인 라운드가 없습니다.")
+
+    # 2. 최고 득표 1등 찾기
+    winner = db.query(models.Candidate).filter(models.Candidate.round_id == active_round.id)\
+               .order_by(desc(models.Candidate.vp_votes)).first()
+    
+    if not winner:
+        raise HTTPException(status_code=400, detail="후보작이 존재하지 않습니다.")
+
+    # 3. 우승 처리
+    winner.is_winner = True
+    active_round.status = "ENDED"
+    active_round.end_time = datetime.utcnow()
+
+    # 4. AI 경매사 호출 (가치 산정)
+    try:
+        payload = {
+            "title": winner.title,
+            "description": winner.description,
+            "vp_votes": winner.vp_votes
+        }
+        res = requests.post(f"{AI_AGENT_URL}/api/agent/evaluate-winner", json=payload, timeout=60)
+        
+        if res.status_code == 200:
+            eval_data = res.json()
+            winner.auction_price = eval_data.get("auction_price", winner.vp_votes * 10)
+        else:
+            winner.auction_price = winner.vp_votes * 10
+    except Exception as e:
+        print(f"🔥 AI 경매사 호출 실패: {e}")
+        winner.auction_price = winner.vp_votes * 10
+
+    db.commit()
+
+    return {
+        "status": "success", 
+        "winner_title": winner.title, 
+        "auction_price": winner.auction_price,
+        "message": "오프체인 결산 및 AI 평가 완료 (블록체인 연동 대기 중)"
+    }
+
+
+# =========================================================
+# (이 아래로는 기존에 있던 @app.get("/api/rounds/current") 등 코드를 유지하시면 됩니다)
 
 # 2. 🖼️ 프론트엔드 갤러리/투표창에 뿌려줄 현재 라운드 정보 가져오기
 @app.get("/api/rounds/current", response_model=schemas.RoundResponse, summary="현재 진행중인 라운드 조회")

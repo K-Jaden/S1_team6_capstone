@@ -838,3 +838,17 @@ body {
   justify-content: space-between;
   align-items: center;
 }
+/* VP 입력창 화살표 제거 및 스타일 최적화 */
+.vp-input {
+  appearance: none;          /* 표준 속성 추가 (경고 해결) */
+  -webkit-appearance: none;   /* 크롬, 사파리 */
+  -moz-appearance: textfield; /* 파이어폭스 */
+  text-align: center;
+}
+
+.vp-input::-webkit-outer-spin-button,
+.vp-input::-webkit-inner-spin-button {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+}
