@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Text, DateTime, Float, ForeignKe
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from .database import Base
+from datetime import datetime
 
 # ==========================================
 # 1. 사용자 (User)
@@ -21,38 +22,62 @@ class User(Base):
     badge = Column(String(50), nullable=True)
 
     # 관계 설정
-    proposals = relationship("ArtRequest", back_populates="creator")
     feedbacks = relationship("GalleryFeedback", back_populates="author")
     # [추가] A2A 관련 관계
     chat_logs = relationship("A2AChatLog", back_populates="user")
     recommendations = relationship("UserRecommendation", back_populates="user")
 
 
-# ==========================================
-# 2. 안건 (ArtRequest)
-# ==========================================
-class ArtRequest(Base):
-    __tablename__ = "art_requests"
+# 1. 라운드 (시즌/주차) 테이블
+class Round(Base):
+    __tablename__ = "rounds"
 
     id = Column(Integer, primary_key=True, index=True)
-    wallet_address = Column(String(255), ForeignKey("users.wallet_address"))
-    
-    title = Column(String(255), nullable=False)
-    meta_hash = Column(String(255), nullable=True)
-    description = Column(Text, nullable=True)
-    style = Column(String(50), default="General")
-    image_url = Column(Text, nullable=True)
-    
-    voteType = Column(Integer, default=0)
-    duration = Column(Integer, default=3)
-    quorum = Column(Integer, default=10)
-    funding_amount = Column(Float, default=0.0)
-    
-    status = Column(String(50), default="OPEN") 
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    round_number = Column(Integer, unique=True, index=True) # 예: 1 (1주차), 2 (2주차)
+    status = Column(String(50), default="ACTIVE") # 'ACTIVE' (투표중), 'ENDED' (종료 및 민팅됨)
+    start_time = Column(DateTime, default=datetime.utcnow)
+    end_time = Column(DateTime, nullable=True) # 라운드 종료 시간
 
-    creator = relationship("User", back_populates="proposals")
+    # 관계 설정 (1대다)
+    candidates = relationship("Candidate", back_populates="round")
+    votes = relationship("VoteLog", back_populates="round")
 
+
+# 2. 후보작 테이블 (A2A가 생성한 10개의 오프체인 그림들)
+class Candidate(Base):
+    __tablename__ = "candidates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    round_id = Column(Integer, ForeignKey("rounds.id"))
+    
+    title = Column(String(255), nullable=False) # 작품명
+    description = Column(Text, nullable=False) # AI 비평가/기획자가 작성한 세계관
+    image_url = Column(String(255), nullable=False) # 웹 표시용 URL
+    ipfs_hash = Column(String(255), nullable=False) # 나중에 NFT 민팅할 때 쓸 IPFS 해시
+    
+    vp_votes = Column(Integer, default=0) # 현재까지 획득한 VP(투표) 총합
+    is_winner = Column(Boolean, default=False) # 1등 우승작 여부
+    auction_price = Column(Integer, nullable=True) # 1등 확정 후 AI 경매사가 책정한 가격 (TUK)
+
+    # 관계 설정
+    round = relationship("Round", back_populates="candidates")
+    votes = relationship("VoteLog", back_populates="candidate")
+
+
+# 3. 투표 기록 테이블 (가장 중요 ⭐ - 나중에 수익 분배할 때 씁니다)
+class VoteLog(Base):
+    __tablename__ = "vote_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    round_id = Column(Integer, ForeignKey("rounds.id"))
+    candidate_id = Column(Integer, ForeignKey("candidates.id"))
+    voter_wallet = Column(String(255), index=True) # 투표한 유저의 지갑 주소
+    vp_used = Column(Integer, nullable=False) # 이 후보작에 던진 VP 개수
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # 관계 설정
+    round = relationship("Round", back_populates="votes")
+    candidate = relationship("Candidate", back_populates="votes")
 
 # ==========================================
 # 3. 전시 작품 (GalleryItem)

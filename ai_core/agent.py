@@ -1,284 +1,274 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from langchain_core.prompts import PromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI
 import os
-import traceback
+import json
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from crewai import Agent, Task, Crew, Process, LLM 
 from dotenv import load_dotenv
+from datetime import datetime
+from crewai_tools import SerperDevTool
 
-# .env 파일 로드
 load_dotenv()
 
-app = FastAPI(title="S1-6 AI Orchestrator", version="4.0-Persona-Enhanced")
+app = FastAPI(title="ArtDAO CrewAI A2A Server", version="5.0-True-A2A")
 
-# 환경 변수 체크
+# ==================================================================
+# 1. CORS 설정 (프론트엔드 통신 허용)
+# ==================================================================
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ==================================================================
+# 2. LLM 엔진 및 RAG 도구 세팅
+# ==================================================================
 MY_GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 if not MY_GOOGLE_API_KEY:
     print("❌ [경고] GOOGLE_API_KEY가 없습니다!")
 
+os.environ["GEMINI_API_KEY"] = MY_GOOGLE_API_KEY 
+
 try:
-    llm = ChatGoogleGenerativeAI(
-        model="models/gemini-flash-latest",
-        google_api_key=MY_GOOGLE_API_KEY,
-        temperature=0.8  # 창의성을 위해 0.7 -> 0.8로 약간 상향
+    llm = LLM(
+        model="gemini/gemini-3.1-flash-lite-preview", 
+        api_key=MY_GOOGLE_API_KEY,
+        temperature=0.7
     )
-    print("✅ [AI] Gemini 모델 로드 완료 (Persona Mode: ON)")
+    print("✅ [AI] Gemini 3.1 & CrewAI 엔진 로드 완료")
 except Exception as e:
     print(f"🔥 모델 초기화 실패: {e}")
     llm = None
-
-# ==================================================================
-# 🎭 [핵심] 페르소나(Persona) & 스타일 가이드 정의
-# ==================================================================
-
-# 1. 출력 형식 (가독성)
-FORMAT_INSTRUCTION = """
-[출력 스타일 가이드]
-1. **구조화**: 긴 줄글 대신 **불렛 포인트(-)**와 **소제목**을 적극 활용하세요.
-2. **여백**: 문단 사이에는 반드시 **빈 줄**을 넣어 가독성을 높이세요.
-3. **길이**: 너무 짧게 끝내지 말고, 전문가로서 충분한 통찰을 제공하세요.
-"""
-
-# 2. 각 전문가의 자아(System Prompts)
-PERSONA_PLANNER = """
-당신은 **20년 경력의 베테랑 전시 기획자(Chief Curator)**입니다.
-단순한 아이디어가 아니라, 예술적 가치와 대중성을 동시에 고려한 **거시적인 비전**을 제시해야 합니다.
-어조: 논리적이고, 비전 제시적이며, 확신에 찬 어조.
-"""
-
-PERSONA_PAINTER = """
-당신은 **전위적인 디지털 아티스트**입니다.
-기술적인 용어(Lighting, Texture, Style)를 사용하여 AI가 그림을 잘 그릴 수 있도록 **매우 구체적이고 묘사적인 영어 프롬프트**를 작성해야 합니다.
-"""
-
-PERSONA_CRITIC = """
-당신은 **뉴욕 MoMA 출신의 까칠하지만 식견 높은 미술 비평가**입니다.
-단순히 "좋다/나쁘다"가 아니라, 색채의 상징성, 구도의 안정성, 미술사적 맥락을 짚어가며 **심층적으로 분석**해야 합니다.
-어조: 날카롭고, 지적이며, 분석적인 어조. (예: "이 작품의 붓터치는 고흐의 고뇌를 연상시키며...")
-"""
-
-PERSONA_MARKETER = """
-당신은 **트렌드를 이끄는 MZ세대 마케팅 전문가**입니다.
-사람들의 감성을 자극하는 **감성적인 카피라이팅**과 **적절한 해시태그**, **이모지**를 사용하여 클릭을 유도하세요.
-어조: 활기차고, 감각적이며, 친근한 어조. (이모지 필수! 🎨✨🔥)
-"""
-
-PERSONA_AUCTIONEER = """
-당신은 **세계적인 경매 회사 소더비(Sotheby's)의 수석 경매사**입니다.
-작품의 희소성과 미래 가치를 강조하여 **구매 욕구를 자극**해야 합니다.
-어조: 정중하지만 긴박감을 조성하고, 신뢰감을 주는 어조.
-"""
-
-PERSONA_DOCENT = """
-당신은 **국립현대미술관의 친절한 도슨트(해설사)**입니다.
-어려운 미술 용어를 쓰지 않고, 관람객에게 **이야기를 들려주듯이** 편안하게 설명해야 합니다.
-어조: 따뜻하고, 친절하며, 대화하듯 자연스러운 어조. (존댓말 사용)
-"""
-
-# --- 데이터 모델 ---
-class PlanRequest(BaseModel):
-    intent: str
-
-class WorkRequest(BaseModel):
-    wallet_address: str = "0xTest"
-    topic: str
-    style: str
-
-class ReviewRequest(BaseModel):
-    art_info: str
-
-class PromoRequest(BaseModel):
-    exhibition_title: str
-    target_audience: str
-
-class DocentRequest(BaseModel):
-    art_info: str
-    audience_type: str = "일반 관람객"
-
-class AuctionRequest(BaseModel):
-    art_info: str
-    critic_review: str
-
-class FullCourseRequest(BaseModel):
-    topic: str
-    style: str = "Digital Art"
-
-# 헬퍼 함수
-def parse_response(content):
-    try:
-        if isinstance(content, list):
-            return "".join([c.get('text', '') for c in content if c.get('type') == 'text'])
-        return str(content)
-    except Exception as e:
-        return str(content)
-
-@app.get("/")
-def read_root():
-    return {"status": "AI Personas Loaded", "mode": "Expert"}
-
-# ==================================================================
-# 🚀 [Full-Course] 페르소나 적용된 풀코스
-# ==================================================================
-@app.post("/full-course")
-def run_full_course(request: FullCourseRequest):
-    if not llm: raise HTTPException(500, "AI 로드 실패")
-    print(f"🔥 [풀코스] 전문가 팀 소집: {request.topic}")
     
-    results = {}
+# 실시간 인터넷 웹 검색 도구 (RAG: 할루시네이션 방지용 팩트 체크 무기)
+search_tool = SerperDevTool()
+
+# ==================================================================
+# 3. 에이전트(Agent) 정의
+# ==================================================================
+planner = Agent(
+    role='수석 전시 기획자',
+    goal='대중성과 예술성을 모두 갖춘 완벽한 전시 기획서 작성',
+    backstory='당신은 20년 경력의 베테랑 큐레이터입니다. 단순한 아이디어도 거시적인 예술 비전으로 확장시킵니다.',
+    tools=[search_tool],
+    llm=llm,
+    allow_delegation=True, 
+    verbose=True
+)
+
+painter = Agent(
+    role='수석 디지털 아티스트',
+    goal='기획서를 완벽하게 시각화할 수 있는 디테일한 영문 프롬프트 작성',
+    backstory='당신은 빛, 질감, 구도를 완벽하게 이해하는 디지털 아티스트입니다. 그림 프롬프트를 짤 때 한자, 중국어, 일본어가 나오지 않도록 철저히 통제합니다.',
+    tools=[search_tool],
+    llm=llm,
+    allow_delegation=True,
+    verbose=True
+)
+
+critic = Agent(
+    role='수석 미술 비평가',
+    goal='작품을 미술사적 맥락과 객관적 데이터를 바탕으로 심층 분석하고 비평',
+    backstory='당신은 식견 높고 까칠한 비평가입니다. AI의 환각(할루시네션)을 방지하기 위해 비평을 작성하기 전, 반드시 search_tool을 사용하여 "해당 작품과 유사한 미술사적 사조나 최근 디지털 아트 트렌드"를 검색하고, 검색된 객관적 사실을 근거로 작품의 가치를 분석합니다.',
+    tools=[search_tool],
+    llm=llm,
+    allow_delegation=True,
+    verbose=True
+)
+
+marketer = Agent(
+    role='MZ세대 바이럴 마케터',
+    goal='전시회를 SNS에서 화제성 1위로 만들 매력적인 카피라이팅 작성',
+    backstory='당신은 트렌드에 극도로 민감한 마케터입니다. 이모지와 해시태그를 적극 활용합니다.',
+    tools=[search_tool],
+    llm=llm,
+    verbose=True
+)
+
+auctioneer = Agent(
+    role='소더비 수석 경매사',
+    goal='비평을 바탕으로 작품의 가치를 극대화하는 경매 리포트 작성',
+    backstory='당신은 세계 최고의 경매사입니다. 가격을 임의로 지어내지 않습니다(No Hallucination). 반드시 search_tool을 사용하여 "최근 유사한 스타일의 디지털 아트 실제 경매 낙찰가"를 검색하여 객관적인 시장 데이터를 수집하고, 이를 근거로 합리적인 시작가를 책정합니다.',
+    tools=[search_tool],
+    llm=llm,
+    verbose=True
+)
+
+ai_curator = Agent(
+    role='따뜻한 감성을 지닌 AI 큐레이터',
+    goal='관람객의 질문에 공감하며, 미술의 즐거움을 일깨워주는 친절한 가이드 제공',
+    backstory='당신은 ArtDAO 전시관의 메인 AI 큐레이터입니다. 플랫폼 이용 방법과 미술 추천을 담당하며 세부 해설은 도슨트에게 위임합니다.',
+    tools=[search_tool],
+    llm=llm,
+    allow_delegation=True,
+    verbose=True
+)
+
+ai_docent = Agent(
+    role='작품의 숨결을 전하는 AI 도슨트',
+    goal='특정 작품의 세부 묘사와 창작 배경을 생생하게 전달',
+    backstory='당신은 작품 해설 전문 도슨트입니다. 캔버스의 질감, 색채의 대비를 친절하게 설명합니다.',
+    tools=[search_tool],
+    llm=llm,
+    allow_delegation=False,
+    verbose=True
+)
+
+# ==================================================================
+# 4. Pydantic 모델
+# ==================================================================
+class PlanRequest(BaseModel): intent: str
+class WorkRequest(BaseModel): topic: str; style: str
+class ReviewRequest(BaseModel): art_info: str
+class PromoRequest(BaseModel): exhibition_title: str; target_audience: str
+class AuctionRequest(BaseModel): art_info: str; critic_review: str
+class DocentRequest(BaseModel): message: str; wallet_address: str = ""
+class A2AStudioRequest(BaseModel): intent: str
+class WinnerData(BaseModel): title: str; description: str; vp_votes: int
+
+# ==================================================================
+# 5. Botto DAO 시나리오: 4개 후보작 RAG 생성 루프
+# ==================================================================
+@app.post("/api/agent/generate-candidates")
+def generate_candidates():
+    print("🚀 [Agent] 팩트 기반(RAG) 4개 후보작 생성 파이프라인 가동...")
+
+    task_plan = Task(
+        description="반드시 search_tool을 사용하여 '현재 글로벌 디지털 아트 트렌드'를 검색하세요. 검색 결과를 바탕으로 서로 완전히 다른 테마의 미술 작품 컨셉 4가지를 기획하세요. '수석 미술 비평가'와 토론하여 아이디어를 검증받으세요. 각 컨셉은 '한국어 제목'과 '한국어 작품 설명'을 포함해야 합니다.",
+        expected_output="검색된 최신 트렌드가 반영된 4가지 컨셉 초안",
+        agent=planner
+    )
+
+    task_critique = Task(
+        description="기획자의 4가지 컨셉을 넘겨받아, search_tool을 이용해 각 컨셉과 유사한 실제 미술사적 사례나 최신 트렌드를 검색하세요. 진부한 요소는 비판하고, 객관적 레퍼런스를 더해 최종 4가지 컨셉을 완성하세요.",
+        expected_output="객관적 검증과 수정이 완료된 4가지 컨셉",
+        agent=critic
+    )
+
+    task_format = Task(
+        description='''
+        최종 4가지 컨셉을 바탕으로 이미지 생성용 데이터를 작성하세요.
+        반드시 아래와 같은 구조의 'JSON 객체 배열' 형식으로만 출력해야 합니다.
+        마크다운(```json)이나 다른 설명은 절대 포함하지 마세요.
+
+        [
+            {
+                "title": "작품 제목 (한국어)",
+                "description": "작품 세계관 설명 (한국어)",
+                "image_prompt": "상세한 영문 이미지 생성 프롬프트"
+            },
+            ... (총 4개)
+        ]
+        ''',
+        expected_output="순수 JSON 객체 배열 (List of Dicts)",
+        agent=painter
+    )
+
+    crew = Crew(agents=[planner, critic, painter], tasks=[task_plan, task_critique, task_format], process=Process.sequential)
+
+    try:
+        result = crew.kickoff()
+        result_text = str(result).replace("```json", "").replace("```", "").strip()
+        candidates_data = json.loads(result_text)
+        return {"candidates": candidates_data}
+    except Exception as e:
+        print(f"🔥 [Agent] 후보작 생성 실패: {e}")
+        raise HTTPException(status_code=500, detail="AI 토론 중 오류 발생")
+
+# ==================================================================
+# 6. Botto DAO 시나리오: 1등 우승작 가치 산정 (RAG 시장 데이터 기반 경매)
+# ==================================================================
+@app.post("/api/agent/evaluate-winner")
+def evaluate_winner(data: WinnerData):
+    print(f"🚀 [Agent] 우승작 시장 가치 산정 토론 가동: {data.title} (득표: {data.vp_votes} VP)")
+
+    task_eval_art = Task(
+        description=f"제목: {data.title}\n설명: {data.description}\nsearch_tool을 사용하여 이 작품과 유사한 스타일의 실제 미술 평가나 대중적 반응을 검색하고, 이 디지털 작품의 객관적인 미학적 가치를 경매사에게 브리핑하세요.",
+        expected_output="미술사적 레퍼런스가 포함된 작품 평가 리포트",
+        agent=critic
+    )
+
+    task_eval_price = Task(
+        description=f"비평가의 평가와 대중 투표수({data.vp_votes} VP)를 종합합니다. AI가 가짜 가격을 지어내는 것을 막기 위해 반드시 search_tool을 이용해 '최근 유사한 NFT 실제 경매 낙찰가'를 검색하세요. 투표수 1 VP당 10~50 TUK 가치를 기반으로 시장 데이터와 곱해 최종 가격을 산정하세요. 반드시 순수 JSON 형식으로만 출력하세요.",
+        expected_output='순수 JSON 객체 문자열 (예: {"auction_price": 1500, "report": "..."})',
+        agent=auctioneer
+    )
+
+    crew = Crew(agents=[critic, auctioneer], tasks=[task_eval_art, task_eval_price], process=Process.sequential)
     
     try:
-        # 1. 화가 (영어 프롬프트)
-        painter_chain = PromptTemplate.from_template(
-            f"{PERSONA_PAINTER}\n"
-            "주제: '{topic}', 스타일: '{style}'. \n"
-            "Generate a highly detailed English prompt for image generation."
-        ) | llm
-        img_prompt = parse_response(painter_chain.invoke({"topic": request.topic, "style": request.style}).content)
-        results["image_prompt"] = img_prompt
-
-        # 2. 비평가 (전문가 비평)
-        critic_chain = PromptTemplate.from_template(
-            f"{PERSONA_CRITIC}\n{FORMAT_INSTRUCTION}\n"
-            "작품 주제: '{topic}', 스타일: '{style}'. \n"
-            "이 작품이 완성되었다고 가정하고, 미술사적 맥락을 포함한 심도 있는 비평문을 작성하시오."
-        ) | llm
-        review_text = parse_response(critic_chain.invoke({"topic": request.topic, "style": request.style}).content)
-        results["critic_review"] = review_text
-
-        # 3. 도슨트 (스토리텔링)
-        docent_chain = PromptTemplate.from_template(
-            f"{PERSONA_DOCENT}\n{FORMAT_INSTRUCTION}\n"
-            "작품 주제: '{topic}', 비평 요약: '{review}'. \n"
-            "관람객들에게 말을 걸듯이 재미있게 작품을 해설해주세요."
-        ) | llm
-        docent_text = parse_response(docent_chain.invoke({"topic": request.topic, "review": review_text}).content)
-        results["docent_script"] = docent_text
-
-        # 4. 경매사 (가치 평가)
-        auction_chain = PromptTemplate.from_template(
-            f"{PERSONA_AUCTIONEER}\n{FORMAT_INSTRUCTION}\n"
-            "작품: '{topic}', 비평: '{review}'. \n"
-            "이 작품의 소장 가치를 강력하게 어필하고, 경매 시작가(ETH)와 오프닝 멘트를 작성하시오."
-        ) | llm
-        auction_text = parse_response(auction_chain.invoke({"topic": request.topic, "review": review_text}).content)
-        results["auction_report"] = auction_text
-
-        return results
-
+        result = crew.kickoff()
+        result_text = str(result).replace("```json", "").replace("```", "").strip()
+        evaluation_data = json.loads(result_text)
+        return evaluation_data
     except Exception as e:
-        print(traceback.format_exc())
-        return {"error": str(e)}
+        print(f"🔥 [Agent] 가치 산정 실패: {e}")
+        return {"auction_price": data.vp_votes * 10, "report": "AI 토론 오류로 기본가 책정"}
 
 # ==================================================================
-# 개별 에이전트 (페르소나 적용 완료)
+# 7. 개별 API 엔드포인트 (기존 프론트엔드 호환 유지)
 # ==================================================================
-
-# 1. 기획자
 @app.post("/propose")
 def create_proposal(request: PlanRequest):
-    if not llm: raise HTTPException(500, "AI 로드 실패")
-    try:
-        chain = PromptTemplate.from_template(
-            f"{PERSONA_PLANNER}\n{FORMAT_INSTRUCTION}\n"
-            "클라이언트 요청: '{intent}'. \n"
-            "위 요청을 바탕으로 차별화된 전시 기획안을 작성하시오."
-        ) | llm
-        return {"draft_text": parse_response(chain.invoke({"intent": request.intent}).content)}
-    except Exception:
-        return {"draft_text": "AI 에러"}
+    task = Task(description=f"'{request.intent}' 전시 기획안 작성", expected_output="기획서", agent=planner)
+    return {"draft_text": str(Crew(agents=[planner], tasks=[task]).kickoff())}
 
-# 2. 화가
 @app.post("/generate")
 def start_work(request: WorkRequest):
-    if not llm: raise HTTPException(500, "AI 로드 실패")
-    try:
-        chain = PromptTemplate.from_template(
-            f"{PERSONA_PAINTER}\n"
-            "주제: '{topic}', 스타일: '{style}'. \n"
-            "Generate a creative and detailed English prompt."
-        ) | llm
-        return {"final_prompt": parse_response(chain.invoke({"topic": request.topic, "style": request.style}).content)}
-    except Exception:
-        return {"final_prompt": "Error"}
+    task = Task(description=f"'{request.topic}' 영어 프롬프트 작성", expected_output="프롬프트", agent=painter)
+    return {"final_prompt": str(Crew(agents=[painter], tasks=[task]).kickoff())}
 
-# 3. 비평가
 @app.post("/review")
 def create_review(request: ReviewRequest):
-    if not llm: raise HTTPException(500, "AI 로드 실패")
-    try:
-        safe_info = request.art_info if request.art_info else "작품 정보 없음"
-        chain = PromptTemplate.from_template(
-            f"{PERSONA_CRITIC}\n{FORMAT_INSTRUCTION}\n"
-            "대상 작품: '{art_info}'. \n"
-            "전문가의 시선으로 이 작품을 냉철하게 분석하고 평가하시오."
-        ) | llm
-        return {"review_text": parse_response(chain.invoke({"art_info": safe_info}).content)}
-    except Exception:
-        return {"review_text": "비평 실패"}
+    task = Task(description=f"'{request.art_info}' 비평문 작성", expected_output="비평문", agent=critic)
+    return {"review_text": str(Crew(agents=[critic], tasks=[task]).kickoff())}
 
-# 4. 마케터
 @app.post("/promote")
 def create_promo(request: PromoRequest):
-    if not llm: raise HTTPException(500, "AI 로드 실패")
-    try:
-        chain = PromptTemplate.from_template(
-            f"{PERSONA_MARKETER}\n{FORMAT_INSTRUCTION}\n"
-            "전시 제목: '{title}'. 타겟: '{target}'. \n"
-            "이 전시가 SNS에서 바이럴 될 수 있도록 매력적인 홍보 문구를 작성해줘."
-        ) | llm
-        return {"promo_text": parse_response(chain.invoke({"title": request.exhibition_title, "target": request.target_audience}).content)}
-    except Exception:
-        return {"promo_text": "마케팅 실패"}
+    task = Task(description=f"'{request.exhibition_title}' 홍보 문구 작성", expected_output="홍보문", agent=marketer)
+    return {"promo_text": str(Crew(agents=[marketer], tasks=[task]).kickoff())}
 
-# 5. 경매사
 @app.post("/auction")
 def open_auction(request: AuctionRequest):
-    if not llm: raise HTTPException(500, "AI 로드 실패")
-    try:
-        safe_info = request.art_info if request.art_info else "미상 작품"
-        safe_review = request.critic_review if request.critic_review else "평가 없음"
-        chain = PromptTemplate.from_template(
-            f"{PERSONA_AUCTIONEER}\n{FORMAT_INSTRUCTION}\n"
-            "작품 정보: {art_info}, 비평 내용: {critic_review}. \n"
-            "이 정보를 바탕으로 경매 리포트(시작가, 가치 평가, 오프닝 멘트)를 작성하시오."
-        ) | llm
-        return {"auction_report": parse_response(chain.invoke({"art_info": safe_info, "critic_review": safe_review}).content)}
-    except Exception:
-        return {"auction_report": "경매 실패"}
+    task = Task(
+        description=f"다음 비평문을 바탕으로 '{request.art_info}' 경매 리포트 작성.\n[비평문]: {request.critic_review}\n인터넷을 검색해 최근 실제 가격 동향을 리포트에 포함하세요.",
+        expected_output="데이터에 기반한 객관적인 경매 리포트",
+        agent=auctioneer
+    )
+    return {"auction_report": str(Crew(agents=[auctioneer], tasks=[task]).kickoff())}
 
-# 6. 도슨트
 @app.post("/docent")
 def start_tour(request: DocentRequest):
-    if not llm: raise HTTPException(500, "AI 로드 실패")
-    try:
-        chain = PromptTemplate.from_template(
-            f"{PERSONA_DOCENT}\n{FORMAT_INSTRUCTION}\n"
-            "작품 정보: {art_info}. \n"
-            "관람객({aud})이 흥미를 느낄 수 있도록 재미있는 해설 대본을 작성해줘."
-        ) | llm
-        return {"commentary": parse_response(chain.invoke({"art_info": request.art_info, "aud": request.audience_type}).content)}
-    except Exception:
-        return {"commentary": "해설 실패"}
-    
-# ai_core/agent.py 맨 아래에 붙여넣기
+    task = Task(description=f"'{request.message}'에 대한 깊이 있는 해설 작성", expected_output="해설", agent=ai_docent)
+    return {"commentary": str(Crew(agents=[ai_docent], tasks=[task]).kickoff())}
 
-# ai_core/agent.py
+@app.post("/studio/a2a-full")
+def a2a_full_studio(request: A2AStudioRequest):
+    today = datetime.now().strftime("%Y-%m-%d")
+    task_draft = Task(description=f"오늘 날짜({today}) 기준 '{request.intent}' 기획서 초안 작성", expected_output="마크다운 기획서", agent=planner)
+    task_review = Task(description="초안을 읽고 가차없이 비판하며 예술성을 높일 수정 지시", expected_output="비평문", agent=critic, context=[task_draft])
+    task_revise = Task(description="비평 반영하여 최종 전시 기획서 전문 마크다운 작성", expected_output="최종 마크다운", agent=planner, context=[task_draft, task_review])
 
-@app.get("/test-blockchain")
-def test_blockchain_connection():
     try:
-        from blockchain import BlockchainService
-        svc = BlockchainService()
-        
-        # 6개의 테스트용 더미 데이터 전달
-        result = svc.submit_proposal(
-            "테스트 전시회",           # title
-            "AI가 생성한 테스트 설명",   # description
-            "QmTest1234567890",       # ipfs_hash
-            100,                      # funding_goal (예: 100 TUK)
-            10,                       # min_contribution
-            7                         # duration_days
-        )
-        return result
+        studio_crew = Crew(agents=[planner, critic, planner], tasks=[task_draft, task_review, task_revise], process=Process.sequential, verbose=True)
+        studio_crew.kickoff()
+        return {"draft_text": getattr(task_revise.output, 'raw', str(task_revise.output))}
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return {"draft_text": f"🔥 서버 에러 발생: {str(e)}"}
+
+@app.post("/chat")
+def combined_chat(request: DocentRequest):
+    task_chat = Task(
+        description=f"사용자의 다음 질문에 답변하세요: '{request.message}'\n1. 플랫폼 이용 방법이면 쉽게 설명.\n2. 전반적 미술 추천이면 직접 답변.\n3. 세부 작가 추천이나 기법 해설이면 '전문 도슨트'에게 위임(Ask question to coworker)하여 답변.",
+        expected_output="플랫폼 가이드 혹은 도슨트의 친절한 답변 (마크다운)",
+        agent=ai_curator 
+    )
+    try:
+        chat_crew = Crew(agents=[ai_curator, ai_docent], tasks=[task_chat], verbose=True, max_rpm=10)
+        chat_crew.kickoff()
+        return {"reply": getattr(task_chat.output, 'raw', str(task_chat.output))}
+    except Exception as e:
+        return {"reply": "앗, 큐레이터가 다른 관람객을 응대 중입니다. 잠시 후 다시 질문해 주세요!"}
