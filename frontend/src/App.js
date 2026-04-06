@@ -6,7 +6,7 @@ import "./App.css";
 import { DAO_CONTRACT_ADDRESS as CONTRACT_ADDRESS, TUK_TOKEN_ADDRESS } from './contracts/address';
 import ArtPlanningDAO from './contracts/ArtPlanningDAO.json';
 
-const API_URL = "http://localhost:8000";
+const API_URL = "http://13.125.234.38:8000";
 
 function App() {
   

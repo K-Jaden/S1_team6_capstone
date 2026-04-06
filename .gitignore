@@ -34,3 +34,12 @@ artifacts/
 cache/
 typechain/
 coverage/
+
+# --- 6. Terraform 관련 ---
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
