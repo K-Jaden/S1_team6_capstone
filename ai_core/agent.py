@@ -134,17 +134,17 @@ class WinnerData(BaseModel): title: str; description: str; vp_votes: int
 # ==================================================================
 @app.post("/api/agent/generate-candidates")
 def generate_candidates():
-    print("🚀 [Agent] 팩트 기반(RAG) 4개 후보작 생성 파이프라인 가동...")
+    print("🚀 [Agent] 팩트 기반(RAG) 10개 후보작 생성 파이프라인 가동...")
 
     task_plan = Task(
-        description="반드시 search_tool을 사용하여 '현재 글로벌 디지털 아트 트렌드'를 검색하세요. 검색 결과를 바탕으로 서로 완전히 다른 테마의 미술 작품 컨셉 4가지를 기획하세요. '수석 미술 비평가'와 토론하여 아이디어를 검증받으세요. 각 컨셉은 '한국어 제목'과 '한국어 작품 설명'을 포함해야 합니다.",
-        expected_output="검색된 최신 트렌드가 반영된 4가지 컨셉 초안",
+        description="반드시 search_tool을 사용하여 '현재 글로벌 디지털 아트 트렌드'를 검색하세요. 검색 결과를 바탕으로 서로 완전히 다른 테마의 미술 작품 컨셉 10가지를 기획하세요. '수석 미술 비평가'와 토론하여 아이디어를 검증받으세요. 각 컨셉은 '한국어 제목'과 '한국어 작품 설명'을 포함해야 합니다.",
+        expected_output="검색된 최신 트렌드가 반영된 10가지 컨셉 초안",
         agent=planner
     )
 
     task_critique = Task(
-        description="기획자의 4가지 컨셉을 넘겨받아, search_tool을 이용해 각 컨셉과 유사한 실제 미술사적 사례나 최신 트렌드를 검색하세요. 진부한 요소는 비판하고, 객관적 레퍼런스를 더해 최종 4가지 컨셉을 완성하세요.",
-        expected_output="객관적 검증과 수정이 완료된 4가지 컨셉",
+        description="기획자의 10가지 컨셉을 넘겨받아, search_tool을 이용해 각 컨셉과 유사한 실제 미술사적 사례나 최신 트렌드를 검색하세요. 진부한 요소는 비판하고, 객관적 레퍼런스를 더해 최종 10가지 컨셉을 완성하세요.",
+        expected_output="객관적 검증과 수정이 완료된 10가지 컨셉",
         agent=critic
     )
 
@@ -160,7 +160,7 @@ def generate_candidates():
                 "description": "작품 세계관 설명 (한국어)",
                 "image_prompt": "상세한 영문 이미지 생성 프롬프트"
             },
-            ... (총 4개)
+            ... (총 10개)
         ]
         ''',
         expected_output="순수 JSON 객체 배열 (List of Dicts)",

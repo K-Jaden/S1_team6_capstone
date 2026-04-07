@@ -17,6 +17,8 @@ import os
 import base64  # 👈 추가 확인
 from datetime import datetime
 from sqlalchemy import func
+from fastapi.staticfiles import StaticFiles
+
 
 
 
@@ -28,6 +30,8 @@ models.Base.metadata.create_all(bind=database.engine)
 
 app = FastAPI()
 
+os.makedirs("static/images", exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 app.add_middleware(
     CORSMiddleware,
@@ -166,7 +170,11 @@ def generate_docent_script(item_id: int = 0):
 # 🚨 [수정완료] Botto DAO 라운드 & 후보작 시스템 API
 # =========================================================
 
-@app.post("/api/admin/generate-round", summary="새 라운드 생성 및 A2A 그림 4장 뽑기")
+# =========================================================
+# 🚨 [수정완료] Botto DAO 라운드 & 후보작 시스템 API
+# =========================================================
+
+@app.post("/api/admin/generate-round", summary="새 라운드 생성 및 A2A 그림 10장 뽑기")
 def generate_new_round(db: Session = Depends(get_db)):
     # 1. 기존 라운드 종료 처리
     active_round = db.query(models.Round).filter(models.Round.status == "ACTIVE").first()
@@ -184,11 +192,12 @@ def generate_new_round(db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_round)
 
-    # 3. 🚨 AI 에이전트(agent.py)에게 4개의 컨셉 JSON 받아오기 (위치 변경)
-    print(f"📡 AI 요원들에게 {next_round_num}주차 후보작 4개 기획 지시 중... (약 1분 소요)")
+    # 3. 🚨 AI 에이전트(agent.py)에게 10개의 컨셉 JSON 받아오기
+    # (10개를 기획하고 그림을 그리려면 시간이 꽤 걸리므로 timeout을 넉넉히 줍니다)
+    print(f"📡 AI 요원들에게 {next_round_num}주차 후보작 10개 기획 지시 중... (약 2~3분 소요)")
     
     try:
-        agent_res = requests.post(f"{AI_AGENT_URL}/api/agent/generate-candidates", timeout=180)
+        agent_res = requests.post(f"{AI_AGENT_URL}/api/agent/generate-candidates", timeout=300)
         if agent_res.status_code != 200:
             raise Exception(f"AI Core 서버 응답 에러: {agent_res.text}")
             
@@ -197,95 +206,81 @@ def generate_new_round(db: Session = Depends(get_db)):
         print(f"🔥 AI 통신 에러: {e}")
         raise HTTPException(status_code=500, detail="AI 기획자 호출에 실패했습니다.")
 
-    # 4. 🎨 받아온 데이터를 바탕으로 이미지 생성 및 DB 저장
-    import base64
-    for c_data in ai_data:
-        # ✨ [핵심] 에러 방지 로직 적용
-        if isinstance(c_data, str):
-            title = f"AI Masterpiece {next_round_num}"
-            desc_text = "AI가 생성한 예술 작품입니다."
-            prompt = c_data  # 문자열 그대로 프롬프트로 사용
-        else:
-            title = c_data.get("title", "제목 없음")
-            desc_text = c_data.get("description", "설명 없음")
-            prompt = c_data.get("image_prompt", "digital art masterpiece")  
-    # -------------------------------------------------------------
-    # 🚨 AI 에이전트(agent.py)에게 4개의 컨셉 JSON 받아오기
-    # -------------------------------------------------------------
-    print(f"📡 AI 요원들에게 {next_round_num}주차 후보작 4개 기획 지시 중... (약 1분 소요)")
-    
-    try:
-        agent_res = requests.post(f"{AI_AGENT_URL}/api/agent/generate-candidates", timeout=180)
-        if agent_res.status_code != 200:
-            raise Exception(f"AI Core 서버 응답 에러: {agent_res.text}")
-            
-        ai_data = agent_res.json().get("candidates", [])
-    except Exception as e:
-        print(f"🔥 AI 통신 에러: {e}")
-        raise HTTPException(status_code=500, detail="AI 기획자 호출에 실패했습니다.")
-
-    # -------------------------------------------------------------
-    # 🎨 받아온 영문 프롬프트로 Cloudflare 그림 그리고 IPFS 올리기
-    # -------------------------------------------------------------
-    import base64
+    # 4. 🎨 받아온 영문 프롬프트로 Cloudflare 그림 10장 그리고 IPFS 올리기
     CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
     CF_API_TOKEN = os.getenv("CF_API_TOKEN")
 
-    for c_data in ai_data:
-        title = c_data.get("title", "제목 없음")
-        desc_text = c_data.get("description", "설명 없음")
-        prompt = c_data.get("image_prompt", "digital art masterpiece")
+    for index, c_data in enumerate(ai_data, start=1):
+        # ✨ [핵심] 에러 방지 로직 적용
+        if isinstance(c_data, str):
+            title = f"AI Masterpiece {next_round_num}-{index}"
+            desc_text = "AI가 생성한 예술 작품입니다."
+            prompt = c_data
+        else:
+            title = c_data.get("title", f"제목 없음 {index}")
+            desc_text = c_data.get("description", "설명 없음")
+            prompt = c_data.get("image_prompt", "digital art masterpiece")
 
-        print(f"🖌️ [{title}] 이미지 렌더링 중...")
+        print(f"🖌️ [{index}/10] '{title}' 이미지 렌더링 중...")
         
         # Cloudflare FLUX에 이미지 요청
         cf_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/@cf/black-forest-labs/flux-1-schnell"
         headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
-        img_res = requests.post(cf_url, headers=headers, json={"prompt": prompt}, timeout=60)
         
-        ipfs_hash = "QmError"
-        image_url = "https://dummyimage.com/600x400/000/fff&text=CF+Error"
+        try:
+            img_res = requests.post(cf_url, headers=headers, json={"prompt": prompt}, timeout=60)
+            
+            # 🚨 IPFS 해시를 PENDING(대기중)으로 설정! (우승하면 채워짐)
+            ipfs_hash = "PENDING"
+            image_url = "https://dummyimage.com/600x400/000/fff&text=CF+Error"
 
-        if img_res.status_code == 200:
-            res_json = img_res.json()
-            if "result" in res_json and "image" in res_json["result"]:
-                b64_encoded = res_json["result"]["image"]
-                image_bytes = base64.b64decode(b64_encoded)
-                
-                # IPFS에 생성된 그림 업로드
-                uploaded_cid = upload_bytes_to_ipfs(image_bytes, filename=f"round{next_round_num}_candidate.png")
-                if uploaded_cid:
-                    ipfs_hash = uploaded_cid
-                    image_url = f"https://gateway.pinata.cloud/ipfs/{uploaded_cid}"
+            if img_res.status_code == 200:
+                res_json = img_res.json()
+                if "result" in res_json and "image" in res_json["result"]:
+                    b64_encoded = res_json["result"]["image"]
+                    image_bytes = base64.b64decode(b64_encoded)
+                    
+                    # 🚨 [핵심 변경] IPFS가 아니라 로컬(오프체인)에 파일로 저장!
+                    filename = f"round{next_round_num}_candidate_{index}.png"
+                    filepath = f"static/images/{filename}"
+                    
+                    with open(filepath, "wb") as f:
+                        f.write(image_bytes)
+                    
+                    # 프론트엔드가 접근할 수 있도록 로컬 서버 URL 부여
+                    BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
+                    image_url = f"{BASE_URL}/{filepath}"
 
-        # DB에 저장
-        candidate = models.Candidate(
-            round_id=new_round.id,
-            title=title,
-            description=desc_text,
-            image_url=image_url,
-            ipfs_hash=ipfs_hash
-        )
-        db.add(candidate)
-    
+            # DB에 10개 각각 저장 (image_url은 로컬 주소, ipfs_hash는 PENDING)
+            candidate = models.Candidate(
+                round_id=new_round.id,
+                title=title,
+                description=desc_text,
+                image_url=image_url,
+                ipfs_hash=ipfs_hash
+            )
+            db.add(candidate)
+            
+        except Exception as img_e:
+            print(f"🔥 [{index}/10] 이미지 생성 실패: {img_e}")
+            continue # 실패해도 다음 그림으로 넘어감
+
     db.commit()
-    print("🎉 새 라운드 4개 후보작 세팅 완벽 성공!")
+    print("🎉 새 라운드 10개 후보작 세팅 완벽 성공!")
 
-    return {"status": "success", "message": f"Round {next_round_num} 4개 후보작 세팅 완료!", "round_id": new_round.id}
+    return {"status": "success", "message": f"Round {next_round_num} 10개 후보작 세팅 완료!", "round_id": new_round.id}
 
 
 # 2. [NEW] 투표 종료, 1등 확정 및 AI 경매 가치 산정
-@app.post("/api/admin/end-round", summary="투표 종료 및 AI 경매 가치 산정 (블록체인 연동 보류)")
+@app.post("/api/admin/end-round", summary="투표 종료 및 AI 경매 가치 산정")
 def end_round_and_evaluate(db: Session = Depends(get_db)):
-    # 1. 현재 라운드 찾기
+    # 1. 현재 라운드 찾기 & 2. 최고 득표 1등 찾기
     active_round = db.query(models.Round).filter(models.Round.status == "ACTIVE").first()
     if not active_round:
         raise HTTPException(status_code=400, detail="진행 중인 라운드가 없습니다.")
 
-    # 2. 최고 득표 1등 찾기
     winner = db.query(models.Candidate).filter(models.Candidate.round_id == active_round.id)\
                .order_by(desc(models.Candidate.vp_votes)).first()
-    
     if not winner:
         raise HTTPException(status_code=400, detail="후보작이 존재하지 않습니다.")
 
@@ -296,21 +291,37 @@ def end_round_and_evaluate(db: Session = Depends(get_db)):
 
     # 4. AI 경매사 호출 (가치 산정)
     try:
-        payload = {
-            "title": winner.title,
-            "description": winner.description,
-            "vp_votes": winner.vp_votes
-        }
+        payload = {"title": winner.title, "description": winner.description, "vp_votes": winner.vp_votes}
         res = requests.post(f"{AI_AGENT_URL}/api/agent/evaluate-winner", json=payload, timeout=60)
-        
-        if res.status_code == 200:
-            eval_data = res.json()
-            winner.auction_price = eval_data.get("auction_price", winner.vp_votes * 10)
-        else:
-            winner.auction_price = winner.vp_votes * 10
+        winner.auction_price = res.json().get("auction_price", winner.vp_votes * 10) if res.status_code == 200 else winner.vp_votes * 10
     except Exception as e:
-        print(f"🔥 AI 경매사 호출 실패: {e}")
         winner.auction_price = winner.vp_votes * 10
+
+    # =========================================================
+    # 🚨 5. [핵심] 우승작 단 1개만 IPFS에 업로드하여 NFT 박제 준비!
+    # =========================================================
+    if winner.ipfs_hash == "PENDING" and "/static/images/" in winner.image_url:
+        try:
+            import urllib.parse
+            # image_url에서 파일 경로만 쏙 빼냅니다. (예: static/images/xxx.png)
+            parsed_url = urllib.parse.urlparse(winner.image_url)
+            filepath = parsed_url.path.lstrip("/") 
+            
+            if os.path.exists(filepath):
+                print(f"🚀 우승작 발견! IPFS 영구 박제 업로드 중... ({filepath})")
+                with open(filepath, "rb") as f:
+                    image_bytes = f.read()
+                
+                # ipfs.py의 함수를 호출해서 IPFS로 전송!
+                uploaded_cid = upload_bytes_to_ipfs(image_bytes, filename=f"winner_round{active_round.id}.png")
+                
+                if uploaded_cid:
+                    winner.ipfs_hash = f"ipfs://{uploaded_cid}"
+                    # 명예의 전당(Gallery) 전시를 위해 URL도 IPFS 주소로 교체해 줍니다.
+                    winner.image_url = f"https://gateway.pinata.cloud/ipfs/{uploaded_cid}"
+                    print(f"✅ 우승작 IPFS 박제 완료! (CID: {uploaded_cid})")
+        except Exception as e:
+            print(f"🔥 우승작 IPFS 업로드 실패: {e}")
 
     db.commit()
 
@@ -318,9 +329,8 @@ def end_round_and_evaluate(db: Session = Depends(get_db)):
         "status": "success", 
         "winner_title": winner.title, 
         "auction_price": winner.auction_price,
-        "message": "오프체인 결산 및 AI 평가 완료 (블록체인 연동 대기 중)"
+        "message": "오프체인 결산 및 우승작 IPFS 업로드 완료!"
     }
-
 
 # =========================================================
 # (이 아래로는 기존에 있던 @app.get("/api/rounds/current") 등 코드를 유지하시면 됩니다)
