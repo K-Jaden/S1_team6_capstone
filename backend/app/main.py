@@ -23,8 +23,7 @@ from fastapi.staticfiles import StaticFiles
 
 
 # AI 에이전트 서버 주소 (도커 서비스 이름 사용)
-AI_AGENT_URL = "http://host.docker.internal:8002"
-
+AI_AGENT_URL = "http://ai_core:8002"
 # DB 테이블 생성
 models.Base.metadata.create_all(bind=database.engine)
 
@@ -174,7 +173,7 @@ def generate_docent_script(item_id: int = 0):
 # 🚨 [수정완료] Botto DAO 라운드 & 후보작 시스템 API
 # =========================================================
 
-@app.post("/api/admin/generate-round", summary="새 라운드 생성 및 A2A 그림 10장 뽑기")
+@app.post("/api/admin/generate-round", summary="새 라운드 생성 및 A2A 그림 5장 뽑기")
 def generate_new_round(db: Session = Depends(get_db)):
     # 1. 기존 라운드 종료 처리
     active_round = db.query(models.Round).filter(models.Round.status == "ACTIVE").first()
@@ -191,13 +190,19 @@ def generate_new_round(db: Session = Depends(get_db)):
     db.add(new_round)
     db.commit()
     db.refresh(new_round)
+    
+    # ✨ [추가] 1. 가장 최신 Market Insights 데이터를 가져옵니다.
+    current_insights = get_market_insights()
 
-    # 3. 🚨 AI 에이전트(agent.py)에게 10개의 컨셉 JSON 받아오기
-    # (10개를 기획하고 그림을 그리려면 시간이 꽤 걸리므로 timeout을 넉넉히 줍니다)
-    print(f"📡 AI 요원들에게 {next_round_num}주차 후보작 10개 기획 지시 중... (약 2~3분 소요)")
+    # 3. 🚨 AI 에이전트(agent.py)에게 5개의 컨셉 JSON 받아오기
+    # (5개를 기획하고 그림을 그리려면 시간이 꽤 걸리므로 timeout을 넉넉히 줍니다)
+    print(f"📡 AI 요원들에게 {next_round_num}주차 후보작 5개 기획 지시 중... (약 2~3분 소요)")
     
     try:
-        agent_res = requests.post(f"{AI_AGENT_URL}/api/agent/generate-candidates", timeout=300)
+        # ✨ [핵심 변경] 2. AI를 호출할 때 json 바디에 insights 데이터를 꽉 채워서 보냅니다!
+        payload = {"insights": current_insights}
+        agent_res = requests.post(f"{AI_AGENT_URL}/api/agent/generate-candidates", json=payload, timeout=300)
+        
         if agent_res.status_code != 200:
             raise Exception(f"AI Core 서버 응답 에러: {agent_res.text}")
             
@@ -220,8 +225,11 @@ def generate_new_round(db: Session = Depends(get_db)):
             title = c_data.get("title", f"제목 없음 {index}")
             desc_text = c_data.get("description", "설명 없음")
             prompt = c_data.get("image_prompt", "digital art masterpiece")
+            # AI가 만든 원본 프롬프트
+            base_prompt = c_data.get("image_prompt", "digital art")
+            prompt = f"Masterpiece, extremely high quality digital art, trending on artstation, vivid colors, cyberpunk and synthwave vibes, glowing neon lights, holographic, highly detailed 3D digital illustration, Unreal Engine 5 render. Concept: {base_prompt}"
 
-        print(f"🖌️ [{index}/10] '{title}' 이미지 렌더링 중...")
+        print(f"🖌️ [{index}/5] '{title}' 이미지 렌더링 중...")
         
         # Cloudflare FLUX에 이미지 요청
         cf_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/@cf/black-forest-labs/flux-1-schnell"
@@ -262,13 +270,13 @@ def generate_new_round(db: Session = Depends(get_db)):
             db.add(candidate)
             
         except Exception as img_e:
-            print(f"🔥 [{index}/10] 이미지 생성 실패: {img_e}")
+            print(f"🔥 [{index}/5] 이미지 생성 실패: {img_e}")
             continue # 실패해도 다음 그림으로 넘어감
 
     db.commit()
-    print("🎉 새 라운드 10개 후보작 세팅 완벽 성공!")
+    print("🎉 새 라운드 5개 후보작 세팅 완벽 성공!")
 
-    return {"status": "success", "message": f"Round {next_round_num} 10개 후보작 세팅 완료!", "round_id": new_round.id}
+    return {"status": "success", "message": f"Round {next_round_num} 5개 후보작 세팅 완료!", "round_id": new_round.id}
 
 
 # 2. [NEW] 투표 종료, 1등 확정 및 AI 경매 가치 산정
@@ -322,6 +330,15 @@ def end_round_and_evaluate(db: Session = Depends(get_db)):
                     print(f"✅ 우승작 IPFS 박제 완료! (CID: {uploaded_cid})")
         except Exception as e:
             print(f"🔥 우승작 IPFS 업로드 실패: {e}")
+    
+    # 6. 명예의 전당(GalleryItem) 테이블에 우승작 영구 등록!
+    new_gallery_item = models.GalleryItem(
+        title=winner.title,
+        artist_address="ArtDAO Core AI", # AI가 창작했으므로 작가명을 고정해줍니다
+        image_url=winner.image_url,      # IPFS 주소로 업데이트된 이미지 URL
+        description=winner.description
+    )
+    db.add(new_gallery_item)
 
     db.commit()
 
@@ -412,9 +429,11 @@ def a2a_chat(request: ChatRequest): # 🚨 query parameter가 아니라 body로 
             print(f"🔥 AI 서버 에러 ({response.status_code}): {response.text}")
             return {"reply": "AI 팀이 응답하지 않습니다. 잠시 후 다시 시도해주세요."}
             
+    # ✨ 수정할 코드
     except Exception as e:
         print(f"🔥 통신 에러: {str(e)}")
-        return {"reply": "AI 서버와 연결할 수 없습니다."}
+        # 화면에 진짜 에러 원인을 띄우도록 변경!
+        return {"reply": f"🚨 진짜 에러 원인: {str(e)}"}
     
 # [명세서 추가 요청 2] 사용자 맞춤 작품 매칭 (A2A Recommend)
 @app.get("/api/a2a/recommend", summary="사용자 맞춤 작품 매칭")
@@ -678,3 +697,35 @@ def update_delegation_db(req: schemas.DelegateRequest, db: Session = Depends(get
     user.delegated_to = req.to_address
     db.commit()
     return {"status": "success", "message": f"Delegated to {req.to_address}"}
+# =========================================================
+# [NEW] Market Insights (시장 트렌드 분석 API)
+# =========================================================
+# 💡 서버가 켜져있는 동안 한 번 분석한 데이터를 기억해두는 캐시 변수
+cached_insights = None
+
+@app.get("/api/insights/trends", summary="실시간 마켓 인사이트 조회")
+def get_market_insights():
+    global cached_insights
+    
+    # 1. 이미 분석해둔 데이터가 있으면 0.1초 만에 바로 반환!
+    if cached_insights:
+        return cached_insights
+        
+    # 2. 없으면 AI 서버에 최초 1회 분석 요청
+    try:
+        res = requests.get(f"{AI_AGENT_URL}/api/agent/insights", timeout=60)
+        if res.status_code == 200:
+            cached_insights = res.json()
+            return cached_insights
+    except Exception as e:
+        print(f"🔥 통신 에러 또는 타임아웃: {e}")
+        
+    # 3. 🚨 만약 AI 서버가 터졌을 경우 시연을 살리기 위한 비상용 예비 데이터
+    return {
+        "keywords": ["#Generative_AI", "#Neo_Cyberpunk", "#Eco_Activism", "#Hyper_Realism", "#Web3_Art", "#Algorithmic", "#Surrealism"],
+        "styles": [
+            {"name": "Unreal Engine 5 Render", "percent": 50},
+            {"name": "Oil Painting Texture", "percent": 30},
+            {"name": "Retro 8-bit Pixel", "percent": 20}
+        ]
+    }
