@@ -28,6 +28,8 @@ function App() {
   const [vpInputs, setVpInputs] = useState({}); 
   const [isLoading, setIsLoading] = useState(false);
 
+  const [insightsData, setInsightsData] = useState(null);
+  const [isInsightsLoading, setIsInsightsLoading] = useState(false);
   // --- AI 챗봇 상태 ---
   const [chatInput, setChatInput] = useState("");
   const [isChatLoading, setIsChatLoading] = useState(false);
@@ -76,6 +78,20 @@ function App() {
       const timer = setInterval(() => setCurrentBlockTime(Math.floor(Date.now() / 1000)), 1000);
       return () => clearInterval(timer);
   }, []);
+  // --- Market Insights 데이터 불러오기 ---
+  useEffect(() => {
+    if (activeTab === "insights" && !insightsData) {
+      const fetchInsights = async () => {
+        setIsInsightsLoading(true);
+        try {
+          const res = await axios.get(`${API_URL}/api/insights/trends`);
+          setInsightsData(res.data);
+        } catch (err) { console.error("인사이트 로드 실패"); }
+        setIsInsightsLoading(false);
+      };
+      fetchInsights();
+    }
+  }, [activeTab, insightsData]);
 
   const connectWallet = async () => {
     if (!window.ethereum) return alert("메타마스크를 설치해주세요!");
@@ -156,7 +172,7 @@ function App() {
       alert("AI 에이전트들이 트렌드 검색 및 이미지 생성을 시작합니다.\n(백엔드 터미널을 확인하세요! 약 1~2분 소요)");
       try {
           await axios.post(`${API_URL}/api/admin/generate-round`, {}, { timeout: 300000 });
-          alert("🎉 새 라운드와 4개의 후보작이 성공적으로 생성되었습니다!");
+          alert("🎉 새 라운드와 5개의 후보작이 성공적으로 생성되었습니다!");
           fetchCurrentRound();
       } catch (err) { alert("라운드 생성 중 오류가 발생했습니다."); }
       setIsLoading(false);
@@ -243,7 +259,7 @@ function App() {
                 <button className="connect-btn" onClick={connectWallet}>Connect Wallet</button>
             )}
         </header>
-        {/* ----------------------------------------------------------- */}
+       {/* ----------------------------------------------------------- */}
         {/* ① 📈 Market Insights (AI 분석 데이터 시각화) */}
         {/* ----------------------------------------------------------- */}
         {activeTab === "insights" && (
@@ -251,27 +267,38 @@ function App() {
             <h2 className="page-title">📈 Market Insights</h2>
             <p style={{color: '#9CA3AF', marginBottom: '30px'}}>AI 에이전트가 실시간으로 분석한 이번 주 글로벌 디지털 아트 트렌드 리포트입니다.</p>
             
-            <div className="insights-grid" style={{display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '20px'}}>
-                <div className="card" style={{padding: '30px', background: '#1A1A1A'}}>
-                    <h3>🔥 Hot Keywords (Word Cloud)</h3>
-                    <div style={{display: 'flex', flexWrap: 'wrap', gap: '15px', marginTop: '20px'}}>
-                        {['#Cyberpunk', '#Surrealism', '#Digital_Human', '#Eco_Art', '#Glitched', '#Abstract', '#Bio_Organic'].map(tag => (
-                            <span key={tag} style={{padding: '10px 20px', background: '#2A2A2A', borderRadius: '30px', color: '#38BDF8', fontSize: '1.1rem'}}>{tag}</span>
-                        ))}
+            {isInsightsLoading ? (
+                <div style={{textAlign: 'center', padding: '50px', color: '#38BDF8', fontSize: '1.2rem'}}>
+                    🤖 AI가 실시간 글로벌 웹 트렌드를 분석 중입니다... ⏳
+                </div>
+            ) : insightsData ? (
+                <div className="insights-grid" style={{display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '20px'}}>
+                    <div className="card" style={{padding: '30px', background: '#1A1A1A'}}>
+                        <h3>🔥 Hot Keywords (Word Cloud)</h3>
+                        <div style={{display: 'flex', flexWrap: 'wrap', gap: '15px', marginTop: '20px'}}>
+                            {insightsData.keywords.map((tag, idx) => (
+                                <span key={idx} style={{padding: '10px 20px', background: '#2A2A2A', borderRadius: '30px', color: '#38BDF8', fontSize: '1.1rem'}}>
+                                    {tag}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="card" style={{padding: '30px', background: '#1A1A1A'}}>
+                        <h3>🎨 Preferred Styles</h3>
+                        <ul style={{listStyle: 'none', padding: 0, marginTop: '20px', color: '#BBB'}}>
+                            {insightsData.styles.map((style, idx) => (
+                                <li key={idx} style={{marginBottom: '15px', fontSize: '1.1rem'}}>
+                                    {style.name} - <strong style={{color: '#10B981'}}>{style.percent}%</strong>
+                                </li>
+                            ))}
+                        </ul>
                     </div>
                 </div>
-                <div className="card" style={{padding: '30px', background: '#1A1A1A'}}>
-                    <h3>🎨 Preferred Styles</h3>
-                    <ul style={{listStyle: 'none', padding: 0, marginTop: '20px', color: '#BBB'}}>
-                        <li style={{marginBottom: '10px'}}>3D Render (High Detail) - 45%</li>
-                        <li style={{marginBottom: '10px'}}>Oil Painting Texture - 30%</li>
-                        <li>Minimalist Vector - 25%</li>
-                    </ul>
-                </div>
-            </div>
+            ) : (
+                <div style={{textAlign: 'center', padding: '50px', color: '#EF4444'}}>데이터를 불러오지 못했습니다.</div>
+            )}
           </div>
         )}
-
         {/* ----------------------------------------------------------- */}
         {/* ② 🏦 Treasury (DAO 재정 통계) */}
         {/* ----------------------------------------------------------- */}
@@ -359,7 +386,7 @@ function App() {
                 </div>
                 <div style={{display: 'flex', gap: '10px'}}>
                     <button onClick={handleGenerateRoundDemo} disabled={isLoading} style={{background: '#B91C1C', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
-                        {isLoading ? "AI 생성 중..." : "1. 새 라운드 (AI 4개 생성)"}
+                        {isLoading ? "AI 생성 중..." : "1. 새 라운드 (AI 5개 생성)"}
                     </button>
                     <button onClick={handleEndRoundDemo} disabled={isLoading} style={{background: '#991B1B', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
                         2. 투표 마감 및 결산

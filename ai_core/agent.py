@@ -128,46 +128,67 @@ class AuctionRequest(BaseModel): art_info: str; critic_review: str
 class DocentRequest(BaseModel): message: str; wallet_address: str = ""
 class A2AStudioRequest(BaseModel): intent: str
 class WinnerData(BaseModel): title: str; description: str; vp_votes: int
+class CandidateGenRequest(BaseModel):insights: dict = None
 
 # ==================================================================
-# 5. Botto DAO 시나리오: 4개 후보작 RAG 생성 루프
+# 5. Botto DAO 시나리오: 5개 후보작 생성 (Market Insights 완벽 연동)
 # ==================================================================
 @app.post("/api/agent/generate-candidates")
-def generate_candidates():
-    print("🚀 [Agent] 팩트 기반(RAG) 4개 후보작 생성 파이프라인 가동...")
+def generate_candidates(req: CandidateGenRequest = None): # 👈 데이터를 받을 수 있게 수정
+    print("🚀 [Agent] Market Insights 연동 5개 후보작 기획 가동...")
+
+    # ✨ 백엔드에서 넘겨준 트렌드 키워드와 스타일을 문장으로 풀어냅니다.
+    trend_keywords = ", ".join(req.insights.get("keywords", [])) if req and req.insights else "최신 기술 트렌드"
+    trend_styles = ", ".join([s["name"] for s in req.insights.get("styles", [])]) if req and req.insights else "디지털 아트"
 
     task_plan = Task(
-        description="반드시 search_tool을 사용하여 '현재 글로벌 디지털 아트 트렌드'를 검색하세요. 검색 결과를 바탕으로 서로 완전히 다른 테마의 미술 작품 컨셉 4가지를 기획하세요. '수석 미술 비평가'와 토론하여 아이디어를 검증받으세요. 각 컨셉은 '한국어 제목'과 '한국어 작품 설명'을 포함해야 합니다.",
-        expected_output="검색된 최신 트렌드가 반영된 4가지 컨셉 초안",
-        agent=planner
-    )
+        description=f"""
+        당신은 '현실의 이슈'를 디지털 예술로 승화시키는 천재 기획자입니다.
+        현재 우리 ArtDAO 플랫폼의 핵심 트렌드(Market Insights) 데이터는 다음과 같습니다:
+        - 🔥 유행 키워드: {trend_keywords}
+        - 🎨 선호 스타일: {trend_styles}
 
-    task_critique = Task(
-        description="기획자의 4가지 컨셉을 넘겨받아, search_tool을 이용해 각 컨셉과 유사한 실제 미술사적 사례나 최신 트렌드를 검색하세요. 진부한 요소는 비판하고, 객관적 레퍼런스를 더해 최종 4가지 컨셉을 완성하세요.",
-        expected_output="객관적 검증과 수정이 완료된 4가지 컨셉",
-        agent=critic
+        다음 순서대로 작업하세요:
+        1. 반드시 search_tool을 사용하여 '오늘의 주요 글로벌 과학/IT 뉴스' 혹은 '사회적 논란' 중 하나를 검색하세요.
+        2. 검색한 '실제 뉴스/이슈'를 위의 [🔥 유행 키워드]와 [🎨 선호 스타일]에 완벽하게 융합하여, 현실에 대한 날카로운 통찰이 담긴 미술 작품 컨셉 5가지를 기획하세요.
+        3. 각 컨셉은 '한국어 제목'과 '한국어 작품 설명'을 포함해야 합니다.
+        """,
+        expected_output="Market Insights 트렌드와 오늘 뉴스가 완벽히 융합된 5가지 컨셉 초안",
+        agent=planner
     )
 
     task_format = Task(
         description='''
-        최종 4가지 컨셉을 바탕으로 이미지 생성용 데이터를 작성하세요.
+        기획자의 5가지 컨셉을 바탕으로 이미지 생성용 데이터를 작성하세요.
         반드시 아래와 같은 구조의 'JSON 객체 배열' 형식으로만 출력해야 합니다.
         마크다운(```json)이나 다른 설명은 절대 포함하지 마세요.
 
+        [🔥 아트 스타일 필수 지침 : 5개 작품의 화풍을 모두 다르게!]
+        유저들이 다양한 작품에 투표할 수 있도록, 5개의 작품은 각각 **완전히 다른 시각적 매체와 예술 사조(Style)**를 가져야 합니다.
+        고급스러운 파인 아트(Fine Art) 느낌을 유지하되, 아래의 5가지 스타일을 각 작품의 영문 image_prompt에 하나씩 매칭시켜서 작성하세요.
+
+        - 1번 작품 (초현실주의 유화): Surrealism, classic oil painting texture, Salvador Dali style, highly detailed masterpiece
+        - 2번 작품 (기하학적 3D 추상): Geometric abstraction, highly detailed 3D render, architectural elements, sleek and modern
+        - 3번 작품 (네오 다다이즘 콜라주): Neo-Dadaism, mixed media digital collage, avant-garde, philosophical symbolism
+        - 4번 작품 (고전 조각과 글리치의 결합): Classical marble sculpture aesthetics mixed with subtle digital glitch art, museum lighting
+        - 5번 작품 (몽환적인 수채화/잉크 아트): Ethereal watercolor, ink wash, fluid and dreamy, expressive brushstrokes
+
+        [출력 형식]
         [
             {
                 "title": "작품 제목 (한국어)",
                 "description": "작품 세계관 설명 (한국어)",
-                "image_prompt": "상세한 영문 이미지 생성 프롬프트"
+                "image_prompt": "상세한 영문 이미지 생성 프롬프트 (반드시 각기 다른 5가지 스타일을 적용할 것)"
             },
-            ... (총 4개)
+            ... (총 5개)
         ]
         ''',
-        expected_output="순수 JSON 객체 배열 (List of Dicts)",
+        expected_output="5가지 각기 다른 고급 예술 화풍이 반영된 순수 JSON 객체 배열 (List of Dicts)",
         agent=painter
     )
 
-    crew = Crew(agents=[planner, critic, painter], tasks=[task_plan, task_critique, task_format], process=Process.sequential)
+    # 비평가 없이 빠르게 2명만 투입!
+    crew = Crew(agents=[planner, painter], tasks=[task_plan, task_format], process=Process.sequential)
 
     try:
         result = crew.kickoff()
@@ -177,7 +198,7 @@ def generate_candidates():
     except Exception as e:
         print(f"🔥 [Agent] 후보작 생성 실패: {e}")
         raise HTTPException(status_code=500, detail="AI 토론 중 오류 발생")
-
+    
 # ==================================================================
 # 6. Botto DAO 시나리오: 1등 우승작 가치 산정 (RAG 시장 데이터 기반 경매)
 # ==================================================================
@@ -272,3 +293,61 @@ def combined_chat(request: DocentRequest):
         return {"reply": getattr(task_chat.output, 'raw', str(task_chat.output))}
     except Exception as e:
         return {"reply": "앗, 큐레이터가 다른 관람객을 응대 중입니다. 잠시 후 다시 질문해 주세요!"}
+    # ==================================================================
+# 8. [NEW] 실시간 마켓 인사이트 분석 (Market Insights)
+# ==================================================================
+@app.get("/api/agent/insights")
+def analyze_trends():
+    print("🚀 [Agent] 실시간 글로벌 아트 트렌드 분석 가동...")
+    
+    task_trend = Task(
+        description="search_tool을 사용하여 '오늘의 글로벌 디지털 아트 트렌드와 기술적 이슈'를 검색하세요. 검색 결과를 바탕으로 현재 가장 뜨거운 키워드 7개와 유행하는 시각적 스타일 3가지를 추출하세요.",
+        expected_output='''반드시 아래 구조의 순수 JSON 객체로만 출력하세요. 마크다운(```json) 금지.
+        {
+            "keywords": ["#키워드1", "#키워드2", "#키워드3", "#키워드4", "#키워드5", "#키워드6", "#키워드7"],
+            "styles": [
+                {"name": "스타일명 (예: 3D Unreal Engine Render)", "percent": 45},
+                {"name": "스타일명", "percent": 35},
+                {"name": "스타일명", "percent": 20}
+            ]
+        }''',
+        agent=critic
+    )
+    
+    try:
+        crew = Crew(agents=[critic], tasks=[task_trend])
+        result = crew.kickoff()
+        result_text = str(result).replace("```json", "").replace("```", "").strip()
+        return json.loads(result_text)
+    except Exception as e:
+        print(f"🔥 [Agent] 인사이트 분석 실패: {e}")
+        raise HTTPException(status_code=500, detail="인사이트 분석 실패")
+    # ==================================================================
+# 8. [NEW] 실시간 마켓 인사이트 분석 (Market Insights)
+# ==================================================================
+@app.get("/api/agent/insights")
+def analyze_trends():
+    print("🚀 [Agent] 실시간 글로벌 아트 트렌드 분석 가동...")
+    
+    task_trend = Task(
+        description="search_tool을 사용하여 '오늘의 글로벌 디지털 아트 트렌드와 기술적 이슈'를 검색하세요. 검색 결과를 바탕으로 현재 가장 뜨거운 키워드 7개와 유행하는 시각적 스타일 3가지를 추출하세요.",
+        expected_output='''반드시 아래 구조의 순수 JSON 객체로만 출력하세요. 마크다운(```json) 금지.
+        {
+            "keywords": ["#키워드1", "#키워드2", "#키워드3", "#키워드4", "#키워드5", "#키워드6", "#키워드7"],
+            "styles": [
+                {"name": "스타일명 (예: 3D Unreal Engine Render)", "percent": 45},
+                {"name": "스타일명", "percent": 35},
+                {"name": "스타일명", "percent": 20}
+            ]
+        }''',
+        agent=critic
+    )
+    
+    try:
+        crew = Crew(agents=[critic], tasks=[task_trend])
+        result = crew.kickoff()
+        result_text = str(result).replace("```json", "").replace("```", "").strip()
+        return json.loads(result_text)
+    except Exception as e:
+        print(f"🔥 [Agent] 인사이트 분석 실패: {e}")
+        raise HTTPException(status_code=500, detail="인사이트 분석 실패")
