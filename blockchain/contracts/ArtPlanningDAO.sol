@@ -1,131 +1,133 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-interface IERC20 {
-    function balanceOf(address account) external view returns (uint256);
-    //트레저리에서 토큰을 보내기 위한 transfer 함수
-    function transfer(address to, uint256 amount) external returns (bool);
-}
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/governance/utils/IVotes.sol";
 
 contract ArtPlanningDAO {
-    enum ProposalStatus { IN_PROGRESS, ACCEPTED, REJECTED, EXECUTED }
+    IVotes public governanceToken;
 
-    struct Proposal {
+    struct Round {
         uint256 id;
-        string title;
-        string description;
-        string imageUrl;
-        uint256 voteCount;    // 찬성 표
-        uint256 againstCount; // 반대 표
-        address proposer;
-        ProposalStatus status;
-        uint256 voteType; 
-        uint256 deadline;     // 종료 시간 (Unix Timestamp)
-        uint256 quorum;       // 목표 정족수
-        uint256 fundingAmount;// 안건 가결 시 지급할 요청 지원금
+        uint256 snapshotBlock; // 투표력 측정을 위한 스냅샷 블록 (어뷰징 방지)
+        uint256 startTime;     // 시작 시간 (Timestamp)
+        uint256 endTime;       // 종료 시간 (Timestamp)
+        bool isFinalized;      // 결과 확정 여부
+        uint256 winningCandidateId; // 우승 후보작 ID
     }
 
-    IERC20 public governanceToken;
-    Proposal[] public proposals;
-    mapping(uint256 => mapping(address => bool)) public hasVoted;
+    struct Candidate {
+        uint256 id;
+        uint256 roundId;
+        string metadataURI; // IPFS 메타데이터 또는 이미지 주소
+        uint256 totalVotes; // 누적 투표(VP) 수
+    }
 
-    event ProposalCreated(uint256 id, string title, uint256 voteType, uint256 deadline, uint256 quorum, uint256 fundingAmount);
-    event Voted(uint256 id, address voter, uint256 votingPower, bool support);
-    event StatusChanged(uint256 id, ProposalStatus newStatus);
-    event ProposalExecuted(uint256 id, uint256 amount); // 자금 집행 완료 이벤트
+    uint256 public currentRoundId;
+    mapping(uint256 => Round) public rounds;
+    mapping(uint256 => Candidate[]) public roundCandidates;
+    
+    // roundId => user => 사용한 VP
+    mapping(uint256 => mapping(address => uint256)) public usedVotingPower;
+    
+    // roundId => candidateId => user => 행사한 VP (추후 배당 시 지분율 계산용)
+    mapping(uint256 => mapping(uint256 => mapping(address => uint256))) public userVoteWeight;
+
+    event RoundStarted(uint256 indexed roundId, uint256 startTime, uint256 endTime, uint256 snapshotBlock);
+    event Voted(uint256 indexed roundId, uint256 indexed candidateId, address indexed voter, uint256 vpAmount);
+    event RoundFinalized(uint256 indexed roundId, uint256 winningCandidateId);
 
     constructor(address _tokenAddress) {
-        governanceToken = IERC20(_tokenAddress);
+        governanceToken = IVotes(_tokenAddress);
     }
 
-    function createProposal(
-        string memory _title, string memory _description, string memory _imageUrl, 
-        uint256 _voteType, uint256 _durationDays, uint256 _quorum, uint256 _fundingAmount
-    ) public {
-        uint256 newId = proposals.length;
+    // 새로운 투표 라운드 시작 (매주 자동화 스크립트에서 호출됨)
+    function startNewRound(uint256 _durationDays, string[] memory _candidateURIs) public {
+        require(_candidateURIs.length > 0, "No candidates provided");
         
-        uint256 deadlineDate = block.timestamp + (_durationDays * 1 days);
-
-        proposals.push(Proposal({
-            id: newId, title: _title, description: _description, imageUrl: _imageUrl,
-            voteCount: 0, againstCount: 0, proposer: msg.sender,
-            status: ProposalStatus.IN_PROGRESS, voteType: _voteType,
-            deadline: deadlineDate, quorum: _quorum, fundingAmount: _fundingAmount
-        }));
-
-        emit ProposalCreated(newId, _title, _voteType, deadlineDate, _quorum, _fundingAmount);
-    }
-
-    function vote(uint256 _id, bool _support, uint256 _tokenAmount) public {
-        require(_id < proposals.length, "Invalid Proposal ID");
-        require(!hasVoted[_id][msg.sender], "Already voted");
-        require(proposals[_id].status == ProposalStatus.IN_PROGRESS, "Voting ended");
-        require(block.timestamp < proposals[_id].deadline, "Voting period has expired");
-        require(_tokenAmount > 0, "Amount must be greater than 0");
-
-        uint256 balance = governanceToken.balanceOf(msg.sender);
-        require(balance >= _tokenAmount, "Insufficient token balance");
-
-        uint256 votingPower = (proposals[_id].voteType == 1) ? sqrt(_tokenAmount) : _tokenAmount;
-        require(votingPower > 0, "Power is too low");
-
-        if (_support) {
-             proposals[_id].voteCount += votingPower;
-        } else {
-             proposals[_id].againstCount += votingPower;
-        }
+        currentRoundId++;
         
-        hasVoted[_id][msg.sender] = true;
-        emit Voted(_id, msg.sender, votingPower, _support);
+        // 현재 블록의 이전 블록을 스냅샷으로 설정 (IVotes getPastVotes 조건 충족)
+        uint256 snapshotBlock = block.number > 0 ? block.number - 1 : 0;
+        uint256 startTime = block.timestamp;
+        uint256 endTime = startTime + (_durationDays * 1 days);
 
-    }
+        rounds[currentRoundId] = Round({
+            id: currentRoundId,
+            snapshotBlock: snapshotBlock,
+            startTime: startTime,
+            endTime: endTime,
+            isFinalized: false,
+            winningCandidateId: 0
+        });
 
-    //  마감일 이후에 누군가 호출하여 결과를 확정하고 자금을 집행하는 함수
-    function executeProposal(uint256 _id) public {
-        require(_id < proposals.length, "Invalid Proposal ID");
-        Proposal storage p = proposals[_id];
-
-        // 1. 상태 및 마감일 체크 (반드시 마감일이 지나야만 실행 가능)
-        require(p.status == ProposalStatus.IN_PROGRESS, "Proposal is already finalized");
-        require(block.timestamp >= p.deadline, "Voting period has not ended yet");
-
-        uint256 totalVotes = p.voteCount + p.againstCount;
-
-        // 2. 정족수 미달 OR 반대가 더 많으면 부결(REJECTED) 처리 후 종료
-        if (totalVotes < p.quorum || p.voteCount <= p.againstCount) {
-            p.status = ProposalStatus.REJECTED;
-            emit StatusChanged(_id, ProposalStatus.REJECTED);
-            return;
+        for(uint256 i = 0; i < _candidateURIs.length; i++) {
+            roundCandidates[currentRoundId].push(Candidate({
+                id: i,
+                roundId: currentRoundId,
+                metadataURI: _candidateURIs[i],
+                totalVotes: 0
+            }));
         }
 
-        // 3. 조건 통과 시 상태를 집행 완료(EXECUTED)로 변경
-        p.status = ProposalStatus.EXECUTED;
-        emit StatusChanged(_id, ProposalStatus.EXECUTED);
-
-        // 4. 작성자에게 자금 전송
-        uint256 contractBalance = governanceToken.balanceOf(address(this));
-        require(contractBalance >= p.fundingAmount, "Insufficient treasury funds");
-
-        bool success = governanceToken.transfer(p.proposer, p.fundingAmount);
-        require(success, "Token transfer failed");
-
-        emit ProposalExecuted(_id, p.fundingAmount);
+        emit RoundStarted(currentRoundId, startTime, endTime, snapshotBlock);
     }
 
-    function getAllProposals() public view returns (Proposal[] memory) {
-        return proposals;
+    // 특정 라운드의 후보작에 분산 투표
+    function vote(uint256 _candidateId, uint256 _vpAmount) public {
+        Round storage r = rounds[currentRoundId];
+        require(!r.isFinalized, "Round is already finalized");
+        require(block.timestamp <= r.endTime, "Voting period has ended");
+        require(_candidateId < roundCandidates[currentRoundId].length, "Invalid candidate ID");
+        require(_vpAmount > 0, "VP amount must be greater than 0");
+
+        // 스냅샷 시점의 총 투표권 확인
+        uint256 totalVpAtStart = governanceToken.getPastVotes(msg.sender, r.snapshotBlock);
+        
+        // 투표 한도 초과 확인
+        require(usedVotingPower[currentRoundId][msg.sender] + _vpAmount <= totalVpAtStart, "Exceeds available Voting Power");
+
+        // 투표력 소모 및 후보작 득표수 증가
+        usedVotingPower[currentRoundId][msg.sender] += _vpAmount;
+        userVoteWeight[currentRoundId][_candidateId][msg.sender] += _vpAmount;
+        roundCandidates[currentRoundId][_candidateId].totalVotes += _vpAmount;
+
+        emit Voted(currentRoundId, _candidateId, msg.sender, _vpAmount);
     }
 
-    function sqrt(uint y) internal pure returns (uint z) {
-        if (y > 3) {
-            z = y;
-            uint x = y / 2 + 1;
-            while (x < z) {
-                z = x;
-                x = (y / x + x) / 2;
+    // 라운드 종료 및 우승작 선정
+    function finalizeRound() public {
+        Round storage r = rounds[currentRoundId];
+        require(!r.isFinalized, "Round is already finalized");
+        require(block.timestamp > r.endTime, "Voting period has not ended yet");
+
+        uint256 winningId = 0;
+        uint256 highestVotes = 0;
+
+        Candidate[] storage candidates = roundCandidates[currentRoundId];
+        for(uint256 i = 0; i < candidates.length; i++) {
+            if(candidates[i].totalVotes > highestVotes) {
+                highestVotes = candidates[i].totalVotes;
+                winningId = i;
             }
-        } else if (y != 0) {
-            z = 1;
         }
+
+        r.isFinalized = true;
+        r.winningCandidateId = winningId;
+
+        emit RoundFinalized(currentRoundId, winningId);
+    }
+    
+    // 특정 라운드의 모든 후보작 조회
+    function getCandidates(uint256 _roundId) public view returns (Candidate[] memory) {
+        return roundCandidates[_roundId];
+    }
+
+    // 유저의 현재 라운드 잔여 투표력(VP) 조회
+    function getRemainingVP(address _user) public view returns (uint256) {
+        if(currentRoundId == 0) return 0;
+        Round memory r = rounds[currentRoundId];
+        uint256 totalVpAtStart = governanceToken.getPastVotes(_user, r.snapshotBlock);
+        return totalVpAtStart - usedVotingPower[currentRoundId][_user];
     }
 }

@@ -15,11 +15,19 @@ async function main() {
   await tukToken.waitForDeployment();
   const tukAddress = await tukToken.getAddress();
 
-  // 2. TUK 토큰 분배 (테스트용 10,000개)
+  // 2. TUK 토큰 분배 및 스냅샷 투표력(VP) 활성화를 위한 위임(Delegate)
   const amount = hre.ethers.parseEther("10000");
+  
+  await tukToken.connect(owner).delegate(owner.address);
+
   await tukToken.transfer(voter1.address, amount);
+  await tukToken.connect(voter1).delegate(voter1.address);
+
   await tukToken.transfer(voter2.address, amount);
+  await tukToken.connect(voter2).delegate(voter2.address);
+
   await tukToken.transfer(voter3.address, amount);
+  await tukToken.connect(voter3).delegate(voter3.address);
 
   console.log(`🪙 TukToken 배포 완료: ${tukAddress}`);
 
@@ -82,6 +90,21 @@ export const DAO_CONTRACT_ADDRESS = "${daoAddress}";
     JSON.stringify(addressData, null, 2)
   );
   console.log(`✅ AI Core 주소 파일 업데이트 완료: ${path.join(AI_CORE_DIR, "contract_address.json")}`);
+
+  // --- 추가: 백엔드(FastAPI) 동기화 로직 ---
+  const BACKEND_DIR = path.join(__dirname, "../../backend/app");
+  if (!fs.existsSync(BACKEND_DIR)) {
+    fs.mkdirSync(BACKEND_DIR, { recursive: true });
+  }
+  
+  fs.writeFileSync(path.join(BACKEND_DIR, "ArtPlanningDAO.json"), abiContent);
+  console.log(`✅ Backend ABI(JSON) 복사 완료: ${path.join(BACKEND_DIR, "ArtPlanningDAO.json")}`);
+  
+  fs.writeFileSync(
+    path.join(BACKEND_DIR, "contract_address.json"),
+    JSON.stringify(addressData, null, 2)
+  );
+  console.log(`✅ Backend 주소 파일 업데이트 완료: ${path.join(BACKEND_DIR, "contract_address.json")}`);
 
   console.log("--------------------------------------------------\n");
 }

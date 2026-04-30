@@ -132,7 +132,15 @@ function App() {
     if (!walletAddress) return;
     try {
       const resBal = await axios.get(`${API_URL}/api/wallet/balance`, { params: { wallet_address: walletAddress } });
-      setMyInfo(prev => ({ ...prev, balance: resBal.data.balance }));
+      let displayBalance = resBal.data.balance;
+
+      if (contract) {
+          try {
+              const remainingVpWei = await contract.getRemainingVP(walletAddress);
+              displayBalance = ethers.formatEther(remainingVpWei);
+          } catch(e) { console.error("VP 로드 에러 (라운드가 없거나 토큰이 없습니다):", e); }
+      }
+      setMyInfo(prev => ({ ...prev, balance: displayBalance }));
     } catch (err) { console.error("내 정보 로드 실패"); }
   };
 
@@ -154,17 +162,35 @@ function App() {
       const amount = vpInputs[candidateId];
       if (!amount || amount <= 0) return alert("투표할 VP를 입력하세요!");
       if (!isLoggedIn) return alert("지갑을 먼저 연결해주세요!");
+      if (!contract) return alert("스마트 컨트랙트가 연결되지 않았습니다.");
 
       try {
+          // 1. 메타마스크 서명 (Web3 온체인 투표)
+          alert("메타마스크에서 트랜잭션을 승인해 주세요! (가스비 발생)");
+          const vpInWei = ethers.parseEther(amount.toString());
+          
+          const candidateIndex = currentRound.candidates.findIndex(c => c.id === candidateId);
+          if(candidateIndex === -1) return alert("후보를 찾을 수 없습니다.");
+
+          const tx = await contract.vote(candidateIndex, vpInWei);
+          alert("트랜잭션 전송 완료! 블록체인 승인을 기다리는 중...");
+          await tx.wait(); // 블록 채굴 대기
+          
+          // 2. 블록체인 기록 성공 시, 백엔드 DB에도 동기화
           const res = await axios.post(`${API_URL}/api/vote`, {
               wallet_address: walletAddress,
               candidate_id: candidateId,
               vp_amount: parseInt(amount)
           });
-          alert(res.data.message);
-          fetchCurrentRound(); 
+          
+          alert("🎉 투표가 블록체인에 성공적으로 기록되었습니다!");
+          fetchCurrentRound();
+          fetchMyPageData(); // 남은 VP 즉시 갱신
           setVpInputs({ ...vpInputs, [candidateId]: "" }); 
-      } catch (err) { alert(err.response?.data?.detail || "투표 실패"); }
+      } catch (err) { 
+          console.error(err);
+          alert("투표 실패: 트랜잭션을 거절했거나 VP가 부족합니다."); 
+      }
   };
 
   const handleGenerateRoundDemo = async () => {

@@ -18,6 +18,29 @@ import base64  # 👈 추가 확인
 from datetime import datetime
 from sqlalchemy import func
 from fastapi.staticfiles import StaticFiles
+from web3 import Web3
+
+# 1. Web3 및 스마트 컨트랙트 연결 설정
+WEB3_PROVIDER_URL = os.getenv("WEB3_PROVIDER_URL", "http://blockchain:8545")
+w3 = Web3(Web3.HTTPProvider(WEB3_PROVIDER_URL))
+
+ADMIN_PRIVATE_KEY = os.getenv("ADMIN_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+try:
+    ADMIN_ACCOUNT = w3.eth.account.from_key(ADMIN_PRIVATE_KEY)
+except:
+    ADMIN_ACCOUNT = None
+
+def get_dao_contract():
+    try:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(base_dir, "contract_address.json"), "r") as f:
+            dao_address = json.load(f)["ArtPlanningDAO"]
+        with open(os.path.join(base_dir, "ArtPlanningDAO.json"), "r") as f:
+            abi = json.load(f)["abi"]
+        return w3.eth.contract(address=dao_address, abi=abi)
+    except Exception as e:
+        print(f"Contract load error: {e}")
+        return None
 
 
 
@@ -215,6 +238,8 @@ def generate_new_round(db: Session = Depends(get_db)):
     CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
     CF_API_TOKEN = os.getenv("CF_API_TOKEN")
 
+    candidate_uris = []
+
     for index, c_data in enumerate(ai_data, start=1):
         # ✨ [핵심] 에러 방지 로직 적용
         if isinstance(c_data, str):
@@ -268,13 +293,34 @@ def generate_new_round(db: Session = Depends(get_db)):
                 ipfs_hash=ipfs_hash
             )
             db.add(candidate)
+            candidate_uris.append(image_url)
             
         except Exception as img_e:
             print(f"🔥 [{index}/5] 이미지 생성 실패: {img_e}")
             continue # 실패해도 다음 그림으로 넘어감
 
     db.commit()
-    print("🎉 새 라운드 5개 후보작 세팅 완벽 성공!")
+    print("🎉 새 라운드 5개 후보작 DB 세팅 완벽 성공!")
+
+    # 5. [Web3] 블록체인 상에 라운드 시작 (startNewRound)
+    try:
+        if ADMIN_ACCOUNT:
+            dao_contract = get_dao_contract()
+            if dao_contract:
+                nonce = w3.eth.get_transaction_count(ADMIN_ACCOUNT.address)
+                # 라운드 기간을 7일로, 후보작들의 URI 리스트를 전달
+                tx = dao_contract.functions.startNewRound(7, candidate_uris).build_transaction({
+                    'chainId': 31337,
+                    'gas': 3000000,
+                    'gasPrice': w3.to_wei('1', 'gwei'),
+                    'nonce': nonce,
+                })
+                signed_tx = w3.eth.account.sign_transaction(tx, private_key=ADMIN_PRIVATE_KEY)
+                tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+                w3.eth.wait_for_transaction_receipt(tx_hash)
+                print(f"✅ 온체인 라운드 시작 완료: {tx_hash.hex()}")
+    except Exception as e:
+        print(f"🔥 온체인 라운드 시작 실패: {e}")
 
     return {"status": "success", "message": f"Round {next_round_num} 5개 후보작 세팅 완료!", "round_id": new_round.id}
 
@@ -341,6 +387,25 @@ def end_round_and_evaluate(db: Session = Depends(get_db)):
     db.add(new_gallery_item)
 
     db.commit()
+
+    # 7. [Web3] 블록체인 상에 투표 마감 (finalizeRound)
+    try:
+        if ADMIN_ACCOUNT:
+            dao_contract = get_dao_contract()
+            if dao_contract:
+                nonce = w3.eth.get_transaction_count(ADMIN_ACCOUNT.address)
+                tx = dao_contract.functions.finalizeRound().build_transaction({
+                    'chainId': 31337,
+                    'gas': 3000000,
+                    'gasPrice': w3.to_wei('1', 'gwei'),
+                    'nonce': nonce,
+                })
+                signed_tx = w3.eth.account.sign_transaction(tx, private_key=ADMIN_PRIVATE_KEY)
+                tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+                w3.eth.wait_for_transaction_receipt(tx_hash)
+                print(f"✅ 온체인 라운드 마감 완료: {tx_hash.hex()}")
+    except Exception as e:
+        print(f"🔥 온체인 라운드 마감 실패: {e}")
 
     return {
         "status": "success", 
