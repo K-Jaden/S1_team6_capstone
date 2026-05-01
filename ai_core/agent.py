@@ -34,11 +34,11 @@ os.environ["GEMINI_API_KEY"] = MY_GOOGLE_API_KEY
 
 try:
     llm = LLM(
-        model="gemini/gemini-3.1-flash-lite-preview", 
+        model="gemini/gemini-1.5-flash", 
         api_key=MY_GOOGLE_API_KEY,
         temperature=0.7
     )
-    print("✅ [AI] Gemini 3.1 & CrewAI 엔진 로드 완료")
+    print("✅ [AI] Gemini 1.5 Flash & CrewAI 엔진 로드 완료")
 except Exception as e:
     print(f"🔥 모델 초기화 실패: {e}")
     llm = None
@@ -131,11 +131,11 @@ class WinnerData(BaseModel): title: str; description: str; vp_votes: int
 class CandidateGenRequest(BaseModel):insights: dict = None
 
 # ==================================================================
-# 5. Botto DAO 시나리오: 5개 후보작 생성 (Market Insights 완벽 연동)
+# 5. Botto DAO 시나리오: 2개 후보작 생성 (Market Insights 완벽 연동)
 # ==================================================================
 @app.post("/api/agent/generate-candidates")
-def generate_candidates(req: CandidateGenRequest = None): # 👈 데이터를 받을 수 있게 수정
-    print("🚀 [Agent] Market Insights 연동 5개 후보작 기획 가동...")
+def generate_candidates(req: CandidateGenRequest = None):
+    print("🚀 [Agent] Market Insights 연동 2개 후보작 기획 가동...")
 
     # ✨ 백엔드에서 넘겨준 트렌드 키워드와 스타일을 문장으로 풀어냅니다.
     trend_keywords = ", ".join(req.insights.get("keywords", [])) if req and req.insights else "최신 기술 트렌드"
@@ -150,40 +150,37 @@ def generate_candidates(req: CandidateGenRequest = None): # 👈 데이터를 �
 
         다음 순서대로 작업하세요:
         1. 반드시 search_tool을 사용하여 '오늘의 주요 글로벌 과학/IT 뉴스' 혹은 '사회적 논란' 중 하나를 검색하세요.
-        2. 검색한 '실제 뉴스/이슈'를 위의 [🔥 유행 키워드]와 [🎨 선호 스타일]에 완벽하게 융합하여, 현실에 대한 날카로운 통찰이 담긴 미술 작품 컨셉 5가지를 기획하세요.
+        2. 검색한 '실제 뉴스/이슈'를 위의 [🔥 유행 키워드]와 [🎨 선호 스타일]에 완벽하게 융합하여, 현실에 대한 날카로운 통찰이 담긴 미술 작품 컨셉 2가지를 기획하세요.
         3. 각 컨셉은 '한국어 제목'과 '한국어 작품 설명'을 포함해야 합니다.
         """,
-        expected_output="Market Insights 트렌드와 오늘 뉴스가 완벽히 융합된 5가지 컨셉 초안",
+        expected_output="Market Insights 트렌드와 오늘 뉴스가 완벽히 융합된 2가지 컨셉 초안",
         agent=planner
     )
 
     task_format = Task(
         description='''
-        기획자의 5가지 컨셉을 바탕으로 이미지 생성용 데이터를 작성하세요.
+        기획자의 2가지 컨셉을 바탕으로 이미지 생성용 데이터를 작성하세요.
         반드시 아래와 같은 구조의 'JSON 객체 배열' 형식으로만 출력해야 합니다.
         마크다운(```json)이나 다른 설명은 절대 포함하지 마세요.
 
-        [🔥 아트 스타일 필수 지침 : 5개 작품의 화풍을 모두 다르게!]
-        유저들이 다양한 작품에 투표할 수 있도록, 5개의 작품은 각각 **완전히 다른 시각적 매체와 예술 사조(Style)**를 가져야 합니다.
-        고급스러운 파인 아트(Fine Art) 느낌을 유지하되, 아래의 5가지 스타일을 각 작품의 영문 image_prompt에 하나씩 매칭시켜서 작성하세요.
+        [🔥 아트 스타일 필수 지침 : 2개 작품의 화풍을 모두 다르게!]
+        유저들이 다양한 작품에 투표할 수 있도록, 2개의 작품은 각각 **완전히 다른 시각적 매체와 예술 사조(Style)**를 가져야 합니다.
+        고급스러운 파인 아트(Fine Art) 느낌을 유지하되, 아래의 2가지 스타일을 각 작품의 영문 image_prompt에 하나씩 매칭시켜서 작성하세요.
 
         - 1번 작품 (초현실주의 유화): Surrealism, classic oil painting texture, Salvador Dali style, highly detailed masterpiece
         - 2번 작품 (기하학적 3D 추상): Geometric abstraction, highly detailed 3D render, architectural elements, sleek and modern
-        - 3번 작품 (네오 다다이즘 콜라주): Neo-Dadaism, mixed media digital collage, avant-garde, philosophical symbolism
-        - 4번 작품 (고전 조각과 글리치의 결합): Classical marble sculpture aesthetics mixed with subtle digital glitch art, museum lighting
-        - 5번 작품 (몽환적인 수채화/잉크 아트): Ethereal watercolor, ink wash, fluid and dreamy, expressive brushstrokes
 
         [출력 형식]
         [
             {
                 "title": "작품 제목 (한국어)",
                 "description": "작품 세계관 설명 (한국어)",
-                "image_prompt": "상세한 영문 이미지 생성 프롬프트 (반드시 각기 다른 5가지 스타일을 적용할 것)"
+                "image_prompt": "상세한 영문 이미지 생성 프롬프트 (반드시 각기 다른 2가지 스타일을 적용할 것)"
             },
-            ... (총 5개)
+            ... (총 2개)
         ]
         ''',
-        expected_output="5가지 각기 다른 고급 예술 화풍이 반영된 순수 JSON 객체 배열 (List of Dicts)",
+        expected_output="2가지 각기 다른 고급 예술 화풍이 반영된 순수 JSON 객체 배열 (List of Dicts)",
         agent=painter
     )
 

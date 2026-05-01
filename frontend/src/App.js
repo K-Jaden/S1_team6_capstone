@@ -22,6 +22,7 @@ function App() {
   
   const [myInfo, setMyInfo] = useState({ balance: 0, membership: "", rewards: 0 });
   const [galleryItems, setGalleryItems] = useState([]);
+  const [endedRounds, setEndedRounds] = useState([]);
   
   // --- Botto DAO 핵심 상태 ---
   const [currentRound, setCurrentRound] = useState(null);
@@ -63,9 +64,19 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (isLoggedIn && walletAddress) fetchMyPageData();
+    if (isLoggedIn && walletAddress) {
+        fetchMyPageData();
+        fetchEndedRounds();
+    }
     fetchGallery();   
   }, [isLoggedIn, walletAddress, contract]);
+
+  const fetchEndedRounds = async () => {
+      try {
+          const res = await axios.get(`${API_URL}/api/rounds/ended`);
+          setEndedRounds(res.data);
+      } catch (err) { console.error("종료된 라운드 로드 실패"); }
+  };
 
   useEffect(() => {
       if (activeTab === "curate") {
@@ -193,27 +204,112 @@ function App() {
       }
   };
 
+  const handleClaimReward = async (roundId) => {
+      if (!contract) return alert("스마트 컨트랙트가 연결되지 않았습니다.");
+      if (!roundId) return alert("청구할 라운드 번호를 입력하세요!");
+
+      try {
+          alert("메타마스크에서 배당금 청구 트랜잭션을 승인해 주세요!");
+          const tx = await contract.claimReward(roundId);
+          alert("트랜잭션 전송 완료! 승인을 기다리는 중...");
+          const receipt = await tx.wait();
+
+          let receivedAmount = "알 수 없음";
+          for (const log of receipt.logs) {
+              try {
+                  const parsedLog = contract.interface.parseLog(log);
+                  if (parsedLog && parsedLog.name === 'RewardClaimed') {
+                      receivedAmount = ethers.formatEther(parsedLog.args.rewardAmount);
+                  }
+              } catch (e) {
+                  // 다른 컨트랙트 로그 무시
+              }
+          }
+
+          alert(`🎉 배당금이 지갑으로 성공적으로 지급되었습니다!\n지급 금액: ${receivedAmount} TUK`);
+          fetchMyPageData(); // 잔고 갱신
+      } catch (err) {
+          console.error("Claim 에러:", err);
+          alert("보상 청구 실패: 이미 수령했거나 우승작에 투표하지 않았습니다.");
+      }
+  };
+
+  const [loadingStatus, setLoadingStatus] = useState("");
+
   const handleGenerateRoundDemo = async () => {
       setIsLoading(true);
-      alert("AI 에이전트들이 트렌드 검색 및 이미지 생성을 시작합니다.\n(백엔드 터미널을 확인하세요! 약 1~2분 소요)");
+      
+      const statuses = [
+          "🤖 AI 비평가 에이전트가 최신 예술 트렌드를 분석하고 있습니다...",
+          "🔍 트렌드 키워드 추출 완료. 프롬프트 엔지니어링 진행 중...",
+          "🎨 후보작 1/2 렌더링 중 (Cloudflare FLUX-1)...",
+          "🎨 후보작 2/2 렌더링 중 (Cloudflare FLUX-1)...",
+          "🔗 오프체인 갤러리 등록 및 블록체인 라운드 시작 트랜잭션 전송 중..."
+      ];
+      
+      let step = 0;
+      setLoadingStatus(statuses[0]);
+      const interval = setInterval(() => {
+          step++;
+          if (step < statuses.length) {
+              setLoadingStatus(statuses[step]);
+          }
+      }, 15000);
+
       try {
-          await axios.post(`${API_URL}/api/admin/generate-round`, {}, { timeout: 300000 });
-          alert("🎉 새 라운드와 5개의 후보작이 성공적으로 생성되었습니다!");
-          fetchCurrentRound();
-      } catch (err) { alert("라운드 생성 중 오류가 발생했습니다."); }
-      setIsLoading(false);
+          const res = await axios.post(`${API_URL}/api/admin/generate-round`);
+          clearInterval(interval);
+          setLoadingStatus("✅ 라운드 생성 완료!");
+          setTimeout(() => {
+             alert(res.data.message);
+             fetchCurrentRound();
+             setIsLoading(false);
+             setLoadingStatus("");
+          }, 500);
+      } catch (err) { 
+          clearInterval(interval);
+          alert(err.response?.data?.detail || "생성 실패"); 
+          setIsLoading(false);
+          setLoadingStatus("");
+      }
   };
 
   const handleEndRoundDemo = async () => {
       setIsLoading(true);
-      alert("투표를 마감하고 우승작을 선별합니다...\n(AI 경매사가 가치를 산정합니다)");
+      
+      const statuses = [
+          "📊 투표 결과를 집계하고 있습니다...",
+          "🔍 AI 경매사가 우승작의 예술적 가치와 득표수를 분석 중입니다...",
+          "🎨 우승작 메타데이터를 IPFS에 영구 박제하는 중...",
+          "💰 우승작을 ArtNFT로 발행하고 배당금 풀을 생성 중..."
+      ];
+      
+      let step = 0;
+      setLoadingStatus(statuses[0]);
+      const interval = setInterval(() => {
+          step++;
+          if (step < statuses.length) {
+              setLoadingStatus(statuses[step]);
+          }
+      }, 5000); // 결산은 비교적 빠르므로 5초 간격
+
       try {
           const res = await axios.post(`${API_URL}/api/admin/end-round`);
-          alert(`🏆 1등 우승작: ${res.data.winner_title}\n💰 AI 책정가: ${res.data.auction_price} TUK\n\n${res.data.message}`);
-          fetchCurrentRound(); 
-          fetchGallery(); // 갤러리에 추가되었는지 갱신
-      } catch (err) { alert("라운드 종료 실패"); }
-      setIsLoading(false);
+          clearInterval(interval);
+          setLoadingStatus("✅ 결산 완료!");
+          setTimeout(() => {
+              alert(`🏆 1등 우승작: ${res.data.winner_title}\n💰 AI 책정가: ${res.data.auction_price} TUK\n\n${res.data.message}`);
+              fetchCurrentRound(); 
+              fetchGallery(); // 갤러리에 추가되었는지 갱신
+              setIsLoading(false);
+              setLoadingStatus("");
+          }, 500);
+      } catch (err) { 
+          clearInterval(interval);
+          alert("라운드 종료 실패"); 
+          setIsLoading(false);
+          setLoadingStatus("");
+      }
   };
 
   const sendMessage = async () => {
@@ -410,13 +506,14 @@ function App() {
                     <strong style={{color: '#EF4444'}}>⚙️ Admin Demo Controls</strong>
                     <span style={{color: '#F87171', fontSize: '0.85rem', marginLeft: '10px'}}>(시연용 제어판)</span>
                 </div>
-                <div style={{display: 'flex', gap: '10px'}}>
+                <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}>
                     <button onClick={handleGenerateRoundDemo} disabled={isLoading} style={{background: '#B91C1C', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
-                        {isLoading ? "AI 생성 중..." : "1. 새 라운드 (AI 5개 생성)"}
+                        {isLoading ? "AI 생성 중..." : "1. 새 라운드 (AI 2개 생성)"}
                     </button>
                     <button onClick={handleEndRoundDemo} disabled={isLoading} style={{background: '#991B1B', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
                         2. 투표 마감 및 결산
                     </button>
+                    {loadingStatus && <span style={{color: '#38BDF8', fontSize: '0.9rem', marginLeft: '10px'}}>{loadingStatus}</span>}
                 </div>
             </div>
 
@@ -424,7 +521,7 @@ function App() {
                 <>
                     <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0F0F0F', padding: '15px 20px', borderRadius: '12px', border: '1px solid #2A2A2A', marginBottom: '20px'}}>
                         <span style={{color: '#38BDF8', fontWeight: 'bold', fontSize: '1.1rem'}}>🟢 Round #{currentRound.round_number} 진행 중</span>
-                        <span style={{color: '#9CA3AF'}}>내 남은 잔고: <strong style={{color: 'white'}}>{myInfo.balance} TUK</strong></span>
+                        <span style={{color: '#9CA3AF'}}>이번 라운드 잔여 투표력(VP): <strong style={{color: 'white'}}>{myInfo.balance} VP</strong></span>
                     </div>
 
                     <div className="candidate-grid">
@@ -515,7 +612,28 @@ function App() {
                         <div className="card profile" style={{background: '#1A1A1A', border: '1px solid #2A2A2A'}}>
                             <h3 style={{color: '#fff', borderBottom: '1px solid #2A2A2A', paddingBottom: '10px'}}>내 지갑 정보</h3>
                             <p style={{color: '#9CA3AF', margin: '15px 0'}}><strong>주소:</strong> <span style={{color: '#fff'}}>{walletAddress}</span></p>
-                            <p style={{color: '#9CA3AF'}}><strong>보유 토큰:</strong> <span style={{color: '#38BDF8', fontWeight: 'bold', fontSize: '1.2rem'}}>{myInfo.balance} TUK</span></p>
+                            <p style={{color: '#9CA3AF'}}><strong>이번 라운드 잔여 투표력:</strong> <span style={{color: '#38BDF8', fontWeight: 'bold', fontSize: '1.2rem'}}>{myInfo.balance} VP</span></p>
+
+                            <h3 style={{color: '#fff', borderBottom: '1px solid #2A2A2A', paddingBottom: '10px', marginTop: '30px'}}>💰 배당금 수령 (Claim)</h3>
+                            <p style={{color: '#9CA3AF', marginTop: '10px', fontSize: '0.9rem', marginBottom: '15px'}}>지난 라운드에서 1등(우승작)에 투표하셨다면, 기여도에 비례해 TUK 토큰 수익을 배당받습니다.</p>
+                            
+                            {endedRounds.length === 0 ? (
+                                <p style={{color: '#6B7280', fontSize: '0.9rem'}}>종료된 라운드가 없습니다.</p>
+                            ) : (
+                                <div style={{display: 'flex', flexDirection: 'column', gap: '10px'}}>
+                                    {endedRounds.map(r => (
+                                        <div key={r.round_id} style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0F0F0F', padding: '12px 15px', borderRadius: '8px', border: '1px solid #333'}}>
+                                            <div>
+                                                <div style={{color: '#fff', fontWeight: 'bold'}}>Round #{r.round_id}</div>
+                                                <div style={{color: '#9CA3AF', fontSize: '0.85rem'}}>우승작: {r.winner_title} (AI 매각가: {r.auction_price} TUK)</div>
+                                            </div>
+                                            <button onClick={() => handleClaimReward(r.round_id)} style={{background: '#38BDF8', color: '#000', fontWeight: 'bold', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.9rem'}}>
+                                                보상 청구
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}

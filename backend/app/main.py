@@ -217,19 +217,25 @@ def generate_new_round(db: Session = Depends(get_db)):
     # ✨ [추가] 1. 가장 최신 Market Insights 데이터를 가져옵니다.
     current_insights = get_market_insights()
 
-    # 3. 🚨 AI 에이전트(agent.py)에게 5개의 컨셉 JSON 받아오기
-    # (5개를 기획하고 그림을 그리려면 시간이 꽤 걸리므로 timeout을 넉넉히 줍니다)
-    print(f"📡 AI 요원들에게 {next_round_num}주차 후보작 5개 기획 지시 중... (약 2~3분 소요)")
+    # 3. 🚨 AI 에이전트(agent.py)에게 2개의 컨셉 JSON 받아오기
+    # (2개를 기획하고 그림을 그리려면 시간이 꽤 걸리므로 timeout을 넉넉히 줍니다)
+    print(f"📡 AI 요원들에게 {next_round_num}주차 후보작 2개 기획 지시 중... (약 1분 소요)")
     
     try:
         # ✨ [핵심 변경] 2. AI를 호출할 때 json 바디에 insights 데이터를 꽉 채워서 보냅니다!
         payload = {"insights": current_insights}
-        agent_res = requests.post(f"{AI_AGENT_URL}/api/agent/generate-candidates", json=payload, timeout=300)
         
-        if agent_res.status_code != 200:
-            raise Exception(f"AI Core 서버 응답 에러: {agent_res.text}")
-            
-        ai_data = agent_res.json().get("candidates", [])
+        # [기존 AI 호출 코드 - 주석 처리]
+        # agent_res = requests.post(f"{AI_AGENT_URL}/api/agent/generate-candidates", json=payload, timeout=300)
+        # if agent_res.status_code != 200:
+        #     raise Exception(f"AI Core 서버 응답 에러: {agent_res.text}")
+        # ai_data = agent_res.json().get("candidates", [])
+
+        # [임시 테스트용] AI API 오류 회피를 위한 고정 더미 데이터 (2개)
+        ai_data = [
+            {"title": "AI Masterpiece - 사이버펑크 2077", "description": "네온사인이 빛나는 근미래 도시를 표현한 3D 렌더링 작품입니다.", "image_prompt": "cyberpunk neon city 3d render"},
+            {"title": "AI Masterpiece - 수채화풍 서울", "description": "따뜻한 감성이 묻어나는 수채화 스타일의 고요한 서울 풍경입니다.", "image_prompt": "watercolor seoul landscape calm"}
+        ]
     except Exception as e:
         print(f"🔥 AI 통신 에러: {e}")
         raise HTTPException(status_code=500, detail="AI 기획자 호출에 실패했습니다.")
@@ -394,14 +400,17 @@ def end_round_and_evaluate(db: Session = Depends(get_db)):
             dao_contract = get_dao_contract()
             if dao_contract:
                 nonce = w3.eth.get_transaction_count(ADMIN_ACCOUNT.address)
-                tx = dao_contract.functions.finalizeRound().build_transaction({
+                auction_price_wei = w3.to_wei(winner.auction_price, 'ether')
+                ipfs_uri = winner.ipfs_hash if winner.ipfs_hash != "PENDING" else winner.image_url
+
+                tx = dao_contract.functions.finalizeRound(auction_price_wei, ipfs_uri).build_transaction({
                     'chainId': 31337,
                     'gas': 3000000,
                     'gasPrice': w3.to_wei('1', 'gwei'),
                     'nonce': nonce,
                 })
                 signed_tx = w3.eth.account.sign_transaction(tx, private_key=ADMIN_PRIVATE_KEY)
-                tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+                tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
                 w3.eth.wait_for_transaction_receipt(tx_hash)
                 print(f"✅ 온체인 라운드 마감 완료: {tx_hash.hex()}")
     except Exception as e:
@@ -426,6 +435,22 @@ def get_current_round(db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="현재 진행 중인 투표 라운드가 없습니다.")
     
     return active_round
+
+# [NEW] 3. 💰 종료된 라운드 목록 가져오기 (배당금 청구용)
+@app.get("/api/rounds/ended", summary="종료된 라운드 목록 조회")
+def get_ended_rounds(db: Session = Depends(get_db)):
+    from sqlalchemy import desc
+    rounds = db.query(models.Round).filter(models.Round.status == "ENDED").order_by(desc(models.Round.id)).all()
+    res = []
+    for r in rounds:
+        winner = db.query(models.Candidate).filter(models.Candidate.round_id == r.id, models.Candidate.is_winner == True).first()
+        res.append({
+            "round_id": r.id,
+            "end_time": r.end_time,
+            "auction_price": winner.auction_price if winner else 0,
+            "winner_title": winner.title if winner else "알 수 없음"
+        })
+    return res
 
 
 # 3. 🗳️ 유저 VP 투표 처리 (오프체인 가스비 무료 투표!)

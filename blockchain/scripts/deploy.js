@@ -36,8 +36,27 @@ async function main() {
   const dao = await ArtPlanningDAO.deploy(tukAddress);
   await dao.waitForDeployment();
   const daoAddress = await dao.getAddress();
-
   console.log(`🏛️ ArtPlanningDAO 배포 완료: ${daoAddress}`);
+
+  // 4. ArtNFT 배포 및 설정
+  const ArtNFT = await hre.ethers.getContractFactory("ArtNFT");
+  const artNFT = await ArtNFT.deploy(owner.address);
+  await artNFT.waitForDeployment();
+  const nftAddress = await artNFT.getAddress();
+  console.log(`🖼️ ArtNFT 배포 완료: ${nftAddress}`);
+
+  // 5. 권한 연동 및 초기 자본(Treasury) 세팅
+  // 5-1. NFT의 민팅 권한을 DAO에 위임
+  await artNFT.setDaoContract(daoAddress);
+  // 5-2. DAO에 ArtNFT 주소 등록
+  await dao.setArtNFT(nftAddress);
+  // 5-3. TUK 토큰의 발행(Mint) 권한을 DAO로 이전
+  await tukToken.transferOwnership(daoAddress);
+  
+  // 5-4. 데모용 초기 자본: DAO 금고에 100,000 TUK 전송 (하이브리드 방식)
+  const treasuryAmount = hre.ethers.parseEther("100000");
+  await tukToken.transfer(daoAddress, treasuryAmount);
+  console.log(`💰 DAO 금고에 초기 배당용 예산 100,000 TUK 전송 완료!`);
 
   // ====================================================
   // 📂 [핵심] 프론트엔드 파일 자동 업데이트 (주소 + ABI)
@@ -54,6 +73,7 @@ async function main() {
   const addressFilePath = path.join(frontendDir, "address.js");
   const content = `export const TUK_TOKEN_ADDRESS = "${tukAddress}";
 export const DAO_CONTRACT_ADDRESS = "${daoAddress}";
+export const NFT_CONTRACT_ADDRESS = "${nftAddress}";
 `;
   fs.writeFileSync(addressFilePath, content, "utf8");
   console.log(`✅ 주소 파일 업데이트 완료: ${addressFilePath}`);
