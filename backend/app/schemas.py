@@ -43,6 +43,18 @@ class ProposalAgentResponse(BaseModel):
     proposal_text: str
     suggested_title: str
 
+class ProposalCreate(BaseModel):
+    wallet_address: str
+    title: str
+    meta_hash: str
+    description: str
+    style: str
+    image_url: str
+    voteType: str
+    duration: int
+    quorum: int
+    fundingAmount: float
+
 # ==========================================
 # === [NEW] Botto DAO 라운드 & 후보작 ===
 # ==========================================

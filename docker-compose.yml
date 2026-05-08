@@ -16,7 +16,7 @@ services:
     volumes:
       - db_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
       timeout: 20s
       retries: 10
 
@@ -43,8 +43,9 @@ services:
     command: >
       sh -c "rm -f /root/.config/hardhat-nodejs/vars.json && 
              if [ ! -d 'node_modules' ]; then npm install --legacy-peer-deps; fi && 
+             npx hardhat compile && 
              npx hardhat node --hostname 0.0.0.0 & 
-             sleep 10 && 
+             sleep 15 && 
              npx hardhat run scripts/deploy.js --network localhost && 
              wait"
 
@@ -67,8 +68,9 @@ services:
     environment:
       DATABASE_URL: mysql+pymysql://user:password@db:3306/art_platform
       CHROMA_URL: http://chroma:8000
-    env_file:         # 👈 이 두 줄을 추가하세요!
-      - .env          # 👈
+    env_file:
+      # 👈 이 두 줄을 추가하세요!
+      - .env # 👈
 
   # 5. Frontend (React)
   frontend:
@@ -82,9 +84,9 @@ services:
       - /app/node_modules # 익명 볼륨으로 호스트의 node_modules 간섭 차단
     environment:
       - REACT_APP_API_URL=${REACT_APP_API_URL}
-      - CHOKIDAR_USEPOLLING=true  # 구형 파일 감시 방식 활성화 (윈도우 필수)
-      - WATCHPACK_POLLING=true    # 신형(Webpack 5+) 파일 감시 방식 활성화
-      - WDS_SOCKET_PORT=0         # 웹소켓 포트 충돌 방지
+      - CHOKIDAR_USEPOLLING=true # 구형 파일 감시 방식 활성화 (윈도우 필수)
+      - WATCHPACK_POLLING=true # 신형(Webpack 5+) 파일 감시 방식 활성화
+      - WDS_SOCKET_PORT=0 # 웹소켓 포트 충돌 방지
     stdin_open: true
     tty: true
     # 💡 명시적으로 npm start를 실행하여 볼륨이 덮어씌워진 후에도 서버가 돌게 함
@@ -92,7 +94,7 @@ services:
     depends_on:
       - backend
       - blockchain
-  
+
   # 6. AI Agent (FastAPI) 
   ai_core:
     build: ./ai_core
@@ -110,4 +112,4 @@ services:
 
 volumes:
   db_data:
-    chroma_data:
+  chroma_data:

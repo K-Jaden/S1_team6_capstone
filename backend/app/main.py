@@ -445,6 +445,11 @@ def create_proposal(req: schemas.ProposalCreate, db: Session = Depends(get_db)):
         quorum=req.quorum,
         funding_amount=req.fundingAmount,
         status="OPEN"
+    )
+    db.add(new_p)
+    db.commit()
+    db.refresh(new_p)
+    return new_p
 
 # =========================================================
 # (이 아래로는 기존에 있던 @app.get("/api/rounds/current") 등 코드를 유지하시면 됩니다)
