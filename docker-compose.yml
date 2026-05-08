@@ -101,7 +101,7 @@ services:
     volumes:
       - ./ai_core:/app
     env_file:
-      - ./ai_core/.env
+      - .env
     networks:
       - default
     extra_hosts:
