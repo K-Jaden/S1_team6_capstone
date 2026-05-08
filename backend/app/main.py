@@ -193,10 +193,6 @@ def generate_docent_script(item_id: int = 0):
 # 🚨 [수정완료] Botto DAO 라운드 & 후보작 시스템 API
 # =========================================================
 
-# =========================================================
-# 🚨 [수정완료] Botto DAO 라운드 & 후보작 시스템 API
-# =========================================================
-
 @app.post("/api/admin/generate-round", summary="새 라운드 생성 및 A2A 그림 5장 뽑기")
 def generate_new_round(db: Session = Depends(get_db)):
     # 1. 기존 라운드 종료 처리
@@ -423,6 +419,32 @@ def end_round_and_evaluate(db: Session = Depends(get_db)):
         "auction_price": winner.auction_price,
         "message": "오프체인 결산 및 우승작 IPFS 업로드 완료!"
     }
+# [안건 DB 저장]
+@app.post("/api/proposals", summary="안건 생성(DB저장)")
+def create_proposal(req: schemas.ProposalCreate, db: Session = Depends(get_db)):
+    # --- 🚀 [추가] 외래키 에러 방지를 위한 사용자 체크 로직 ---
+    user = db.query(models.User).filter(models.User.wallet_address == req.wallet_address).first()
+    if not user:
+        print(f"🆕 미등록 사용자 발견! 자동 가입 처리: {req.wallet_address}")
+        new_user = models.User(
+            wallet_address=req.wallet_address,
+            membership_grade="Bronze",
+            token_balance=0.0
+        )
+        db.add(new_user)
+        db.commit() # 부모 데이터를 먼저 확정지어야 합니다.
+    new_p = models.ArtRequest(
+        wallet_address=req.wallet_address,
+        title=req.title,
+        meta_hash=req.meta_hash,
+        description=req.description,
+        style=req.style,
+        image_url=req.image_url,
+        voteType=req.voteType,
+        duration=req.duration,
+        quorum=req.quorum,
+        funding_amount=req.fundingAmount,
+        status="OPEN"
 
 # =========================================================
 # (이 아래로는 기존에 있던 @app.get("/api/rounds/current") 등 코드를 유지하시면 됩니다)
