@@ -4,10 +4,10 @@ require("@nomicfoundation/hardhat-toolbox");
 module.exports = {
   // 1. 솔리디티 설정 (기존 설정 유지)
   solidity: {
-    version: "0.8.20",
+    version: "0.8.24",
     settings: {
       optimizer: { enabled: true, runs: 200 },
-      evmVersion: "paris"
+      evmVersion: "cancun"
     },
   },
   // 2. 네트워크 설정 (여기가 핵심!)
