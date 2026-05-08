@@ -15,11 +15,19 @@ async function main() {
   await tukToken.waitForDeployment();
   const tukAddress = await tukToken.getAddress();
 
-  // 2. TUK 토큰 분배 (테스트용 10,000개)
+  // 2. TUK 토큰 분배 및 스냅샷 투표력(VP) 활성화를 위한 위임(Delegate)
   const amount = hre.ethers.parseEther("10000");
+  
+  await tukToken.connect(owner).delegate(owner.address);
+
   await tukToken.transfer(voter1.address, amount);
+  await tukToken.connect(voter1).delegate(voter1.address);
+
   await tukToken.transfer(voter2.address, amount);
+  await tukToken.connect(voter2).delegate(voter2.address);
+
   await tukToken.transfer(voter3.address, amount);
+  await tukToken.connect(voter3).delegate(voter3.address);
 
   console.log(`🪙 TukToken 배포 완료: ${tukAddress}`);
 
@@ -28,8 +36,27 @@ async function main() {
   const dao = await ArtPlanningDAO.deploy(tukAddress);
   await dao.waitForDeployment();
   const daoAddress = await dao.getAddress();
-
   console.log(`🏛️ ArtPlanningDAO 배포 완료: ${daoAddress}`);
+
+  // 4. ArtNFT 배포 및 설정
+  const ArtNFT = await hre.ethers.getContractFactory("ArtNFT");
+  const artNFT = await ArtNFT.deploy(owner.address);
+  await artNFT.waitForDeployment();
+  const nftAddress = await artNFT.getAddress();
+  console.log(`🖼️ ArtNFT 배포 완료: ${nftAddress}`);
+
+  // 5. 권한 연동 및 초기 자본(Treasury) 세팅
+  // 5-1. NFT의 민팅 권한을 DAO에 위임
+  await artNFT.setDaoContract(daoAddress);
+  // 5-2. DAO에 ArtNFT 주소 등록
+  await dao.setArtNFT(nftAddress);
+  // 5-3. TUK 토큰의 발행(Mint) 권한을 DAO로 이전
+  await tukToken.transferOwnership(daoAddress);
+  
+  // 5-4. 데모용 초기 자본: DAO 금고에 100,000 TUK 전송 (하이브리드 방식)
+  const treasuryAmount = hre.ethers.parseEther("100000");
+  await tukToken.transfer(daoAddress, treasuryAmount);
+  console.log(`💰 DAO 금고에 초기 배당용 예산 100,000 TUK 전송 완료!`);
 
   // ====================================================
   // 📂 [핵심] 프론트엔드 파일 자동 업데이트 (주소 + ABI)
@@ -46,6 +73,7 @@ async function main() {
   const addressFilePath = path.join(frontendDir, "address.js");
   const content = `export const TUK_TOKEN_ADDRESS = "${tukAddress}";
 export const DAO_CONTRACT_ADDRESS = "${daoAddress}";
+export const NFT_CONTRACT_ADDRESS = "${nftAddress}";
 `;
   fs.writeFileSync(addressFilePath, content, "utf8");
   console.log(`✅ 주소 파일 업데이트 완료: ${addressFilePath}`);
@@ -82,6 +110,21 @@ export const DAO_CONTRACT_ADDRESS = "${daoAddress}";
     JSON.stringify(addressData, null, 2)
   );
   console.log(`✅ AI Core 주소 파일 업데이트 완료: ${path.join(AI_CORE_DIR, "contract_address.json")}`);
+
+  // --- 추가: 백엔드(FastAPI) 동기화 로직 ---
+  const BACKEND_DIR = path.join(__dirname, "../../backend/app");
+  if (!fs.existsSync(BACKEND_DIR)) {
+    fs.mkdirSync(BACKEND_DIR, { recursive: true });
+  }
+  
+  fs.writeFileSync(path.join(BACKEND_DIR, "ArtPlanningDAO.json"), abiContent);
+  console.log(`✅ Backend ABI(JSON) 복사 완료: ${path.join(BACKEND_DIR, "ArtPlanningDAO.json")}`);
+  
+  fs.writeFileSync(
+    path.join(BACKEND_DIR, "contract_address.json"),
+    JSON.stringify(addressData, null, 2)
+  );
+  console.log(`✅ Backend 주소 파일 업데이트 완료: ${path.join(BACKEND_DIR, "contract_address.json")}`);
 
   console.log("--------------------------------------------------\n");
 }

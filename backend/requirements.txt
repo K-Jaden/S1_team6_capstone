@@ -6,3 +6,4 @@ pydantic
 cryptography
 requests
 python-dotenv
+web3

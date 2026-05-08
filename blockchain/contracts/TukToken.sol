@@ -8,29 +8,45 @@
 * - 배포 시 초기 공급량(1,000,000 TUK)자동 발행
 * - ownable 인터페이스를 통한 관리자(Owner) 권한 제어 및 민팅 기능 제공
 * - 배포 스크립트를 통한 초기 테스트 계정 대상 자동 분배 최적화
-* * @custom:version v1.0.0
+* - ERC20Votes를 통한 스냅샷(투표력) 기능 추가
+* * @custom:version v1.1.0
 * @custom:created 2026-02-12
-* @custom:modified 2026-02-12 - 초기 배포 및 자동 분배 로직 구현
+* @custom:modified 2026-04-28 - ERC20Votes 상속으로 스냅샷 기능 추가
 */
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract TukToken is ERC20, Ownable {
-    // 생성자: 토큰 이름(TukToken), 심볼(TUK)
-    // initialOwner는 토큰의 관리자(보통 배포자)가 됩니다.
+contract TukToken is ERC20, ERC20Permit, ERC20Votes, Ownable {
     constructor(address initialOwner) 
         ERC20("TukToken", "TUK") 
+        ERC20Permit("TukToken")
         Ownable(initialOwner) 
     {
-        // 최초 배포 시 1,000,000개를 발행하여 관리자에게 줍니다.
-        // 10 ** decimals()는 소수점 18자리를 의미합니다.
         _mint(initialOwner, 1000000 * 10 ** decimals());
     }
 
-    // 필요 시 추가 발행을 위한 함수 (선택 사항)
     function mint(address to, uint256 amount) public onlyOwner {
         _mint(to, amount);
+    }
+
+    // The following functions are overrides required by Solidity.
+    function _update(address from, address to, uint256 value)
+        internal
+        override(ERC20, ERC20Votes)
+    {
+        super._update(from, to, value);
+    }
+
+    function nonces(address owner)
+        public
+        view
+        override(ERC20Permit, Nonces)
+        returns (uint256)
+    {
+        return super.nonces(owner);
     }
 }

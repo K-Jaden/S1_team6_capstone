@@ -18,12 +18,36 @@ import base64  # 👈 추가 확인
 from datetime import datetime
 from sqlalchemy import func
 from fastapi.staticfiles import StaticFiles
+from web3 import Web3
+
+# 1. Web3 및 스마트 컨트랙트 연결 설정
+WEB3_PROVIDER_URL = os.getenv("WEB3_PROVIDER_URL", "http://blockchain:8545")
+w3 = Web3(Web3.HTTPProvider(WEB3_PROVIDER_URL))
+
+ADMIN_PRIVATE_KEY = os.getenv("ADMIN_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+try:
+    ADMIN_ACCOUNT = w3.eth.account.from_key(ADMIN_PRIVATE_KEY)
+except:
+    ADMIN_ACCOUNT = None
+
+def get_dao_contract():
+    try:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(base_dir, "contract_address.json"), "r") as f:
+            dao_address = json.load(f)["ArtPlanningDAO"]
+        with open(os.path.join(base_dir, "ArtPlanningDAO.json"), "r") as f:
+            abi = json.load(f)["abi"]
+        return w3.eth.contract(address=dao_address, abi=abi)
+    except Exception as e:
+        print(f"Contract load error: {e}")
+        return None
 
 
 
 
 # AI 에이전트 서버 주소 (도커 서비스 이름 사용)
 AI_AGENT_URL = "http://ai_core:8002"
+
 # DB 테이블 생성
 models.Base.metadata.create_all(bind=database.engine)
 
@@ -169,10 +193,6 @@ def generate_docent_script(item_id: int = 0):
 # 🚨 [수정완료] Botto DAO 라운드 & 후보작 시스템 API
 # =========================================================
 
-# =========================================================
-# 🚨 [수정완료] Botto DAO 라운드 & 후보작 시스템 API
-# =========================================================
-
 @app.post("/api/admin/generate-round", summary="새 라운드 생성 및 A2A 그림 5장 뽑기")
 def generate_new_round(db: Session = Depends(get_db)):
     # 1. 기존 라운드 종료 처리
@@ -194,19 +214,25 @@ def generate_new_round(db: Session = Depends(get_db)):
     # ✨ [추가] 1. 가장 최신 Market Insights 데이터를 가져옵니다.
     current_insights = get_market_insights()
 
-    # 3. 🚨 AI 에이전트(agent.py)에게 5개의 컨셉 JSON 받아오기
-    # (5개를 기획하고 그림을 그리려면 시간이 꽤 걸리므로 timeout을 넉넉히 줍니다)
-    print(f"📡 AI 요원들에게 {next_round_num}주차 후보작 5개 기획 지시 중... (약 2~3분 소요)")
+    # 3. 🚨 AI 에이전트(agent.py)에게 2개의 컨셉 JSON 받아오기
+    # (2개를 기획하고 그림을 그리려면 시간이 꽤 걸리므로 timeout을 넉넉히 줍니다)
+    print(f"📡 AI 요원들에게 {next_round_num}주차 후보작 2개 기획 지시 중... (약 1분 소요)")
     
     try:
         # ✨ [핵심 변경] 2. AI를 호출할 때 json 바디에 insights 데이터를 꽉 채워서 보냅니다!
         payload = {"insights": current_insights}
-        agent_res = requests.post(f"{AI_AGENT_URL}/api/agent/generate-candidates", json=payload, timeout=300)
         
-        if agent_res.status_code != 200:
-            raise Exception(f"AI Core 서버 응답 에러: {agent_res.text}")
-            
-        ai_data = agent_res.json().get("candidates", [])
+        # [기존 AI 호출 코드 - 주석 처리]
+        # agent_res = requests.post(f"{AI_AGENT_URL}/api/agent/generate-candidates", json=payload, timeout=300)
+        # if agent_res.status_code != 200:
+        #     raise Exception(f"AI Core 서버 응답 에러: {agent_res.text}")
+        # ai_data = agent_res.json().get("candidates", [])
+
+        # [임시 테스트용] AI API 오류 회피를 위한 고정 더미 데이터 (2개)
+        ai_data = [
+            {"title": "AI Masterpiece - 사이버펑크 2077", "description": "네온사인이 빛나는 근미래 도시를 표현한 3D 렌더링 작품입니다.", "image_prompt": "cyberpunk neon city 3d render"},
+            {"title": "AI Masterpiece - 수채화풍 서울", "description": "따뜻한 감성이 묻어나는 수채화 스타일의 고요한 서울 풍경입니다.", "image_prompt": "watercolor seoul landscape calm"}
+        ]
     except Exception as e:
         print(f"🔥 AI 통신 에러: {e}")
         raise HTTPException(status_code=500, detail="AI 기획자 호출에 실패했습니다.")
@@ -214,6 +240,8 @@ def generate_new_round(db: Session = Depends(get_db)):
     # 4. 🎨 받아온 영문 프롬프트로 Cloudflare 그림 10장 그리고 IPFS 올리기
     CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
     CF_API_TOKEN = os.getenv("CF_API_TOKEN")
+
+    candidate_uris = []
 
     for index, c_data in enumerate(ai_data, start=1):
         # ✨ [핵심] 에러 방지 로직 적용
@@ -268,13 +296,34 @@ def generate_new_round(db: Session = Depends(get_db)):
                 ipfs_hash=ipfs_hash
             )
             db.add(candidate)
+            candidate_uris.append(image_url)
             
         except Exception as img_e:
             print(f"🔥 [{index}/5] 이미지 생성 실패: {img_e}")
             continue # 실패해도 다음 그림으로 넘어감
 
     db.commit()
-    print("🎉 새 라운드 5개 후보작 세팅 완벽 성공!")
+    print("🎉 새 라운드 5개 후보작 DB 세팅 완벽 성공!")
+
+    # 5. [Web3] 블록체인 상에 라운드 시작 (startNewRound)
+    try:
+        if ADMIN_ACCOUNT:
+            dao_contract = get_dao_contract()
+            if dao_contract:
+                nonce = w3.eth.get_transaction_count(ADMIN_ACCOUNT.address)
+                # 라운드 기간을 7일로, 후보작들의 URI 리스트를 전달
+                tx = dao_contract.functions.startNewRound(7, candidate_uris).build_transaction({
+                    'chainId': 31337,
+                    'gas': 3000000,
+                    'gasPrice': w3.to_wei('1', 'gwei'),
+                    'nonce': nonce,
+                })
+                signed_tx = w3.eth.account.sign_transaction(tx, private_key=ADMIN_PRIVATE_KEY)
+                tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+                w3.eth.wait_for_transaction_receipt(tx_hash)
+                print(f"✅ 온체인 라운드 시작 완료: {tx_hash.hex()}")
+    except Exception as e:
+        print(f"🔥 온체인 라운드 시작 실패: {e}")
 
     return {"status": "success", "message": f"Round {next_round_num} 5개 후보작 세팅 완료!", "round_id": new_round.id}
 
@@ -342,12 +391,60 @@ def end_round_and_evaluate(db: Session = Depends(get_db)):
 
     db.commit()
 
+    # 7. [Web3] 블록체인 상에 투표 마감 (finalizeRound)
+    try:
+        if ADMIN_ACCOUNT:
+            dao_contract = get_dao_contract()
+            if dao_contract:
+                nonce = w3.eth.get_transaction_count(ADMIN_ACCOUNT.address)
+                auction_price_wei = w3.to_wei(winner.auction_price, 'ether')
+                ipfs_uri = winner.ipfs_hash if winner.ipfs_hash != "PENDING" else winner.image_url
+
+                tx = dao_contract.functions.finalizeRound(auction_price_wei, ipfs_uri).build_transaction({
+                    'chainId': 31337,
+                    'gas': 3000000,
+                    'gasPrice': w3.to_wei('1', 'gwei'),
+                    'nonce': nonce,
+                })
+                signed_tx = w3.eth.account.sign_transaction(tx, private_key=ADMIN_PRIVATE_KEY)
+                tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+                w3.eth.wait_for_transaction_receipt(tx_hash)
+                print(f"✅ 온체인 라운드 마감 완료: {tx_hash.hex()}")
+    except Exception as e:
+        print(f"🔥 온체인 라운드 마감 실패: {e}")
+
     return {
         "status": "success", 
         "winner_title": winner.title, 
         "auction_price": winner.auction_price,
         "message": "오프체인 결산 및 우승작 IPFS 업로드 완료!"
     }
+# [안건 DB 저장]
+@app.post("/api/proposals", summary="안건 생성(DB저장)")
+def create_proposal(req: schemas.ProposalCreate, db: Session = Depends(get_db)):
+    # --- 🚀 [추가] 외래키 에러 방지를 위한 사용자 체크 로직 ---
+    user = db.query(models.User).filter(models.User.wallet_address == req.wallet_address).first()
+    if not user:
+        print(f"🆕 미등록 사용자 발견! 자동 가입 처리: {req.wallet_address}")
+        new_user = models.User(
+            wallet_address=req.wallet_address,
+            membership_grade="Bronze",
+            token_balance=0.0
+        )
+        db.add(new_user)
+        db.commit() # 부모 데이터를 먼저 확정지어야 합니다.
+    new_p = models.ArtRequest(
+        wallet_address=req.wallet_address,
+        title=req.title,
+        meta_hash=req.meta_hash,
+        description=req.description,
+        style=req.style,
+        image_url=req.image_url,
+        voteType=req.voteType,
+        duration=req.duration,
+        quorum=req.quorum,
+        funding_amount=req.fundingAmount,
+        status="OPEN"
 
 # =========================================================
 # (이 아래로는 기존에 있던 @app.get("/api/rounds/current") 등 코드를 유지하시면 됩니다)
@@ -361,6 +458,22 @@ def get_current_round(db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="현재 진행 중인 투표 라운드가 없습니다.")
     
     return active_round
+
+# [NEW] 3. 💰 종료된 라운드 목록 가져오기 (배당금 청구용)
+@app.get("/api/rounds/ended", summary="종료된 라운드 목록 조회")
+def get_ended_rounds(db: Session = Depends(get_db)):
+    from sqlalchemy import desc
+    rounds = db.query(models.Round).filter(models.Round.status == "ENDED").order_by(desc(models.Round.id)).all()
+    res = []
+    for r in rounds:
+        winner = db.query(models.Candidate).filter(models.Candidate.round_id == r.id, models.Candidate.is_winner == True).first()
+        res.append({
+            "round_id": r.id,
+            "end_time": r.end_time,
+            "auction_price": winner.auction_price if winner else 0,
+            "winner_title": winner.title if winner else "알 수 없음"
+        })
+    return res
 
 
 # 3. 🗳️ 유저 VP 투표 처리 (오프체인 가스비 무료 투표!)
