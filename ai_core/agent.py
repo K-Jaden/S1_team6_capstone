@@ -34,7 +34,7 @@ os.environ["GEMINI_API_KEY"] = MY_GOOGLE_API_KEY
 
 try:
     llm = LLM(
-        model="gemini/gemini-3.1-flash-lite-preview", 
+        model="gemini/gemini-flash-latest", 
         api_key=MY_GOOGLE_API_KEY,
         temperature=0.7
     )

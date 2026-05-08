@@ -80,7 +80,7 @@ services:
       - ./frontend:/app
       - /app/node_modules # 익명 볼륨으로 호스트의 node_modules 간섭 차단
     environment:
-      - REACT_APP_API_URL=http://localhost:8000
+      - REACT_APP_API_URL=${REACT_APP_API_URL}
       - CHOKIDAR_USEPOLLING=true  # 구형 파일 감시 방식 활성화 (윈도우 필수)
       - WATCHPACK_POLLING=true    # 신형(Webpack 5+) 파일 감시 방식 활성화
       - WDS_SOCKET_PORT=0         # 웹소켓 포트 충돌 방지
@@ -109,4 +109,4 @@ services:
 
 volumes:
   db_data:
-  chroma_data:
+    chroma_data:

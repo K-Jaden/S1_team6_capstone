@@ -21,7 +21,7 @@ from sqlalchemy import func
 
 
 # AI 에이전트 서버 주소 (도커 서비스 이름 사용)
-AI_AGENT_URL = "http://host.docker.internal:8002"
+AI_AGENT_URL = "http://ai_core:8002"
 
 # DB 테이블 생성
 models.Base.metadata.create_all(bind=database.engine)
