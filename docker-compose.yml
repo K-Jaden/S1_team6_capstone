@@ -45,7 +45,9 @@ services:
              if [ ! -d 'node_modules' ]; then npm install --legacy-peer-deps; fi && 
              npx hardhat compile && 
              npx hardhat node --hostname 0.0.0.0 & 
-             sleep 15 && 
+             echo 'Waiting for hardhat node to start...' && 
+             while ! node -e \"require('http').get('http://127.0.0.1:8545', (res) => process.exit(0)).on('error', () => process.exit(1))\"; do sleep 3; done && 
+             echo 'Hardhat node is running, starting deployment...' && 
              npx hardhat run scripts/deploy.js --network localhost && 
              wait"
 
