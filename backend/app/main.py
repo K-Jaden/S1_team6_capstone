@@ -194,7 +194,7 @@ def generate_docent_script(item_id: int = 0):
 # =========================================================
 
 @app.post("/api/admin/generate-round", summary="새 라운드 생성 및 A2A 그림 5장 뽑기")
-def generate_new_round(db: Session = Depends(get_db)):
+def generate_new_round(session_id: str = "", db: Session = Depends(get_db)):
     # 1. 기존 라운드 종료 처리
     active_round = db.query(models.Round).filter(models.Round.status == "ACTIVE").first()
     if active_round:
@@ -220,19 +220,13 @@ def generate_new_round(db: Session = Depends(get_db)):
     
     try:
         # ✨ [핵심 변경] 2. AI를 호출할 때 json 바디에 insights 데이터를 꽉 채워서 보냅니다!
-        payload = {"insights": current_insights}
+        payload = {"insights": current_insights, "session_id": session_id}  # 🔥
         
-        # [기존 AI 호출 코드 - 주석 처리]
-        # agent_res = requests.post(f"{AI_AGENT_URL}/api/agent/generate-candidates", json=payload, timeout=300)
-        # if agent_res.status_code != 200:
-        #     raise Exception(f"AI Core 서버 응답 에러: {agent_res.text}")
-        # ai_data = agent_res.json().get("candidates", [])
-
-        # [임시 테스트용] AI API 오류 회피를 위한 고정 더미 데이터 (2개)
-        ai_data = [
-            {"title": "AI Masterpiece - 사이버펑크 2077", "description": "네온사인이 빛나는 근미래 도시를 표현한 3D 렌더링 작품입니다.", "image_prompt": "cyberpunk neon city 3d render"},
-            {"title": "AI Masterpiece - 수채화풍 서울", "description": "따뜻한 감성이 묻어나는 수채화 스타일의 고요한 서울 풍경입니다.", "image_prompt": "watercolor seoul landscape calm"}
-        ]
+        # AI Core 실제 호출
+        agent_res = requests.post(f"{AI_AGENT_URL}/api/agent/generate-candidates", json=payload, timeout=300)
+        if agent_res.status_code != 200:
+            raise Exception(f"AI Core 서버 응답 에러: {agent_res.text}")
+        ai_data = agent_res.json().get("candidates", [])
     except Exception as e:
         print(f"🔥 AI 통신 에러: {e}")
         raise HTTPException(status_code=500, detail="AI 기획자 호출에 실패했습니다.")
@@ -330,7 +324,7 @@ def generate_new_round(db: Session = Depends(get_db)):
 
 # 2. [NEW] 투표 종료, 1등 확정 및 AI 경매 가치 산정
 @app.post("/api/admin/end-round", summary="투표 종료 및 AI 경매 가치 산정")
-def end_round_and_evaluate(db: Session = Depends(get_db)):
+def end_round_and_evaluate(session_id: str = "", db: Session = Depends(get_db)):
     # 1. 현재 라운드 찾기 & 2. 최고 득표 1등 찾기
     active_round = db.query(models.Round).filter(models.Round.status == "ACTIVE").first()
     if not active_round:
@@ -348,7 +342,12 @@ def end_round_and_evaluate(db: Session = Depends(get_db)):
 
     # 4. AI 경매사 호출 (가치 산정)
     try:
-        payload = {"title": winner.title, "description": winner.description, "vp_votes": winner.vp_votes}
+        payload = {
+            "title": winner.title,
+            "description": winner.description,
+            "vp_votes": winner.vp_votes,
+            "session_id": session_id   # 🔥 session_id 추가
+        }
         res = requests.post(f"{AI_AGENT_URL}/api/agent/evaluate-winner", json=payload, timeout=60)
         winner.auction_price = res.json().get("auction_price", winner.vp_votes * 10) if res.status_code == 200 else winner.vp_votes * 10
     except Exception as e:
