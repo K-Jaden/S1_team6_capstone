@@ -159,21 +159,21 @@ os.environ["GEMINI_API_KEY"] = MY_GOOGLE_API_KEY
 
 try:
     llm_creative = LLM(
-        model="gemini/gemini-2.5-flash-lite",
+        model="gemini/gemini-3.1-flash-lite",
         api_key=MY_GOOGLE_API_KEY,
         temperature=0.9
     )
     llm_factual = LLM(
-        model="gemini/gemini-2.5-flash-lite",
+        model="gemini/gemini-3.1-flash-lite",
         api_key=MY_GOOGLE_API_KEY,
         temperature=0.2
     )
     llm_chat = LLM(
-        model="gemini/gemini-2.5-flash-lite",
+        model="gemini/gemini-3.1-flash-lite",
         api_key=MY_GOOGLE_API_KEY,
         temperature=0.6
     )
-    print("✅ [AI] Gemini 1.5 Flash LLM 3종 세트 로드 완료 (creative / factual / chat)")
+    print("✅ [AI] Gemini 3.1 Flash LLM 3종 세트 로드 완료 (creative / factual / chat)")
 except Exception as e:
     print(f"🔥 모델 초기화 실패: {e}")
     llm_creative = llm_factual = llm_chat = None

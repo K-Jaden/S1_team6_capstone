@@ -711,7 +711,7 @@ function App() {
                                     <h3 style={{color: '#fff', margin: '0 0 5px 0'}}>{item.title}</h3>
                                     <p style={{color: '#34D399', fontSize: '0.85rem', fontWeight: 'bold'}}>🏆 우승작</p>
                                     <div className="gallery-btns" style={{marginTop: '15px', display: 'flex', gap: '10px'}}>
-                                        <button onClick={()=>playDocent(item.id, item.title)} style={{flex: 1, background: '#0F0F0F', color: '#fff', border: '1px solid #2A2A2A', padding: '8px', borderRadius: '6px', cursor: 'pointer'}}>🎧 작품 해설 듣기</button>
+
                                     </div>
                                 </div>
                             </div>
