@@ -278,7 +278,7 @@ def generate_new_round(session_id: str = "", db: Session = Depends(get_db)):
                         f.write(image_bytes)
                     
                     # 프론트엔드가 접근할 수 있도록 로컬 서버 URL 부여
-                    BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
+                    BASE_URL = os.getenv("API_BASE_URL", "http://13.125.234.38:80000")
                     image_url = f"{BASE_URL}/{filepath}"
 
             # DB에 10개 각각 저장 (image_url은 로컬 주소, ipfs_hash는 PENDING)

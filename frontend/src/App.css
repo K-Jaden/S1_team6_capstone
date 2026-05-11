@@ -1134,7 +1134,6 @@ body {
   height: 8px;
   background: #38BDF8;
   border-radius: 50%;
-  margin-right: 5px;
   animation: typingBounce 1.4s ease-in-out infinite;
   box-shadow: 0 0 6px rgba(56, 189, 248, 0.6);
 }

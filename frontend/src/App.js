@@ -51,7 +51,7 @@ function App() {
   const [isDiscussing, setIsDiscussing] = useState(false);
   const eventSourceRef = useRef(null);
   const discussionEndRef = useRef(null);
-
+  const [isChatOpen, setIsChatOpen] = useState(false);
   // ==========================================
   // 2. 초기화 및 지갑 연동
   // ==========================================
@@ -715,20 +715,66 @@ function App() {
             <div className="page fade-in">
                 <h2 style={{fontFamily: "'Playfair Display', serif", fontSize: "2.5rem"}}>🖼️ Hall of Fame</h2>
                 <p style={{color: '#9CA3AF', marginBottom: '30px'}}>대중의 선택을 받아 NFT로 영구 박제된 우승작 컬렉션입니다.</p>
-                <div className="gallery-grid">
+                
+                {/* 💡 auto-fill 덕분에 작품이 무한히 늘어나도 다음 줄로 예쁘게 정렬됩니다. */}
+                <div className="gallery-grid" style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '25px'}}>
                     {galleryItems.length === 0 ? (
                         <p style={{color: '#6B7280'}}>아직 등록된 우승작이 없습니다.</p>
                     ) : (
                         galleryItems.map(item => (
-                            <div key={item.id} className="card gallery-card" style={{background: '#1A1A1A', border: '1px solid #2A2A2A'}}>
-                                <div className="img-wrap" style={{borderBottom: '1px solid #2A2A2A'}}>
-                                	<img src={getImageUrl(item.image_url)} alt={item.title}/>
-				</div>
-                                <div className="info" style={{padding: '15px'}}>
-                                    <h3 style={{color: '#fff', margin: '0 0 5px 0'}}>{item.title}</h3>
-                                    <p style={{color: '#34D399', fontSize: '0.85rem', fontWeight: 'bold'}}>🏆 우승작</p>
-                                    <div className="gallery-btns" style={{marginTop: '15px', display: 'flex', gap: '10px'}}>
+                            <div 
+                                key={item.id} 
+                                className="card gallery-card" 
+                                // 💡 클릭 시 이미 구현된 openCandidateModal을 재사용하여 상세 내용을 띄웁니다.
+                                onClick={() => openCandidateModal(item)}
+                                style={{
+                                    background: '#1A1A1A', 
+                                    border: '1px solid #2A2A2A', 
+                                    borderRadius: '12px', 
+                                    overflow: 'hidden', 
+                                    display: 'flex', 
+                                    flexDirection: 'column',
+                                    cursor: 'pointer', // 마우스 올리면 손가락 모양으로 변경
+                                    transition: 'transform 0.2s ease, border-color 0.2s ease'
+                                }}
+                                // 마우스 오버 시 살짝 떠오르는 효과 (선택사항)
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.transform = 'translateY(-5px)';
+                                    e.currentTarget.style.borderColor = '#3B82F6';
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.transform = 'translateY(0)';
+                                    e.currentTarget.style.borderColor = '#2A2A2A';
+                                }}
+                            >
+                                
+                                <div className="img-wrap" style={{width: '100%', height: '280px', borderBottom: '1px solid #2A2A2A', overflow: 'hidden', backgroundColor: '#000'}}>
+                                    <img 
+                                        src={getImageUrl(item.image_url)} 
+                                        alt={item.title}
+                                        style={{width: '100%', height: '100%', objectFit: 'cover'}}
+                                    />
+                                </div>
 
+                                <div className="info" style={{padding: '20px', display: 'flex', flexDirection: 'column', flex: 1}}>
+                                    <h3 style={{color: '#fff', margin: '0 0 10px 0', fontSize: '1.25rem', lineHeight: '1.4'}}>{item.title}</h3>
+                                    <p style={{color: '#34D399', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '15px'}}>🏆 우승작 (IPFS 영구 보존)</p>
+                                    
+                                    {/* 💡 평소에는 3줄만 보여주고 '...' 처리합니다. */}
+                                    <p style={{
+                                        color: '#9CA3AF', 
+                                        fontSize: '0.95rem', 
+                                        lineHeight: '1.6', 
+                                        display: '-webkit-box', 
+                                        WebkitLineClamp: 3, 
+                                        WebkitBoxOrient: 'vertical', 
+                                        overflow: 'hidden', 
+                                        margin: 0
+                                    }}>
+                                        {item.description}
+                                    </p>
+                                    <div style={{marginTop: '15px', color: '#3B82F6', fontSize: '0.85rem', fontWeight: 'bold'}}>
+                                        더 보기...
                                     </div>
                                 </div>
                             </div>
@@ -775,22 +821,162 @@ function App() {
             </div>
         )}
       </main>
+      {/* ========================================== */}
+      {/* 🔥 [추가] 후보작 및 우승작 상세 모달창 */}
+      {/* ========================================== */}
+      {selectedCandidate && (
+        <div 
+          className="modal-overlay" 
+          onClick={closeCandidateModal} 
+          style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            backgroundColor: 'rgba(0,0,0,0.85)', 
+            position: 'fixed', 
+            top: 0, 
+            left: 0, 
+            right: 0, 
+            bottom: 0, 
+            zIndex: 3000 // 💡 z-index를 높게 설정하여 다른 UI보다 위에 뜨게 합니다.
+          }}
+        >
+          <div 
+            className="modal-content" 
+            onClick={(e) => e.stopPropagation()} 
+            style={{ 
+              background: '#1A1A1A', 
+              width: '90%', 
+              maxWidth: '900px', 
+              borderRadius: '20px', 
+              padding: '40px', 
+              border: '1px solid #2A2A2A', 
+              position: 'relative', 
+              display: 'flex', 
+              gap: '30px' 
+            }}
+          >
+            {/* 닫기 버튼 */}
+            <button 
+              onClick={closeCandidateModal} 
+              style={{ position: 'absolute', top: '20px', right: '20px', background: 'none', border: 'none', color: '#fff', fontSize: '24px', cursor: 'pointer' }}
+            >
+              ✖
+            </button>
+            
+            {/* 왼쪽: 이미지 영역 */}
+            <div style={{ flex: 1 }}>
+                <img 
+                  src={getImageUrl(selectedCandidate.image_url)} 
+                  alt={selectedCandidate.title} 
+                  style={{ width: '100%', borderRadius: '12px', border: '1px solid #2A2A2A', objectFit: 'cover' }} 
+                />
+            </div>
+            
+            {/* 오른쪽: 텍스트 영역 */}
+            <div style={{ flex: 1.2, display: 'flex', flexDirection: 'column' }}>
+                <h2 style={{ fontSize: '2rem', color: '#fff', marginBottom: '20px' }}>{selectedCandidate.title}</h2>
+                
+                {/* 💡 전체 설명을 보여주는 스크롤 가능 영역 */}
+                <div style={{ 
+                  flex: 1, 
+                  overflowY: 'auto', 
+                  color: '#D1D5DB', 
+                  lineHeight: '1.8', 
+                  fontSize: '1.1rem', 
+                  marginBottom: '20px', 
+                  paddingRight: '10px',
+                  maxHeight: '400px' // 너무 길어지면 스크롤이 생기게 제한
+                }}>
+                    {selectedCandidate.description}
+                </div>
+                
+                {/* 하단 정보바: 후보작(투표수)인지 우승작인지 구분해서 표시 */}
+                <div style={{ background: '#0F0F0F', padding: '20px', borderRadius: '12px', border: '1px solid #2A2A2A' }}>
+                    {selectedCandidate.vp_votes !== undefined ? (
+                        <p style={{ color: '#9CA3AF', margin: 0 }}>현재 총 투자금: <strong style={{ color: '#38BDF8', fontSize: '1.4rem' }}>{selectedCandidate.vp_votes} VP</strong></p>
+                    ) : (
+                        <p style={{ color: '#34D399', margin: 0, fontWeight: 'bold' }}>🏆 이 작품은 ArtDAO 명예의 전당에 헌액된 우승작입니다.</p>
+                    )}
+                </div>
+            </div>
+        </div>
+    </div>
+)}
 
-      {/* 3. 우측 고정 패널 */}
-      <aside className="right-panel">
-        <div className="right-panel-header">
+     {/* ========================================== */}
+      {/* 🔥 [NEW] 우측 고정 패널 ➔ 플로팅 패널로 변경 */}
+      {/* ========================================== */}
+      
+      {/* 플로팅 버튼 (화면 우측 하단 고정) */}
+      <button 
+          onClick={() => setIsChatOpen(!isChatOpen)}
+          style={{
+              position: 'fixed',
+              bottom: '40px',
+              right: '40px',
+              width: '65px',
+              height: '65px',
+              borderRadius: '50%',
+              backgroundColor: '#3B82F6',
+              color: '#fff',
+              fontSize: '30px',
+              border: 'none',
+              boxShadow: '0 4px 15px rgba(0, 0, 0, 0.4)',
+              cursor: 'pointer',
+              zIndex: 2000,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'transform 0.3s ease',
+              transform: isChatOpen ? 'rotate(90deg)' : 'rotate(0deg)'
+          }}
+      >
+          {isChatOpen ? '✖' : '💬'}
+      </button>
+
+      {/* 숨겨졌다가 나오는 AI 패널 */}
+      <aside 
+        className="right-panel"
+        style={{
+            position: 'fixed',
+            top: 0,
+            right: isChatOpen ? '0' : '-400px', // 💡 열리면 0, 닫히면 화면 밖으로 숨김!
+            width: '380px',
+            height: '100vh',
+            backgroundColor: '#0F0F0F',
+            borderLeft: '1px solid #2A2A2A',
+            transition: 'right 0.3s ease-in-out',
+            zIndex: 1999,
+            boxShadow: isChatOpen ? '-5px 0 25px rgba(0,0,0,0.7)' : 'none',
+            display: 'flex',
+            flexDirection: 'column'
+        }}
+      >
+        <div className="right-panel-header" style={{ padding: '20px', borderBottom: '1px solid #2A2A2A', display: 'flex', alignItems: 'center' }}>
             <span style={{ color: '#38BDF8', marginRight: '8px' }}>✦</span> 
-            <span style={{ fontWeight: 'bold', letterSpacing: '1px' }}>GUIDE</span> 
+            <span style={{ fontWeight: 'bold', letterSpacing: '1px' }}>AI GUIDE</span> 
             <span style={{ fontSize: '0.7rem', marginLeft: 'auto', color: '#34D399' }}>● Online</span>
         </div>
-        <div className="chat-window">
-            <div className="messages">
+        
+        <div className="chat-window" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div className="messages" style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
                 {chatMessages.map((msg, idx) => (
-                    <div key={idx} className={`msg ${msg.sender}`}>
+                    <div key={idx} className={`msg ${msg.sender}`} style={{ marginBottom: '15px' }}>
                         {msg.sender === "bot" && (
-                            <div className="bot-name"><span>🤖</span> ArtDAO Guide</div>
+                            <div className="bot-name" style={{ fontSize: '0.85rem', color: '#9CA3AF', marginBottom: '5px' }}><span>🤖</span> ArtDAO Guide</div>
                         )}
-                        <div className="bubble" style={{ whiteSpace: "pre-line" }}>
+                        <div className="bubble" style={{ 
+                            whiteSpace: "pre-line", 
+                            padding: '12px 16px', 
+                            borderRadius: '12px', 
+                            backgroundColor: msg.sender === 'bot' ? '#1A1A1A' : '#3B82F6',
+                            color: '#fff',
+                            border: msg.sender === 'bot' ? '1px solid #2A2A2A' : 'none',
+                            alignSelf: msg.sender === 'bot' ? 'flex-start' : 'flex-end',
+                            display: 'inline-block',
+                            maxWidth: '90%'
+                        }}>
                             {msg.text}
                         </div>
                     </div>
@@ -799,59 +985,35 @@ function App() {
                 {isChatLoading && (
                     <div className="msg bot">
                         <div className="bot-name"><span>🤖</span> ArtDAO Guide</div>
-                        <div className="chat-typing-indicator">
-                            <div className="dot"></div>
-                            <div className="dot"></div>
-                            <div className="dot"></div>
+                        <div className="chat-typing-indicator" style={{ padding: '12px', background: '#1A1A1A', borderRadius: '12px', display: 'inline-block' }}>
+                            <span style={{ color: '#9CA3AF' }}>입력 중...</span>
                         </div>
                     </div>
                 )}
             </div>
-
-            {/* 후보작 상세 모달 */}
-            {selectedCandidate && (
-                <div className="modal-overlay" onClick={closeCandidateModal} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.85)', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 2000 }}>
-                    <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ background: '#1A1A1A', width: '90%', maxWidth: '900px', borderRadius: '20px', padding: '40px', border: '1px solid #2A2A2A', position: 'relative', display: 'flex', gap: '30px' }}>
-                        <button onClick={closeCandidateModal} style={{ position: 'absolute', top: '20px', right: '20px', background: 'none', border: 'none', color: '#fff', fontSize: '24px', cursor: 'pointer' }}>✖</button>
-                        
-                        <div style={{ flex: 1 }}>
-                        	<img src={getImageUrl(selectedCandidate.image_url)} alt={selectedCandidate.title} style={{ width: '100%', borderRadius: '12px', border: '1px solid #2A2A2A' }} />
-		    	</div>
-                        
-                        <div style={{ flex: 1.2, display: 'flex', flexDirection: 'column' }}>
-                            <h2 style={{ fontSize: '2rem', color: '#fff', marginBottom: '20px' }}>{selectedCandidate.title}</h2>
-                            <div style={{ flex: 1, overflowY: 'auto', color: '#D1D5DB', lineHeight: '1.8', fontSize: '1.1rem', marginBottom: '20px', paddingRight: '10px' }}>
-                                {selectedCandidate.description}
-                            </div>
-                            <div style={{ background: '#0F0F0F', padding: '20px', borderRadius: '12px', border: '1px solid #2A2A2A' }}>
-                                <p style={{ color: '#9CA3AF', margin: 0 }}>현재 총 투자금: <strong style={{ color: '#38BDF8', fontSize: '1.4rem' }}>{selectedCandidate.vp_votes} VP</strong></p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
             
-            <div className="chat-input-wrapper">
+            <div className="chat-input-wrapper" style={{ padding: '20px', borderTop: '1px solid #2A2A2A', display: 'flex', gap: '10px' }}>
                 <input 
                     type="text" 
                     value={chatInput} 
                     onChange={(e)=>setChatInput(e.target.value)} 
                     onKeyPress={(e)=>e.key==='Enter' && !isChatLoading && chatInput.trim() && sendMessage()} 
-                    placeholder="투표 방법이나 작품을 물어보세요!" 
+                    placeholder="무엇이든 물어보세요!" 
                     disabled={isChatLoading} 
                     className="chat-text-input"
+                    style={{ flex: 1, padding: '12px 15px', borderRadius: '20px', border: '1px solid #333', background: '#1A1A1A', color: '#fff' }}
                 />
                 <button 
                     className="chat-send-btn" 
                     onClick={sendMessage} 
                     disabled={isChatLoading || !chatInput.trim()}
+                    style={{ width: '45px', height: '45px', borderRadius: '50%', background: '#3B82F6', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                 >
                     ➤
                 </button>
             </div>
         </div>
       </aside>
-
       {/* 🔥 [NEW] 에이전트 난상토론 라이브 뷰어 모달 */}
       {showDiscussion && (
         <div className="discussion-overlay">
