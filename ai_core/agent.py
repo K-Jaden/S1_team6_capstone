@@ -159,21 +159,21 @@ os.environ["GEMINI_API_KEY"] = MY_GOOGLE_API_KEY
 
 try:
     llm_creative = LLM(
-        model="gemini/gemini-2.5-flash-lite",
+        model="gemini/gemini-3.1-flash-lite",
         api_key=MY_GOOGLE_API_KEY,
         temperature=0.9
     )
     llm_factual = LLM(
-        model="gemini/gemini-2.5-flash-lite",
+        model="gemini/gemini-3.1-flash-lite",
         api_key=MY_GOOGLE_API_KEY,
         temperature=0.2
     )
     llm_chat = LLM(
-        model="gemini/gemini-2.5-flash-lite",
+        model="gemini/gemini-3.1-flash-lite",
         api_key=MY_GOOGLE_API_KEY,
         temperature=0.6
     )
-    print("✅ [AI] Gemini 1.5 Flash LLM 3종 세트 로드 완료 (creative / factual / chat)")
+    print("✅ [AI] Gemini 3.1 Flash LLM 3종 세트 로드 완료 (creative / factual / chat)")
 except Exception as e:
     print(f"🔥 모델 초기화 실패: {e}")
     llm_creative = llm_factual = llm_chat = None
@@ -191,6 +191,7 @@ planner = Agent(
     llm=llm_creative,
     allow_delegation=False,
     max_iter=4,
+    max_rpm=5,
     verbose=True
 )
 
@@ -202,6 +203,7 @@ painter = Agent(
     llm=llm_creative,
     allow_delegation=False,
     max_iter=4,
+    max_rpm=5,
     verbose=True
 )
 
@@ -213,6 +215,7 @@ critic = Agent(
     llm=llm_factual,
     allow_delegation=False,
     max_iter=4,
+    max_rpm=5,
     verbose=True
 )
 
@@ -223,7 +226,8 @@ auctioneer = Agent(
     tools=[search_tool],
     llm=llm_factual,
     max_iter=4,
-    verbose=True
+    verbose=True,
+    max_rpm=5
 )
 
 ai_curator = Agent(
@@ -234,6 +238,7 @@ ai_curator = Agent(
     llm=llm_chat,
     allow_delegation=True,
     max_iter=3,
+    max_rpm=5,
     verbose=True
 )
 
@@ -245,7 +250,8 @@ ai_docent = Agent(
     llm=llm_chat,
     allow_delegation=False,
     max_iter=3,
-    verbose=True
+    verbose=True,
+    max_rpm=5
 )
 
 # ==================================================================
@@ -343,6 +349,7 @@ def generate_candidates(req: CandidateGenRequest = None):
         tasks=[task_plan, task_format],
         process=Process.sequential,
         verbose=True,
+        max_rpm=5,
         step_callback=make_step_callback(session_id, "AI 에이전트")  # 🔥 step은 통합명
     )
 
@@ -440,6 +447,7 @@ def evaluate_winner(data: WinnerData):
         tasks=[task_eval_art, task_eval_price],
         process=Process.sequential,
         verbose=True,
+        maxrpm=5,
         step_callback=make_step_callback(session_id, "AI 에이전트")  # 🔥
     )
 
@@ -500,7 +508,7 @@ def analyze_trends():
         agent=critic
     )
 
-    crew = Crew(agents=[critic], tasks=[task_trend], verbose=True)
+    crew = Crew(agents=[critic], max_rpm=5, tasks=[task_trend], verbose=True)
 
     try:
         result = crew.kickoff()
@@ -624,6 +632,7 @@ def a2a_full_studio(request: A2AStudioRequest):
             tasks=[task_draft, task_review, task_revise],
             process=Process.sequential,
             verbose=True,
+            max_rpm=5,
             step_callback=make_step_callback(session_id, "AI 에이전트")
         )
         studio_crew.kickoff()
@@ -654,7 +663,7 @@ def combined_chat(request: DocentRequest):
             tasks=[task_chat],
             process=Process.sequential,
             verbose=True,
-            max_rpm=10
+            max_rpm=5
         )
         chat_crew.kickoff()
         return {"reply": getattr(task_chat.output, 'raw', str(task_chat.output))}

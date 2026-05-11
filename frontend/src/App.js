@@ -90,10 +90,18 @@ function App() {
   };
 
   useEffect(() => {
-      if (activeTab === "curate") {
-          fetchCurrentRound();
-      }
-  }, [activeTab]);
+    if (activeTab === "curate") {
+        fetchCurrentRound(); // 탭 누르자마자 1번 실행
+        
+        // 5초(5000ms)마다 백엔드에 최신 데이터 물어보기
+        const timer = setInterval(() => {
+            fetchCurrentRound();
+        }, 5000);
+        
+        // 다른 탭으로 이동하면 타이머 끄기 (메모리 낭비 방지)
+        return () => clearInterval(timer);
+    }
+}, [activeTab]);
 
   useEffect(() => {
       const timer = setInterval(() => setCurrentBlockTime(Math.floor(Date.now() / 1000)), 1000);
@@ -460,6 +468,15 @@ function App() {
     setSelectedCandidate(null);
   };
 
+  // AI가 만든 Base64 이미지와 일반 URL을 모두 처리하는 함수
+  const getImageUrl = (url) => {
+    if (!url) return ""; 
+    if (url.startsWith("data:image")) return url; // Base64 그대로 통과
+    if (url.startsWith("ipfs://")) return url.replace("ipfs://", "https://ipfs.io/ipfs/"); 
+    if (!url.startsWith("http")) return `${API_URL}${url}`; 
+    return url;
+  };
+
   // ==========================================
   // 5. UI 렌더링
   // ==========================================
@@ -647,8 +664,8 @@ function App() {
     {currentRound.candidates.map(candidate => (
         <div key={candidate.id} className="candidate-card" onClick={() => openCandidateModal(candidate)} style={{cursor: 'pointer'}}>
             <div className="candidate-img-box">
-                <img src={candidate.image_url.replace("ipfs://", "https://ipfs.io/ipfs/")} alt={candidate.title} />
-            </div>
+            	<img src={getImageUrl(candidate.image_url)} alt={candidate.title} />
+	    </div>
             <div className="candidate-info">
                 <h3 className="candidate-title">{candidate.title}</h3>
                 <p className="candidate-desc" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
@@ -705,13 +722,13 @@ function App() {
                         galleryItems.map(item => (
                             <div key={item.id} className="card gallery-card" style={{background: '#1A1A1A', border: '1px solid #2A2A2A'}}>
                                 <div className="img-wrap" style={{borderBottom: '1px solid #2A2A2A'}}>
-                                    <img src={item.image_url} alt={item.title}/>
-                                </div>
+                                	<img src={getImageUrl(item.image_url)} alt={item.title}/>
+				</div>
                                 <div className="info" style={{padding: '15px'}}>
                                     <h3 style={{color: '#fff', margin: '0 0 5px 0'}}>{item.title}</h3>
                                     <p style={{color: '#34D399', fontSize: '0.85rem', fontWeight: 'bold'}}>🏆 우승작</p>
                                     <div className="gallery-btns" style={{marginTop: '15px', display: 'flex', gap: '10px'}}>
-                                        <button onClick={()=>playDocent(item.id, item.title)} style={{flex: 1, background: '#0F0F0F', color: '#fff', border: '1px solid #2A2A2A', padding: '8px', borderRadius: '6px', cursor: 'pointer'}}>🎧 작품 해설 듣기</button>
+
                                     </div>
                                 </div>
                             </div>
@@ -798,8 +815,8 @@ function App() {
                         <button onClick={closeCandidateModal} style={{ position: 'absolute', top: '20px', right: '20px', background: 'none', border: 'none', color: '#fff', fontSize: '24px', cursor: 'pointer' }}>✖</button>
                         
                         <div style={{ flex: 1 }}>
-                            <img src={selectedCandidate.image_url.replace("ipfs://", "https://ipfs.io/ipfs/")} alt={selectedCandidate.title} style={{ width: '100%', borderRadius: '12px', border: '1px solid #2A2A2A' }} />
-                        </div>
+                        	<img src={getImageUrl(selectedCandidate.image_url)} alt={selectedCandidate.title} style={{ width: '100%', borderRadius: '12px', border: '1px solid #2A2A2A' }} />
+		    	</div>
                         
                         <div style={{ flex: 1.2, display: 'flex', flexDirection: 'column' }}>
                             <h2 style={{ fontSize: '2rem', color: '#fff', marginBottom: '20px' }}>{selectedCandidate.title}</h2>
