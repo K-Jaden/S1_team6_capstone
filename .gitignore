@@ -43,3 +43,10 @@ crash.log
 crash.*.log
 *.tfvars
 *.tfvars.json
+
+# AI 생성 이미지 파일 무시
+backend/static/images/round*.png
+
+# 스마트 컨트랙트 주소 업로드 무시
+ai_core/contract_address.json
+backend/app/contract_address.json
