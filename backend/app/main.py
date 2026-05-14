@@ -161,364 +161,6 @@ def create_feedback(item_id: int, content: str, wallet_address: str, db: Session
     return {"status": "feedback_saved"}
 
 # ==========================================
-# [추가] 도슨트 기능 (작품 설명 생성)
-# ==========================================
-@app.post("/api/gallery/docent")
-def generate_docent_script(item_id: int = 0):
-    print(f"📡 [Backend] 도슨트 요청 (ID: {item_id})")
-    
-    # 1. DB에서 작품 찾기 (없으면 임시 데이터 사용)
-    # (실제로는 DB에서 조회해야 하지만, 여기선 예시로 처리)
-    art_info = "신비로운 사이버펑크 도시의 밤 풍경" # 기본값
-    
-    # 2. AI 에이전트(도슨트)에게 대본 요청
-    try:
-        payload = {
-            "art_info": art_info,
-            "audience_type": "일반 관람객"
-        }
-        # agent.py의 /docent 엔드포인트 호출
-        response = requests.post(f"{AI_AGENT_URL}/docent", json=payload, timeout=20)
-        
-        if response.status_code == 200:
-            script = response.json().get("commentary", "작품 설명을 불러오지 못했습니다.")
-            return {"text_script": script}
-        else:
-            return {"text_script": "AI 도슨트가 현재 바쁩니다."}
-            
-    except Exception as e:
-        print(f"🔥 도슨트 에러: {str(e)}")
-        return {"text_script": "잠시 후 다시 시도해주세요."}
-# =========================================================
-# 🚨 [수정완료] Botto DAO 라운드 & 후보작 시스템 API
-# =========================================================
-
-@app.post("/api/admin/generate-round", summary="새 라운드 생성 및 A2A 그림 5장 뽑기")
-def generate_new_round(session_id: str = "", db: Session = Depends(get_db)):
-    # 1. 기존 라운드 종료 처리
-    active_round = db.query(models.Round).filter(models.Round.status == "ACTIVE").first()
-    if active_round:
-        active_round.status = "ENDED"
-        active_round.end_time = datetime.utcnow()
-        db.commit()
-
-    # 2. 새 라운드 번호 채번
-    last_round = db.query(models.Round).order_by(models.Round.round_number.desc()).first()
-    next_round_num = (last_round.round_number + 1) if last_round else 1
-
-    new_round = models.Round(round_number=next_round_num, status="ACTIVE")
-    db.add(new_round)
-    db.commit()
-    db.refresh(new_round)
-    
-    # ✨ [추가] 1. 가장 최신 Market Insights 데이터를 가져옵니다.
-    current_insights = get_market_insights()
-
-    # 3. 🚨 AI 에이전트(agent.py)에게 2개의 컨셉 JSON 받아오기
-    # (2개를 기획하고 그림을 그리려면 시간이 꽤 걸리므로 timeout을 넉넉히 줍니다)
-    print(f"📡 AI 요원들에게 {next_round_num}주차 후보작 2개 기획 지시 중... (약 1분 소요)")
-    
-    try:
-        # ✨ [핵심 변경] 2. AI를 호출할 때 json 바디에 insights 데이터를 꽉 채워서 보냅니다!
-        payload = {"insights": current_insights, "session_id": session_id}  # 🔥
-        
-        # AI Core 실제 호출
-        agent_res = requests.post(f"{AI_AGENT_URL}/api/agent/generate-candidates", json=payload, timeout=300)
-        if agent_res.status_code != 200:
-            raise Exception(f"AI Core 서버 응답 에러: {agent_res.text}")
-        ai_data = agent_res.json().get("candidates", [])
-    except Exception as e:
-        print(f"🔥 AI 통신 에러: {e}")
-        raise HTTPException(status_code=500, detail="AI 기획자 호출에 실패했습니다.")
-
-    # 4. 🎨 받아온 영문 프롬프트로 Cloudflare 그림 10장 그리고 IPFS 올리기
-    CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
-    CF_API_TOKEN = os.getenv("CF_API_TOKEN")
-
-    candidate_uris = []
-
-    for index, c_data in enumerate(ai_data, start=1):
-        # ✨ [핵심] 에러 방지 로직 적용
-        if isinstance(c_data, str):
-            title = f"AI Masterpiece {next_round_num}-{index}"
-            desc_text = "AI가 생성한 예술 작품입니다."
-            prompt = c_data
-        else:
-            title = c_data.get("title", f"제목 없음 {index}")
-            desc_text = c_data.get("description", "설명 없음")
-            prompt = c_data.get("image_prompt", "digital art masterpiece")
-            # AI가 만든 원본 프롬프트
-            base_prompt = c_data.get("image_prompt", "digital art")
-            prompt = f"Masterpiece, extremely high quality digital art, trending on artstation, vivid colors, cyberpunk and synthwave vibes, glowing neon lights, holographic, highly detailed 3D digital illustration, Unreal Engine 5 render. Concept: {base_prompt}"
-
-        print(f"🖌️ [{index}/5] '{title}' 이미지 렌더링 중...")
-        
-        # Cloudflare FLUX에 이미지 요청
-        cf_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/@cf/black-forest-labs/flux-1-schnell"
-        headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
-        
-        try:
-            img_res = requests.post(cf_url, headers=headers, json={"prompt": prompt}, timeout=60)
-            
-            # 🚨 IPFS 해시를 PENDING(대기중)으로 설정! (우승하면 채워짐)
-            ipfs_hash = "PENDING"
-            image_url = "https://dummyimage.com/600x400/000/fff&text=CF+Error"
-
-            if img_res.status_code == 200:
-                res_json = img_res.json()
-                if "result" in res_json and "image" in res_json["result"]:
-                    b64_encoded = res_json["result"]["image"]
-                    image_bytes = base64.b64decode(b64_encoded)
-                    
-                    # 🚨 [핵심 변경] IPFS가 아니라 로컬(오프체인)에 파일로 저장!
-                    filename = f"round{next_round_num}_candidate_{index}.png"
-                    filepath = f"static/images/{filename}"
-                    
-                    with open(filepath, "wb") as f:
-                        f.write(image_bytes)
-                    
-                    # 프론트엔드가 접근할 수 있도록 로컬 서버 URL 부여
-                    BASE_URL = os.getenv("API_BASE_URL", "http://13.125.234.38:80000")
-                    image_url = f"{BASE_URL}/{filepath}"
-
-            # DB에 10개 각각 저장 (image_url은 로컬 주소, ipfs_hash는 PENDING)
-            candidate = models.Candidate(
-                round_id=new_round.id,
-                title=title,
-                description=desc_text,
-                image_url=image_url,
-                ipfs_hash=ipfs_hash
-            )
-            db.add(candidate)
-            candidate_uris.append(image_url)
-            
-        except Exception as img_e:
-            print(f"🔥 [{index}/5] 이미지 생성 실패: {img_e}")
-            continue # 실패해도 다음 그림으로 넘어감
-
-    db.commit()
-    print("🎉 새 라운드 5개 후보작 DB 세팅 완벽 성공!")
-
-    # 5. [Web3] 블록체인 상에 라운드 시작 (startNewRound)
-    try:
-        if ADMIN_ACCOUNT:
-            dao_contract = get_dao_contract()
-            if dao_contract:
-                nonce = w3.eth.get_transaction_count(ADMIN_ACCOUNT.address)
-                # 라운드 기간을 7일로, 후보작들의 URI 리스트를 전달
-                tx = dao_contract.functions.startNewRound(7, candidate_uris).build_transaction({
-                    'chainId': 31337,
-                    'gas': 3000000,
-                    'gasPrice': w3.to_wei('1', 'gwei'),
-                    'nonce': nonce,
-                })
-                signed_tx = w3.eth.account.sign_transaction(tx, private_key=ADMIN_PRIVATE_KEY)
-                tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-                w3.eth.wait_for_transaction_receipt(tx_hash)
-                print(f"✅ 온체인 라운드 시작 완료: {tx_hash.hex()}")
-    except Exception as e:
-        print(f"🔥 온체인 라운드 시작 실패: {e}")
-
-    return {"status": "success", "message": f"Round {next_round_num} 5개 후보작 세팅 완료!", "round_id": new_round.id}
-
-
-# 2. [NEW] 투표 종료, 1등 확정 및 AI 경매 가치 산정
-@app.post("/api/admin/end-round", summary="투표 종료 및 AI 경매 가치 산정")
-def end_round_and_evaluate(session_id: str = "", db: Session = Depends(get_db)):
-    # 1. 현재 라운드 찾기 & 2. 최고 득표 1등 찾기
-    active_round = db.query(models.Round).filter(models.Round.status == "ACTIVE").first()
-    if not active_round:
-        raise HTTPException(status_code=400, detail="진행 중인 라운드가 없습니다.")
-
-    winner = db.query(models.Candidate).filter(models.Candidate.round_id == active_round.id)\
-               .order_by(desc(models.Candidate.vp_votes)).first()
-    if not winner:
-        raise HTTPException(status_code=400, detail="후보작이 존재하지 않습니다.")
-
-    # 3. 우승 처리
-    winner.is_winner = True
-    active_round.status = "ENDED"
-    active_round.end_time = datetime.utcnow()
-
-    # 4. AI 경매사 호출 (가치 산정)
-    try:
-        payload = {
-            "title": winner.title,
-            "description": winner.description,
-            "vp_votes": winner.vp_votes,
-            "session_id": session_id   # 🔥 session_id 추가
-        }
-        res = requests.post(f"{AI_AGENT_URL}/api/agent/evaluate-winner", json=payload, timeout=60)
-        winner.auction_price = res.json().get("auction_price", winner.vp_votes * 10) if res.status_code == 200 else winner.vp_votes * 10
-    except Exception as e:
-        winner.auction_price = winner.vp_votes * 10
-
-    # =========================================================
-    # 🚨 5. [핵심] 우승작 단 1개만 IPFS에 업로드하여 NFT 박제 준비!
-    # =========================================================
-    if winner.ipfs_hash == "PENDING" and "/static/images/" in winner.image_url:
-        try:
-            import urllib.parse
-            # image_url에서 파일 경로만 쏙 빼냅니다. (예: static/images/xxx.png)
-            parsed_url = urllib.parse.urlparse(winner.image_url)
-            filepath = parsed_url.path.lstrip("/") 
-            
-            if os.path.exists(filepath):
-                print(f"🚀 우승작 발견! IPFS 영구 박제 업로드 중... ({filepath})")
-                with open(filepath, "rb") as f:
-                    image_bytes = f.read()
-                
-                # ipfs.py의 함수를 호출해서 IPFS로 전송!
-                uploaded_cid = upload_bytes_to_ipfs(image_bytes, filename=f"winner_round{active_round.id}.png")
-                
-                if uploaded_cid:
-                    winner.ipfs_hash = f"ipfs://{uploaded_cid}"
-                    # 명예의 전당(Gallery) 전시를 위해 URL도 IPFS 주소로 교체해 줍니다.
-                    winner.image_url = f"https://gateway.pinata.cloud/ipfs/{uploaded_cid}"
-                    print(f"✅ 우승작 IPFS 박제 완료! (CID: {uploaded_cid})")
-        except Exception as e:
-            print(f"🔥 우승작 IPFS 업로드 실패: {e}")
-    
-    # 6. 명예의 전당(GalleryItem) 테이블에 우승작 영구 등록!
-    new_gallery_item = models.GalleryItem(
-        title=winner.title,
-        artist_address="ArtDAO Core AI", # AI가 창작했으므로 작가명을 고정해줍니다
-        image_url=winner.image_url,      # IPFS 주소로 업데이트된 이미지 URL
-        description=winner.description
-    )
-    db.add(new_gallery_item)
-
-    db.commit()
-
-    # 7. [Web3] 블록체인 상에 투표 마감 (finalizeRound)
-    try:
-        if ADMIN_ACCOUNT:
-            dao_contract = get_dao_contract()
-            if dao_contract:
-                nonce = w3.eth.get_transaction_count(ADMIN_ACCOUNT.address)
-                auction_price_wei = w3.to_wei(winner.auction_price, 'ether')
-                ipfs_uri = winner.ipfs_hash if winner.ipfs_hash != "PENDING" else winner.image_url
-
-                tx = dao_contract.functions.finalizeRound(auction_price_wei, ipfs_uri).build_transaction({
-                    'chainId': 31337,
-                    'gas': 3000000,
-                    'gasPrice': w3.to_wei('1', 'gwei'),
-                    'nonce': nonce,
-                })
-                signed_tx = w3.eth.account.sign_transaction(tx, private_key=ADMIN_PRIVATE_KEY)
-                tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-                w3.eth.wait_for_transaction_receipt(tx_hash)
-                print(f"✅ 온체인 라운드 마감 완료: {tx_hash.hex()}")
-    except Exception as e:
-        print(f"🔥 온체인 라운드 마감 실패: {e}")
-
-    return {
-        "status": "success", 
-        "winner_title": winner.title, 
-        "auction_price": winner.auction_price,
-        "message": "오프체인 결산 및 우승작 IPFS 업로드 완료!"
-    }
-# [안건 DB 저장]
-@app.post("/api/proposals", summary="안건 생성(DB저장)")
-def create_proposal(req: schemas.ProposalCreate, db: Session = Depends(get_db)):
-    # --- 🚀 [추가] 외래키 에러 방지를 위한 사용자 체크 로직 ---
-    user = db.query(models.User).filter(models.User.wallet_address == req.wallet_address).first()
-    if not user:
-        print(f"🆕 미등록 사용자 발견! 자동 가입 처리: {req.wallet_address}")
-        new_user = models.User(
-            wallet_address=req.wallet_address,
-            membership_grade="Bronze",
-            token_balance=0.0
-        )
-        db.add(new_user)
-        db.commit() # 부모 데이터를 먼저 확정지어야 합니다.
-    new_p = models.ArtRequest(
-        wallet_address=req.wallet_address,
-        title=req.title,
-        meta_hash=req.meta_hash,
-        description=req.description,
-        style=req.style,
-        image_url=req.image_url,
-        voteType=req.voteType,
-        duration=req.duration,
-        quorum=req.quorum,
-        funding_amount=req.fundingAmount,
-        status="OPEN"
-    )
-    db.add(new_p)
-    db.commit()
-    db.refresh(new_p)
-    return new_p
-
-# =========================================================
-# (이 아래로는 기존에 있던 @app.get("/api/rounds/current") 등 코드를 유지하시면 됩니다)
-
-# 2. 🖼️ 프론트엔드 갤러리/투표창에 뿌려줄 현재 라운드 정보 가져오기
-@app.get("/api/rounds/current", response_model=schemas.RoundResponse, summary="현재 진행중인 라운드 조회")
-def get_current_round(db: Session = Depends(get_db)):
-    active_round = db.query(models.Round).filter(models.Round.status == "ACTIVE").first()
-    
-    if not active_round:
-        raise HTTPException(status_code=404, detail="현재 진행 중인 투표 라운드가 없습니다.")
-    
-    return active_round
-
-# [NEW] 3. 💰 종료된 라운드 목록 가져오기 (배당금 청구용)
-@app.get("/api/rounds/ended", summary="종료된 라운드 목록 조회")
-def get_ended_rounds(db: Session = Depends(get_db)):
-    from sqlalchemy import desc
-    rounds = db.query(models.Round).filter(models.Round.status == "ENDED").order_by(desc(models.Round.id)).all()
-    res = []
-    for r in rounds:
-        winner = db.query(models.Candidate).filter(models.Candidate.round_id == r.id, models.Candidate.is_winner == True).first()
-        res.append({
-            "round_id": r.id,
-            "end_time": r.end_time,
-            "auction_price": winner.auction_price if winner else 0,
-            "winner_title": winner.title if winner else "알 수 없음"
-        })
-    return res
-
-
-# 3. 🗳️ 유저 VP 투표 처리 (오프체인 가스비 무료 투표!)
-@app.post("/api/vote", summary="후보작에 VP 투표하기")
-def cast_vote(req: schemas.VoteRequest, db: Session = Depends(get_db)):
-    # 1. 지갑 정보 및 유저 확인
-    user = get_user_or_404(req.wallet_address, db)
-    
-    # 2. 해당 후보작이 존재하는지, 현재 진행중인 라운드인지 확인
-    candidate = db.query(models.Candidate).filter(models.Candidate.id == req.candidate_id).first()
-    if not candidate:
-        raise HTTPException(status_code=404, detail="존재하지 않는 후보작입니다.")
-    
-    current_round = db.query(models.Round).filter(models.Round.id == candidate.round_id).first()
-    if current_round.status != "ACTIVE":
-        raise HTTPException(status_code=400, detail="이미 종료된 라운드의 투표입니다.")
-
-    # 3. 투표력(VP) 검증 (내 잔고 TUK보다 많이 썼는지 확인)
-    # 현재 라운드에 이 유저가 지금까지 쓴 총 VP 계산
-    used_vp_record = db.query(func.sum(models.VoteLog.vp_used)).filter(
-        models.VoteLog.round_id == current_round.id,
-        models.VoteLog.voter_wallet == req.wallet_address
-    ).scalar() or 0
-
-    if (used_vp_record + req.vp_amount) > user.token_balance:
-        raise HTTPException(status_code=400, detail=f"VP가 부족합니다. (내 잔고: {user.token_balance}, 사용가능: {user.token_balance - used_vp_record})")
-
-    # 4. 투표 기록(VoteLog) 남기기 & 후보작 총 득표수(vp_votes) 올리기
-    new_vote = models.VoteLog(
-        round_id=current_round.id,
-        candidate_id=candidate.id,
-        voter_wallet=req.wallet_address,
-        vp_used=req.vp_amount
-    )
-    db.add(new_vote)
-    
-    candidate.vp_votes += req.vp_amount
-    db.commit()
-
-    return {"status": "success", "message": f"{candidate.title}에 {req.vp_amount} VP 투표 완료!"}
-# ==========================================
 # [수정] AI 큐레이터/도슨트 채팅 연결 API (422 에러 해결)
 # ==========================================
 # 프론트엔드가 보낼 데이터 규격 정의
@@ -638,26 +280,6 @@ def agent_promote(req: schemas.AgentPromoteRequest):
             return {"promo_text": "마케팅 문구 생성 실패"}
     except Exception as e:
         return {"promo_text": "통신 오류 발생"}
-
-# 3. 경매사 (Auctioneer) 연결
-@app.post("/api/agent/auction", response_model=schemas.AgentAuctionResponse)
-def agent_auction(req: schemas.AgentAuctionRequest):
-    print(f"📡 [Backend] 경매사 호출")
-    try:
-        # AI 컨테이너(8002)의 /auction 엔드포인트 호출
-        payload = {
-            "art_info": req.art_info,
-            "critic_review": req.critic_review
-        }
-        resp = requests.post(f"{AI_AGENT_URL}/auction", json=payload)
-        
-        if resp.status_code == 200:
-            return resp.json() # {"auction_report": "..."} 반환
-        else:
-            return {"auction_report": "경매 리포트 생성 실패"}
-    except Exception as e:
-        return {"auction_report": "통신 오류 발생"}
-
 # ==========================================
 # 이미지 생성 (Image) - Cloudflare FLUX 엑박 완벽 해결
 # ==========================================
@@ -846,3 +468,259 @@ def get_market_insights():
             {"name": "Retro 8-bit Pixel", "percent": 20}
         ]
     }
+# =========================================================
+# 🌟 [복구] 프론트엔드 화면 표시 및 투표용 필수 API
+# =========================================================
+@app.get("/api/rounds/current")
+def get_current_round(db: Session = Depends(get_db)):
+    from app.models import RoundPhase
+    # 상태가 ENDED가 아닌 가장 최근 라운드를 찾아 프론트엔드로 반환
+    active = db.query(models.Round).filter(models.Round.status != RoundPhase.ENDED).order_by(desc(models.Round.id)).first()
+    if not active: 
+        raise HTTPException(status_code=404, detail="진행 중인 라운드가 없습니다.")
+    return active
+
+@app.get("/api/rounds/ended")
+def get_ended_rounds(db: Session = Depends(get_db)):
+    from app.models import RoundPhase
+    # 마이페이지 배당금 수령을 위해 종료된 라운드 목록 반환
+    ended_rounds = db.query(models.Round).filter(models.Round.status == RoundPhase.ENDED).order_by(desc(models.Round.id)).all()
+    
+    result = []
+    for r in ended_rounds:
+        winner = db.query(models.Candidate).filter(models.Candidate.round_id == r.id, models.Candidate.is_winner == True).first()
+        if winner:
+            result.append({
+                "round_id": r.round_number,
+                "winner_title": winner.title,
+                "auction_price": winner.auction_price
+            })
+    return result
+
+class VoteReq(BaseModel):
+    wallet_address: str
+    candidate_id: int
+    vp_amount: int
+
+@app.post("/api/vote")
+def cast_vote(req: VoteReq, db: Session = Depends(get_db)):
+    # 유저의 VP 투표(Step 2)를 DB에 기록
+    candidate = db.query(models.Candidate).filter(models.Candidate.id == req.candidate_id).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="후보작을 찾을 수 없습니다.")
+    
+    new_vote = models.VoteLog(
+        round_id=candidate.round_id, 
+        candidate_id=candidate.id, 
+        voter_wallet=req.wallet_address, 
+        vp_used=req.vp_amount
+    )
+    db.add(new_vote)
+    candidate.vp_votes += req.vp_amount
+    db.commit()
+    return {"status": "success"}
+# =========================================================
+# 🔥 [NEW] 차세대 ArtDAO Co-creation 3단계 API 파이프라인
+# =========================================================
+
+# 🟢 [Step 1] 트렌드 추출 & 키워드 투표 시작
+@app.post("/api/admin/phase1-keywords")
+def start_phase1_keywords(session_id: str = "", db: Session = Depends(get_db)):
+    from app.models import RoundPhase
+    # 이전 라운드 전부 종료
+    db.query(models.Round).filter(models.Round.status != RoundPhase.ENDED).update({"status": RoundPhase.ENDED})
+    
+    last_round = db.query(models.Round).order_by(models.Round.round_number.desc()).first()
+    new_num = (last_round.round_number + 1) if last_round else 1
+    new_round = models.Round(round_number=new_num, status=RoundPhase.KEYWORD_VOTING)
+    db.add(new_round)
+    db.commit()
+
+    try:
+        res = requests.get(f"{AI_AGENT_URL}/api/agent/trends-keywords", timeout=30)
+        keywords = res.json().get("keywords", ["Cyberpunk", "Neon"])
+    except:
+        keywords = ["Cyberpunk", "Neon", "Seoul", "Cubism", "Space"]
+
+    for word in keywords[:10]:
+        db.add(models.Keyword(round_id=new_round.id, word=word.replace("#", "")))
+    db.commit()
+    return {"message": "Phase 1: 키워드 추출 완료", "round_id": new_round.id, "keywords": keywords}
+
+# 🟢 [Step 1.5] 프론트에서 유저가 선택한 키워드 서버로 저장
+class KeywordVoteReq(BaseModel):
+    round_id: int
+    selected_words: list[str]
+
+@app.post("/api/rounds/vote-keyword")
+def vote_keywords(req: KeywordVoteReq, db: Session = Depends(get_db)):
+    for word in req.selected_words:
+        kw = db.query(models.Keyword).filter(models.Keyword.round_id == req.round_id, models.Keyword.word == word).first()
+        if kw: kw.vote_count += 1
+    db.commit()
+    return {"status": "success"}
+
+# 🟢 [Step 2] 투표 결과로 그림 생성 & VP 투표 단계 전환
+# 🟢 [Step 2] 투표 결과로 그림 생성 (1등 3개, 2등 2개 = 총 5개)
+@app.post("/api/admin/phase2-generate")
+def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session = Depends(get_db)):
+    from app.models import RoundPhase
+    
+    if round_id == 0:
+        target_round = db.query(models.Round).order_by(desc(models.Round.id)).first()
+        if not target_round: raise HTTPException(status_code=404, detail="진행할 라운드가 없습니다.")
+        round_id = target_round.id
+    else:
+        target_round = db.query(models.Round).filter(models.Round.id == round_id).first()
+
+    target_round.status = RoundPhase.IMAGE_GENERATING
+    db.commit()
+
+    # 🔥 [수정됨] 1등 3개, 2등 2개 분배 로직! (Top 2 추출)
+    top_kws = db.query(models.Keyword).filter(models.Keyword.round_id == round_id).order_by(desc(models.Keyword.vote_count)).limit(2).all()
+    
+    keyword_distribution = {}
+    counts = [3, 2] # 1등 3개, 2등 2개
+    
+    for i, kw in enumerate(top_kws):
+        if i < len(counts):
+            keyword_distribution[kw.word] = counts[i]
+
+    # 💡 [안전 장치] 만약 유저들이 키워드를 1종류만 투표해서 1등 하나밖에 없다면 몰빵(5개) 해줍니다.
+    if len(keyword_distribution) == 1:
+        keyword_distribution[top_kws[0].word] = 5
+
+    try:
+        # AI에게 딕셔너리(예: {"Cyberpunk": 3, "Neon": 2})를 던져주면 알아서 총합(5개)을 계산해서 뽑아옵니다.
+        res = requests.post(f"{AI_AGENT_URL}/api/agent/generate-weighted-candidates", json={"weights": keyword_distribution, "session_id": session_id}, timeout=300)
+        ai_data = res.json().get("candidates", [])
+    except:
+        ai_data = [{"title": "임시", "description": "임시", "image_prompt": "digital art"}] * 5
+
+    CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
+    CF_API_TOKEN = os.getenv("CF_API_TOKEN")
+    cf_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/@cf/black-forest-labs/flux-1-schnell"
+    headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
+
+    candidate_uris = []
+    # AI가 만들어준 5개의 프롬프트를 차례대로 Cloudflare에 렌더링!
+    for idx, c_data in enumerate(ai_data, 1):
+        prompt = c_data.get("image_prompt", "digital art") + ", masterpiece"
+        try:
+            img_res = requests.post(cf_url, headers=headers, json={"prompt": prompt}, timeout=60)
+            if img_res.status_code == 200:
+                b64 = img_res.json()["result"]["image"]
+                img_bytes = base64.b64decode(b64)
+                filename = f"round{round_id}_c{idx}.png"
+                with open(f"static/images/{filename}", "wb") as f: f.write(img_bytes)
+                
+                image_url = f"http://13.125.234.38:8000/static/images/{filename}"
+                db.add(models.Candidate(
+                    round_id=round_id, title=c_data.get("title", f"작품 {idx}"), 
+                    description=c_data.get("description", ""), image_url=image_url, ipfs_hash="PENDING"
+                ))
+                candidate_uris.append(image_url)
+        except Exception as e: print("이미지 실패", e)
+
+    target_round.status = RoundPhase.CANDIDATE_VOTING
+    db.commit()
+
+    # 스마트 컨트랙트 라운드 시작
+    try:
+        if ADMIN_ACCOUNT:
+            dao_contract = get_dao_contract()
+            if dao_contract:
+                nonce = w3.eth.get_transaction_count(ADMIN_ACCOUNT.address)
+                tx = dao_contract.functions.startNewRound(7, candidate_uris).build_transaction({
+                    'chainId': 31337, 'gas': 3000000, 'gasPrice': w3.to_wei('1', 'gwei'), 'nonce': nonce,
+                })
+                signed_tx = w3.eth.account.sign_transaction(tx, private_key=ADMIN_PRIVATE_KEY)
+                w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+    except Exception as e: print(f"온체인 라운드 시작 에러: {e}")
+
+    return {"message": f"Phase 2: 총 {len(ai_data)}개 그림 생성 및 VP 투표 시작!"}
+
+
+# 🟢 [Step 3] 가치 평가 (가격 책정 전, 비평문만 받기)
+@app.post("/api/admin/phase3-valuation")
+def start_phase3_valuation(round_id: int = 0, session_id: str = "", db: Session = Depends(get_db)):
+    from app.models import RoundPhase
+    
+    # 💡 [NEW] 가장 최근 라운드 자동 선택
+    if round_id == 0:
+        target_round = db.query(models.Round).order_by(desc(models.Round.id)).first()
+        round_id = target_round.id
+    else:
+        target_round = db.query(models.Round).filter(models.Round.id == round_id).first()
+
+    winner = db.query(models.Candidate).filter(models.Candidate.round_id == round_id).order_by(desc(models.Candidate.vp_votes)).first()
+    
+    target_round.status = RoundPhase.VALUATION
+    winner.is_winner = True
+    db.commit()
+
+    try:
+        res = requests.post(f"{AI_AGENT_URL}/api/agent/evaluate-winner-only", json={"title": winner.title, "description": winner.description, "session_id": session_id}, timeout=60)
+        report = res.json().get("report", "훌륭한 작품입니다.")
+    except:
+        report = "비평문 에러"
+
+    return {"message": "Phase 3: 가치 평가 완료", "report": report}
+
+# 🟢 [Step 4] 유저 결산 (IPFS 영구 박제 및 스마트 컨트랙트 등록)
+class FinalizeReq(BaseModel):
+    round_id: int
+    price_tuk: int
+    duration_days: int
+
+@app.post("/api/admin/finalize")
+def finalize_round_to_chain(req: FinalizeReq, db: Session = Depends(get_db)):
+    from app.models import RoundPhase
+    target_round = db.query(models.Round).filter(models.Round.id == req.round_id).first()
+    winner = db.query(models.Candidate).filter(models.Candidate.round_id == req.round_id, models.Candidate.is_winner == True).first()
+
+    winner.auction_price = req.price_tuk
+    target_round.duration_days = req.duration_days
+    target_round.status = RoundPhase.ENDED
+    db.commit()
+    
+    # =========================================================
+    # 🚨 5. [핵심] 우승작 단 1개만 IPFS에 업로드하여 NFT 박제 준비!
+    # =========================================================
+    if winner.ipfs_hash == "PENDING" and "/static/images/" in winner.image_url:
+        try:
+            import urllib.parse
+            parsed_url = urllib.parse.urlparse(winner.image_url)
+            filepath = parsed_url.path.lstrip("/") 
+            if os.path.exists(filepath):
+                with open(filepath, "rb") as f:
+                    image_bytes = f.read()
+                uploaded_cid = upload_bytes_to_ipfs(image_bytes, filename=f"winner_round{req.round_id}.png")
+                if uploaded_cid:
+                    winner.ipfs_hash = f"ipfs://{uploaded_cid}"
+                    winner.image_url = f"https://gateway.pinata.cloud/ipfs/{uploaded_cid}"
+        except Exception as e: print(f"IPFS 업로드 실패: {e}")
+    
+    # 명예의 전당 등록
+    db.add(models.GalleryItem(title=winner.title, artist_address="ArtDAO Core AI", image_url=winner.image_url, description=winner.description))
+    db.commit()
+
+    # =========================================================
+    # 🚨 6. [핵심] 스마트 컨트랙트 마감 (블록체인 등록)
+    # =========================================================
+    try:
+        if ADMIN_ACCOUNT:
+            dao_contract = get_dao_contract()
+            if dao_contract:
+                nonce = w3.eth.get_transaction_count(ADMIN_ACCOUNT.address)
+                auction_price_wei = w3.to_wei(winner.auction_price, 'ether')
+                ipfs_uri = winner.ipfs_hash if winner.ipfs_hash != "PENDING" else winner.image_url
+
+                tx = dao_contract.functions.finalizeRound(auction_price_wei, ipfs_uri).build_transaction({
+                    'chainId': 31337, 'gas': 3000000, 'gasPrice': w3.to_wei('1', 'gwei'), 'nonce': nonce,
+                })
+                signed_tx = w3.eth.account.sign_transaction(tx, private_key=ADMIN_PRIVATE_KEY)
+                w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+    except Exception as e: print(f"온체인 라운드 마감 실패: {e}")
+
+    return {"message": "최종 결산 및 스마트 컨트랙트 등록 완료!"}

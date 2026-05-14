@@ -1201,3 +1201,63 @@ body {
     display: none;  /* 모바일에서는 시간 숨김 */
   }
 }
+/* =================================================================== */
+/* 🔥 [NEW] Co-creation (키워드 투표 & 결산) 커스텀 UI CSS            */
+/* =================================================================== */
+
+.co-creation-panel {
+  background: linear-gradient(145deg, #1A1A1A 0%, #151515 100%);
+  border: 1px solid #2A2A2A;
+  border-radius: 16px;
+  padding: 35px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+}
+
+/* 키워드 태그 컨테이너 */
+.keyword-tag-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+/* 키워드 태그 버튼 */
+.keyword-tag {
+  background: #0F0F0F;
+  color: #9CA3AF;
+  border: 1px solid #333;
+  padding: 12px 24px;
+  border-radius: 30px;
+  font-size: 1.05rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+}
+
+.keyword-tag:hover {
+  background: #2A2A2A;
+  border-color: #4B5563;
+  color: #F3F4F6;
+  transform: translateY(-2px);
+}
+
+.keyword-tag.active {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38BDF8;
+  border: 1px solid #38BDF8;
+  box-shadow: 0 0 15px rgba(56, 189, 248, 0.3);
+}
+
+/* AI 비평가 보고서 박스 */
+.critic-report-box {
+  background: rgba(251, 191, 36, 0.05);
+  border-left: 4px solid #FBBF24;
+  padding: 20px;
+  border-radius: 0 8px 8px 0;
+  color: #D1D5DB;
+  font-size: 1.05rem;
+  line-height: 1.8;
+  font-style: italic;
+  letter-spacing: 0.5px;
+}

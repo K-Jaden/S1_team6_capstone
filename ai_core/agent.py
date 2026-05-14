@@ -25,7 +25,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 # ==================================================================
 # 🔥 [NEW] 실시간 토론 스트리밍을 위한 글로벌 큐 매니저
 # ==================================================================
@@ -183,77 +182,43 @@ search_tool = SerperDevTool()
 # ==================================================================
 # 3. 에이전트 정의 (기존 그대로 유지)
 # ==================================================================
+# ==================================================================
+# 3. 에이전트 정의 (Co-creation 구조로 완벽 개편)
+# ==================================================================
+trends_agent = Agent(
+    role='트렌드 수집가',
+    goal='최신 글로벌 아트 뉴스 및 웹 트렌드를 스크래핑하여, 대중이 열광할 만한 예술 키워드를 수집한다.',
+    backstory='당신은 전 세계의 예술 트렌드와 밈(Meme)을 가장 빠르게 파악하는 트렌드 헌터입니다.',
+    tools=[search_tool], llm=llm_factual, max_iter=3, verbose=True
+)
+
 planner = Agent(
-    role='수석 전시 기획자',
-    goal='오늘의 글로벌 뉴스와 Market Insights 트렌드를 융합하여, 날카로운 시대적 통찰이 담긴 디지털 아트 컨셉 2가지를 기획한다. 반드시 한국어 제목과 한국어 설명을 포함한다.',
-    backstory='당신은 20년 경력의 베테랑 큐레이터입니다. 단순한 아이디어도 거시적인 예술 비전으로 확장시킵니다. 기획할 때는 반드시 search_tool로 오늘의 실제 뉴스를 먼저 검색한 뒤 작업을 시작합니다.',
-    tools=[search_tool],
-    llm=llm_creative,
-    allow_delegation=False,
-    max_iter=4,
-    max_rpm=5,
-    verbose=True
+    role='키워드 스토리텔러 (전시 기획자)',
+    goal='유저들이 투표한 Top 5 키워드와 가중치를 바탕으로, 이를 완벽하게 융합한 하나의 기가 막힌 스토리라인/컨셉을 기획한다.',
+    backstory='당신은 단순한 단어의 나열을 넘어, 가중치가 높은 키워드를 메인 테마로 삼아 시대를 관통하는 철학적 서사를 만들어내는 천재 기획자입니다.',
+    tools=[], llm=llm_creative, max_iter=3, verbose=True
 )
 
 painter = Agent(
-    role='수석 디지털 아티스트',
-    goal='기획자의 컨셉을 받아 각기 다른 화풍의 고품질 영문 image_prompt 2개를 작성하고, 반드시 순수 JSON 배열로만 출력한다.',
-    backstory='당신은 빛, 질감, 구도를 완벽하게 이해하는 디지털 아티스트입니다. 프롬프트에 한자, 중국어, 일본어가 절대 포함되지 않도록 철저히 통제합니다. 출력은 항상 JSON 배열만 작성하며 마크다운 코드블록(```json)을 절대 사용하지 않습니다.',
-    tools=[search_tool],
-    llm=llm_creative,
-    allow_delegation=False,
-    max_iter=4,
-    max_rpm=5,
-    verbose=True
+    role='가중치 프롬프터 (디지털 아티스트)',
+    goal='기획안을 바탕으로, 유저가 선택한 키워드의 투표율(가중치)이 실제 이미지에 정확히 반영되도록 정교한 5개의 영문 프롬프트를 작성한다.',
+    backstory='당신은 Midjourney 등 이미지 생성 AI의 가중치 문법(예: cyberpunk::4, neon::2)을 완벽하게 이해하고 있는 프롬프트 엔지니어입니다. 반드시 5개의 각기 다른 구도를 가진 프롬프트를 JSON 배열로 출력합니다.',
+    tools=[], llm=llm_creative, max_iter=3, verbose=True
 )
 
 critic = Agent(
-    role='수석 미술 비평가',
-    goal='작품을 미술사적 맥락과 객관적 데이터를 바탕으로 심층 분석하고 비평한다. 반드시 search_tool을 사용하여 실제 사례를 검색한 뒤 비평문을 작성한다.',
-    backstory='당신은 식견 높고 까칠한 비평가입니다. 주관적 감상이 아닌 검색된 객관적 사실을 근거로만 작품의 가치를 평가합니다. 할루시네이션은 절대 용납하지 않습니다.',
-    tools=[search_tool],
-    llm=llm_factual,
-    allow_delegation=False,
-    max_iter=4,
-    max_rpm=5,
-    verbose=True
-)
-
-auctioneer = Agent(
-    role='소더비 수석 경매사',
-    goal='비평가의 보고서와 득표수를 종합하여 최종 경매가를 산정한다. 반드시 search_tool로 유사 NFT 실제 낙찰가를 검색한 뒤 가격을 책정하며, 출력은 반드시 {"auction_price": 숫자, "report": "문자열"} 형태의 순수 JSON만 작성한다.',
-    backstory='당신은 세계 최고의 경매사입니다. 가격을 절대 임의로 지어내지 않습니다. 1 VP당 10~50 TUK 기준으로 시장 데이터와 곱하여 합리적인 가격을 책정합니다. 출력에 마크다운 코드블록(```json)을 절대 사용하지 않습니다.',
-    tools=[search_tool],
-    llm=llm_factual,
-    max_iter=4,
-    verbose=True,
-    max_rpm=5
+    role='가치 증명자 (미술 비평가)',
+    goal='우승작의 미학적, 상업적 가치(밈 가능성 포함)를 극대화하여 유저들이 가격을 높게 책정하도록 뽐뿌(?)를 넣는 비평문을 작성한다.',
+    backstory='당신은 시장의 흐름을 읽고 대중의 투심을 자극하는 최고의 비평가입니다. 절대 직접 가격을 책정하지 않으며, 오직 작품의 폭발적인 가치만을 증명합니다.',
+    tools=[search_tool], llm=llm_creative, max_iter=3, verbose=True
 )
 
 ai_curator = Agent(
     role='따뜻한 감성을 지닌 AI 큐레이터',
-    goal='관람객의 질문 유형을 파악하여 플랫폼 가이드, 미술 추천, 작품 해설 중 가장 적합한 답변을 제공한다. 세부 작품 해설이 필요하면 도슨트에게 위임한다.',
-    backstory='당신은 ArtDAO 전시관의 메인 AI 큐레이터입니다. 질문이 (1)플랫폼 사용법이면 직접 안내, (2)전반적 미술 추천이면 직접 답변, (3)특정 작가/기법 세부 해설이면 반드시 도슨트에게 위임합니다.',
-    tools=[],
-    llm=llm_chat,
-    allow_delegation=True,
-    max_iter=3,
-    max_rpm=5,
-    verbose=True
+    goal='관람객의 질문에 대해 플랫폼 이용법 안내 및 전반적인 미술 추천을 단독으로 전담한다.',
+    backstory='ArtDAO의 유일한 안내자입니다. 도슨트가 사라졌으므로 당신이 모든 해설과 안내를 책임집니다.',
+    tools=[], llm=llm_chat, allow_delegation=False, max_iter=3, verbose=True
 )
-
-ai_docent = Agent(
-    role='작품의 숨결을 전하는 AI 도슨트',
-    goal='특정 작품의 세부 묘사, 창작 배경, 예술사적 맥락을 생생하고 친절하게 전달한다.',
-    backstory='당신은 작품 해설 전문 도슨트입니다. 캔버스의 질감, 색채의 대비, 작가의 의도를 쉽고 감동적으로 설명합니다.',
-    tools=[],
-    llm=llm_chat,
-    allow_delegation=False,
-    max_iter=3,
-    verbose=True,
-    max_rpm=5
-)
-
 # ==================================================================
 # 4. Pydantic 모델 (기존 그대로 + session_id 추가)
 # ==================================================================
@@ -261,7 +226,6 @@ class PlanRequest(BaseModel): intent: str
 class WorkRequest(BaseModel): topic: str; style: str
 class ReviewRequest(BaseModel): art_info: str
 class PromoRequest(BaseModel): exhibition_title: str; target_audience: str
-class AuctionRequest(BaseModel): art_info: str; critic_review: str
 class DocentRequest(BaseModel): message: str; wallet_address: str = ""
 class A2AStudioRequest(BaseModel): intent: str; session_id: str = ""
 class WinnerData(BaseModel):
@@ -272,223 +236,6 @@ class WinnerData(BaseModel):
 class CandidateGenRequest(BaseModel):
     insights: dict = None
     session_id: str = ""  # 🔥 [NEW]
-
-# ==================================================================
-# 5. Botto DAO: 후보작 2개 생성 (🔥 스트리밍 콜백 적용)
-# ==================================================================
-@app.post("/api/agent/generate-candidates")
-def generate_candidates(req: CandidateGenRequest = None):
-    session_id = req.session_id if req and req.session_id else ""
-    print(f"🚀 [Agent] Market Insights 연동 2개 후보작 기획 가동... (session: {session_id})")
-
-    # 🔥 세션 큐 준비
-    if session_id and session_id not in discussion_queues:
-        discussion_queues[session_id] = Queue()
-
-    push_log(session_id, "시스템", "system", "🎨 새 라운드 후보작 기획 토론을 시작합니다!")
-
-    trend_keywords = ", ".join(req.insights.get("keywords", [])) if req and req.insights else "최신 기술 트렌드"
-    trend_styles_raw = req.insights.get("styles", []) if req and req.insights else []
-    trend_styles = ", ".join([s["name"] for s in trend_styles_raw]) if trend_styles_raw else "디지털 아트"
-
-    style_1 = trend_styles_raw[0]["name"] if len(trend_styles_raw) > 0 else "Surrealism, classic oil painting texture, Salvador Dali style, highly detailed masterpiece"
-    style_2 = trend_styles_raw[1]["name"] if len(trend_styles_raw) > 1 else "Geometric abstraction, highly detailed 3D render, architectural elements, sleek and modern"
-
-    push_log(session_id, "시스템", "system", f"📊 트렌드 데이터 로드 완료\n- 키워드: {trend_keywords}\n- 스타일: {trend_styles}")
-
-    task_plan = Task(
-        description=f"""
-        당신은 '현실의 이슈'를 디지털 예술로 승화시키는 천재 기획자입니다.
-        현재 ArtDAO 플랫폼의 Market Insights 데이터는 다음과 같습니다:
-        - 🔥 유행 키워드: {trend_keywords}
-        - 🎨 선호 스타일: {trend_styles}
-
-        다음 순서대로 작업하세요:
-        1. 반드시 search_tool을 사용하여 '오늘의 주요 글로벌 과학/IT 뉴스' 혹은 '사회적 논란' 중 하나를 검색하세요.
-        2. 검색한 실제 뉴스/이슈를 위의 유행 키워드와 선호 스타일에 완벽하게 융합하여 미술 작품 컨셉 2가지를 기획하세요.
-        3. 각 컨셉은 반드시 '한국어 제목'과 '한국어 작품 설명'을 포함해야 합니다.
-        """,
-        expected_output="Market Insights 트렌드와 오늘 뉴스가 융합된 2가지 컨셉 초안 (한국어 제목 + 한국어 설명 포함)",
-        agent=planner,
-        callback=make_task_callback(session_id, "수석 전시 기획자")  # 🔥 역할명 명시
-    )
-
-    task_format = Task(
-        description=f"""
-        기획자의 2가지 컨셉을 바탕으로 이미지 생성용 JSON 데이터를 작성하세요.
-        반드시 아래 구조의 순수 JSON 배열만 출력하세요. 마크다운(```json) 절대 금지.
-        설명, 사고 과정, 영어 분석 등 다른 텍스트는 절대 포함하지 마세요.
-        오직 [ 로 시작해서 ] 로 끝나는 JSON 배열만 출력하세요.
-
-        [아트 스타일 지침: 2개 작품의 화풍을 반드시 다르게!]
-        - 1번 작품 스타일: {style_1}
-        - 2번 작품 스타일: {style_2}
-
-        [출력 형식 - 이 형식 외 다른 텍스트 일절 금지]
-        [
-            {{
-                "title": "작품 제목 (한국어)",
-                "description": "작품 세계관 설명 (한국어)",
-                "image_prompt": "상세한 영문 이미지 생성 프롬프트"
-            }},
-            {{
-                "title": "작품 제목 (한국어)",
-                "description": "작품 세계관 설명 (한국어)",
-                "image_prompt": "상세한 영문 이미지 생성 프롬프트"
-            }}
-        ]
-        """,
-        expected_output='마크다운 없는 순수 JSON 배열만 출력. [ 로 시작해 ] 로 끝나는 형태. 사고 과정/설명문 절대 포함 금지.',
-        agent=painter,
-        context=[task_plan],
-        callback=make_task_callback(session_id, "수석 디지털 아티스트")  # 🔥 역할명 명시
-    )
-
-    crew = Crew(
-        agents=[planner, painter],
-        tasks=[task_plan, task_format],
-        process=Process.sequential,
-        verbose=True,
-        max_rpm=5,
-        step_callback=make_step_callback(session_id, "AI 에이전트")  # 🔥 step은 통합명
-    )
-
-    try:
-        result = crew.kickoff()
-        result_text = str(result).replace("```json", "").replace("```", "").strip()
-        
-        # 🔥 [강화v2] 텍스트에서 첫 번째 유효한 JSON 배열만 정확히 추출
-        candidates_data = None
-        decoder = json.JSONDecoder()
-        
-        # 첫 '[' 위치부터 시작해서 raw_decode로 정확히 한 개의 JSON만 파싱
-        for idx, ch in enumerate(result_text):
-            if ch == '[':
-                try:
-                    parsed, _ = decoder.raw_decode(result_text[idx:])
-                    if isinstance(parsed, list) and len(parsed) > 0:
-                        candidates_data = parsed
-                        print(f"📝 [Agent] JSON 배열 추출 성공 (위치: {idx}, 항목수: {len(parsed)})")
-                        break
-                except json.JSONDecodeError:
-                    continue  # 다음 '['에서 다시 시도
-        
-        if candidates_data is None:
-            # 폴백: 그래도 안 되면 원본 그대로 한번 더 시도
-            candidates_data = json.loads(result_text)
-        
-        if not isinstance(candidates_data, list) or len(candidates_data) == 0:
-            raise ValueError("유효한 후보작 배열이 아닙니다.")
-        
-        push_log(session_id, "시스템", "final", "🎉 토론 완료! 후보작 2개가 생성되었습니다.")
-        return {"candidates": candidates_data}
-    except (json.JSONDecodeError, ValueError) as e:
-        print(f"🔥 [Agent] JSON 파싱 실패, 폴백 데이터 사용: {e}")
-        push_log(session_id, "시스템", "error", f"⚠️ JSON 파싱 실패, 폴백 사용: {e}")
-        push_log(session_id, "시스템", "final", "🔄 폴백 데이터로 마무리합니다.")
-        return {
-            "candidates": [
-                {"title": "AI 기본 작품 1", "description": "AI가 생성한 기본 작품입니다.", "image_prompt": "surrealism digital art masterpiece, highly detailed"},
-                {"title": "AI 기본 작품 2", "description": "AI가 생성한 기본 작품입니다.", "image_prompt": "geometric 3D abstraction, sleek modern architecture render"}
-            ]
-        }
-    except Exception as e:
-        print(f"🔥 [Agent] 후보작 생성 실패: {e}")
-        push_log(session_id, "시스템", "error", f"🔥 치명적 에러: {e}")
-        push_log(session_id, "시스템", "final", "❌ 토론 중단")
-        raise HTTPException(status_code=500, detail="AI 후보작 생성 중 오류 발생")
-
-# ==================================================================
-# 6. Botto DAO: 우승작 가치 산정 (🔥 스트리밍 콜백 적용)
-# ==================================================================
-@app.post("/api/agent/evaluate-winner")
-def evaluate_winner(data: WinnerData):
-    session_id = data.session_id or ""
-    print(f"🚀 [Agent] 우승작 시장 가치 산정 토론 가동: {data.title} (득표: {data.vp_votes} VP) (session: {session_id})")
-
-    if session_id and session_id not in discussion_queues:
-        discussion_queues[session_id] = Queue()
-
-    push_log(session_id, "시스템", "system", f"🏆 우승작 가치 산정 토론 시작!\n- 작품: {data.title}\n- 득표: {data.vp_votes} VP")
-
-    task_eval_art = Task(
-        description=f"""
-        아래 작품을 분석하여 경매사에게 브리핑하세요.
-        - 제목: {data.title}
-        - 설명: {data.description}
-
-        반드시 search_tool을 사용하여 이 작품과 유사한 스타일의 실제 미술 평가나 대중적 반응을 검색하고,
-        검색된 객관적 사실을 근거로 미학적 가치를 평가하세요.
-        """,
-        expected_output="검색된 실제 레퍼런스가 포함된 작품 미학 평가 보고서",
-        agent=critic,
-        callback=make_task_callback(session_id, "수석 미술 비평가")  # 🔥
-    )
-
-    task_eval_price = Task(
-        description=f"""
-        비평가의 평가 보고서와 대중 투표수({data.vp_votes} VP)를 종합하여 최종 경매가를 산정하세요.
-
-        반드시 search_tool을 사용하여 '최근 유사한 NFT 또는 디지털 아트 실제 경매 낙찰가'를 검색하세요.
-        1 VP당 10~50 TUK 기준으로 시장 데이터와 결합하여 최종 가격을 계산하세요.
-
-        출력은 반드시 아래 형식의 순수 JSON만 작성하세요. 사고 과정, 영어 분석, 다른 텍스트 일절 금지.
-        오직 {{ 로 시작해서 }} 로 끝나는 JSON 객체만 출력하세요.
-        {{"auction_price": 숫자(정수), "report": "가격 산정 근거 요약 문자열"}}
-        """,
-        expected_output='순수 JSON 객체만 출력. {{ 로 시작해 }} 로 끝나는 형태. 다른 설명/사고 과정 절대 금지.',
-        agent=auctioneer,
-        context=[task_eval_art],
-        callback=make_task_callback(session_id, "소더비 수석 경매사")  # 🔥
-    )
-
-    crew = Crew(
-        agents=[critic, auctioneer],
-        tasks=[task_eval_art, task_eval_price],
-        process=Process.sequential,
-        verbose=True,
-        maxrpm=5,
-        step_callback=make_step_callback(session_id, "AI 에이전트")  # 🔥
-    )
-
-    try:
-        result = crew.kickoff()
-        result_text = str(result).replace("```json", "").replace("```", "").strip()
-        
-        # 🔥 [강화v2] 첫 번째 유효한 JSON 객체만 정확히 추출
-        evaluation_data = None
-        decoder = json.JSONDecoder()
-        
-        for idx, ch in enumerate(result_text):
-            if ch == '{':
-                try:
-                    parsed, _ = decoder.raw_decode(result_text[idx:])
-                    if isinstance(parsed, dict) and "auction_price" in parsed:
-                        evaluation_data = parsed
-                        print(f"📝 [Agent] 경매 JSON 추출 성공 (위치: {idx})")
-                        break
-                except json.JSONDecodeError:
-                    continue
-        
-        if evaluation_data is None:
-            evaluation_data = json.loads(result_text)
-        if "auction_price" not in evaluation_data:
-            evaluation_data["auction_price"] = data.vp_votes * 10
-        if "report" not in evaluation_data:
-            evaluation_data["report"] = "AI 보고서 파싱 실패로 기본가 책정"
-        
-        push_log(session_id, "시스템", "final", f"💰 최종 경매가 확정: {evaluation_data['auction_price']} TUK")
-        return evaluation_data
-    except (json.JSONDecodeError, ValueError) as e:
-        print(f"🔥 [Agent] JSON 파싱 실패, 폴백 사용: {e}")
-        push_log(session_id, "시스템", "final", f"⚠️ 파싱 오류, 기본가({data.vp_votes * 10} TUK) 적용")
-        return {"auction_price": data.vp_votes * 10, "report": "AI 파싱 오류로 기본가 책정"}
-    except Exception as e:
-        print(f"🔥 [Agent] 가치 산정 실패: {e}")
-        push_log(session_id, "시스템", "error", f"🔥 가치 산정 실패: {e}")
-        push_log(session_id, "시스템", "final", "❌ 토론 중단")
-        return {"auction_price": data.vp_votes * 10, "report": "AI 토론 오류로 기본가 책정"}
-
 # ==================================================================
 # 7. 실시간 마켓 인사이트 분석 (기존 그대로 유지)
 # ==================================================================
@@ -577,23 +324,6 @@ def create_promo(request: PromoRequest):
     )
     return {"promo_text": str(Crew(agents=[ai_curator], tasks=[task]).kickoff())}
 
-@app.post("/auction")
-def open_auction(request: AuctionRequest):
-    task = Task(
-        description=f"다음 비평문을 바탕으로 '{request.art_info}' 경매 리포트를 작성하세요.\n[비평문]: {request.critic_review}\nsearch_tool로 최근 실제 가격 동향을 검색하여 리포트에 포함하세요.",
-        expected_output="시장 데이터 기반 경매 리포트",
-        agent=auctioneer
-    )
-    return {"auction_report": str(Crew(agents=[auctioneer], tasks=[task]).kickoff())}
-
-@app.post("/docent")
-def start_tour(request: DocentRequest):
-    task = Task(
-        description=f"다음 작품에 대한 깊이 있는 해설을 작성하세요: '{request.message}'",
-        expected_output="관람객이 이해하기 쉬운 친절한 작품 해설",
-        agent=ai_docent
-    )
-    return {"commentary": str(Crew(agents=[ai_docent], tasks=[task]).kickoff())}
 
 @app.post("/studio/a2a-full")
 def a2a_full_studio(request: A2AStudioRequest):
@@ -659,7 +389,7 @@ def combined_chat(request: DocentRequest):
     )
     try:
         chat_crew = Crew(
-            agents=[ai_curator, ai_docent],
+            agents=[ai_curator],
             tasks=[task_chat],
             process=Process.sequential,
             verbose=True,
@@ -670,3 +400,108 @@ def combined_chat(request: DocentRequest):
     except Exception as e:
         print(f"🔥 [Chat] 에러: {e}")
         return {"reply": "앗, 큐레이터가 다른 관람객을 응대 중입니다. 잠시 후 다시 질문해 주세요!"}
+
+# ==================================================================
+# 🔥 [NEW] Co-Creation 3단계 전용 엔드포인트
+# ==================================================================
+
+# 🟢 [Phase 1] 트렌드 키워드 리스트 추출
+@app.get("/api/agent/trends-keywords")
+def get_trends_keywords():
+    try:
+        task_trend = Task(
+            description="현재 가장 뜨거운 디지털 아트, 기술 트렌드 키워드 15개를 1차원 JSON 배열로 추출하세요. (예: [\"사이버펑크\", \"입체파\"])",
+            expected_output='["키워드1", "키워드2", ...]',
+            agent=trends_agent # 🔥 트렌드 수집가 에이전트 투입!
+        )
+        crew = Crew(agents=[trends_agent], tasks=[task_trend])
+        res = str(crew.kickoff()).replace("```json", "").replace("```", "").strip()
+        return {"keywords": json.loads(res)}
+    except:
+        return {"keywords": ["Cyberpunk", "Minimalism", "Neon", "Space", "AI", "Dystopia", "Retro", "Surrealism"]}
+
+# 🟢 [Phase 2] 가중치 기반 후보작 5개 생성
+# 🟢 [Phase 2] 가중치 기반 후보작 생성 (1등 5개, 2등 3개, 3등 2개 = 총 10개)
+class WeightedCandidateRequest(BaseModel):
+    weights: dict  # 이제는 { "Cyberpunk": 5, "Neon": 3, "Space": 2 } 형태의 개수가 들어옴
+    session_id: str = ""
+
+@app.post("/api/agent/generate-weighted-candidates")
+def generate_weighted_candidates(req: WeightedCandidateRequest):
+    session_id = req.session_id
+    if session_id and session_id not in discussion_queues:
+        discussion_queues[session_id] = Queue()
+    
+    # weights 딕셔너리에는 키워드별 '생성 개수'가 들어있음
+    dist_str = ", ".join([f"'{k}' 테마 {v}개" for k, v in req.weights.items()])
+    total_count = sum(req.weights.values()) # 총 10개
+
+    push_log(session_id, "시스템", "system", f"🎨 유저 투표 반영 기획 시작: {dist_str} (총 {total_count}개)")
+    
+    task_plan = Task(
+        description=f"유저 투표 결과에 따라 다음 수량만큼 이미지를 기획해야 합니다: {dist_str}\n각 키워드의 철학적/시각적 핵심을 분석하고, 총 {total_count}개의 차별화된 예술 컨셉 스토리라인 초안을 한국어로 작성하세요.",
+        expected_output=f"{total_count}개의 컨셉 초안 (한국어)",
+        agent=planner, callback=make_task_callback(session_id, "키워드 스토리텔러")
+    )
+    
+    task_format = Task(
+        description=f"""기획안을 바탕으로 총 {total_count}개의 고해상도 영문 프롬프트를 작성하세요.
+        반드시 다음 수량을 정확히 지켜야 합니다: {dist_str}.
+        출력은 무조건 다음 구조의 '순수 JSON 배열'이어야 합니다:
+        [ 
+          {{"title": "한국어 제목1", "description": "설명1", "image_prompt": "Prompt 1"}}, 
+          ... (총 {total_count}개) 
+        ]""",
+        expected_output=f"후보작 {total_count}개가 담긴 순수 JSON 배열",
+        agent=painter, context=[task_plan], callback=make_task_callback(session_id, "가중치 프롬프터")
+    )
+
+    crew = Crew(agents=[planner, painter], tasks=[task_plan, task_format], process=Process.sequential)
+    try:
+        result_text = str(crew.kickoff()).replace("```json", "").replace("```", "").strip()
+        start_idx = result_text.find('[')
+        end_idx = result_text.rfind(']') + 1
+        candidates = json.loads(result_text[start_idx:end_idx])
+        push_log(session_id, "시스템", "final", f"🎉 토론 완료! 후보작 {len(candidates)}개 생성 완료.")
+        return {"candidates": candidates}
+    except Exception:
+        push_log(session_id, "시스템", "final", "⚠️ 파싱 에러 발생")
+        return {"candidates": [{"title": f"임시 아트 {i}", "description": "에러 복구됨", "image_prompt": "masterpiece, digital art"} for i in range(1, total_count + 1)]}
+
+# 🟢 [Phase 3] 우승작 가치 증명 (가격 책정 X)
+class WinnerEvalOnlyRequest(BaseModel):
+    title: str
+    description: str
+    session_id: str = ""
+
+@app.post("/api/agent/evaluate-winner-only")
+def evaluate_winner_only(req: WinnerEvalOnlyRequest):
+    session_id = req.session_id
+    if session_id and session_id not in discussion_queues:
+        discussion_queues[session_id] = Queue()
+    
+    push_log(session_id, "시스템", "system", f"🏆 우승작 가치 증명 시작: {req.title}")
+
+    task_eval = Task(
+        description=f"우승작 '{req.title}'({req.description})의 미학적, 상업적 가치(밈 잠재력 포함)를 극대화하는 강력한 비평문을 작성하세요. 유저가 가격을 높게 책정하도록 설득해야 합니다. **절대 당신이 직접 가격(숫자)을 책정하지 마세요.**",
+        expected_output="설득력 있는 비평문",
+        agent=critic, callback=make_task_callback(session_id, "가치 증명자")
+    )
+
+    crew = Crew(agents=[critic], tasks=[task_eval])
+    report = str(crew.kickoff())
+    push_log(session_id, "시스템", "final", "✅ 가치 증명 비평 완료")
+    
+    return {"report": report}
+
+# 🟢 [Chat 수정] 도슨트 삭제로 인한 큐레이터 단독 처리
+class ChatRequest(BaseModel): message: str; wallet_address: str = ""
+@app.post("/chat")
+def combined_chat(request: ChatRequest):
+    task_chat = Task(
+        description=f"사용자 질문: '{request.message}'\n관람객에게 따뜻하고 유용하게 안내 및 해설을 제공하세요.",
+        expected_output="친절한 답변 텍스트",
+        agent=ai_curator
+    )
+    res = str(Crew(agents=[ai_curator], tasks=[task_chat]).kickoff())
+    return {"reply": res}

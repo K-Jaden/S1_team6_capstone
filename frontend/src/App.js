@@ -52,6 +52,20 @@ function App() {
   const eventSourceRef = useRef(null);
   const discussionEndRef = useRef(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
+
+  // ==========================================
+  // 🔥 [NEW] Co-creation (Human-in-the-loop) 상태
+  // ==========================================
+  const [roundPhase, setRoundPhase] = useState("VOTING"); // "KEYWORD", "VOTING", "VALUATION"
+  
+  // Step 1: 키워드 투표 상태
+  const mockKeywords = ['Cyberpunk', 'Cubism', 'Seoul', 'Impressionism', 'Minimalism', 'Space', 'Dystopia', 'Neon'];
+  const [selectedKeywords, setSelectedKeywords] = useState([]);
+  
+  // Step 2: 결산 및 가치 책정 상태
+  const [valuationPrice, setValuationPrice] = useState("");
+  const [valuationDuration, setValuationDuration] = useState("7");
+  
   // ==========================================
   // 2. 초기화 및 지갑 연동
   // ==========================================
@@ -344,7 +358,46 @@ function App() {
     };
     return map[type] || type;
   };
+// ==========================================
+  // 🔥 [NEW] Step 1. 트렌드 키워드 추출 & 새 라운드 생성 API
+  // ==========================================
+  const handleStartPhase1 = async () => {
+    setIsLoading(true);
+    setLoadingStatus("🤖 AI가 새로운 라운드 테마를 탐색 중입니다...");
+    try {
+      const res = await axios.post(`${API_URL}/api/admin/phase1-keywords`);
+      setRoundPhase("KEYWORD"); // 화면 전환
+      fetchCurrentRound();      // 방금 생성된 라운드 정보 불러오기
+      setLoadingStatus("✅ 새 라운드가 생성되었습니다!");
+      setTimeout(() => {
+        alert(res.data.message);
+        setIsLoading(false);
+        setLoadingStatus("");
+      }, 500);
+    } catch (err) {
+      console.error(err);
+      alert("새 라운드 생성에 실패했습니다.");
+      setIsLoading(false);
+      setLoadingStatus("");
+    }
+  };
 
+  // ==========================================
+  // 🔥 [NEW] Step 1.5. 유저 키워드 투표 백엔드 전송 API
+  // ==========================================
+  const submitKeywordVote = async () => {
+    if (!currentRound) return alert("진행 중인 라운드가 없습니다.");
+    try {
+      await axios.post(`${API_URL}/api/rounds/vote-keyword`, {
+        round_id: currentRound.id,
+        selected_words: selectedKeywords
+      });
+      alert(`[${selectedKeywords.join(', ')}] 투표 완료! \n\n상단의 'Step 2' 버튼을 눌러 그림을 렌더링하세요.`);
+    } catch (err) {
+      console.error(err);
+      alert("키워드 투표 실패");
+    }
+  };
   // ==========================================
   // 4. 관리자 데모 함수 (🔥 SSE 연동)
   // ==========================================
@@ -373,9 +426,10 @@ function App() {
       }, 15000);
 
       try {
-          // 🔥 [NEW] 2단계: session_id 쿼리 파라미터로 같이 전달
-          const res = await axios.post(`${API_URL}/api/admin/generate-round`, null, {
-              params: { session_id: sessionId }
+          // 🔥 [수정] 옛날 URL(generate-round)을 새 URL(phase2-generate)로 변경!
+          const targetRoundId = currentRound ? currentRound.id : 0;
+          const res = await axios.post(`${API_URL}/api/admin/phase2-generate`, null, {
+              params: { round_id: targetRoundId, session_id: sessionId }
           });
           clearInterval(interval);
           setLoadingStatus("✅ 라운드 생성 완료!");
@@ -385,7 +439,7 @@ function App() {
              setIsLoading(false);
              setLoadingStatus("");
           }, 500);
-      } catch (err) { 
+      } catch (err) {
           clearInterval(interval);
           alert(err.response?.data?.detail || "생성 실패"); 
           setIsLoading(false);
@@ -417,19 +471,22 @@ function App() {
       }, 5000);
 
       try {
-          const res = await axios.post(`${API_URL}/api/admin/end-round`, null, {
-              params: { session_id: sessionId }
+          // 🔥 [수정] 옛날 URL(end-round)을 새 URL(phase3-valuation)로 변경!
+          const targetRoundId = currentRound ? currentRound.id : 0;
+          const res = await axios.post(`${API_URL}/api/admin/phase3-valuation`, null, {
+              params: { round_id: targetRoundId, session_id: sessionId }
           });
           clearInterval(interval);
           setLoadingStatus("✅ 결산 완료!");
           setTimeout(() => {
-              alert(`🏆 1등 우승작: ${res.data.winner_title}\n💰 AI 책정가: ${res.data.auction_price} TUK\n\n${res.data.message}`);
+              // 🔥 [수정] 팝업창 메시지도 비평가 리포트를 띄우도록 변경
+              alert(`🏆 가치 평가 완료!\n\n📜 비평가 리포트:\n${res.data.report}`);
               fetchCurrentRound(); 
               fetchGallery();
               setIsLoading(false);
               setLoadingStatus("");
           }, 500);
-      } catch (err) { 
+      } catch (err) {
           clearInterval(interval);
           alert("라운드 종료 실패"); 
           setIsLoading(false);
@@ -627,89 +684,185 @@ function App() {
             <div className="proposals-header-wrap" style={{borderBottom: 'none', marginBottom: '10px'}}>
                 <div>
                     <h2 style={{fontFamily: "'Playfair Display', serif", fontSize: "2.5rem", margin: 0}}>🗳️ Curate the Masterpiece</h2>
-                    <p style={{color: '#9CA3AF', marginTop: '10px', fontSize: '1rem'}}>AI가 창작한 후보작 중, 최고의 가치를 지닌 작품에 VP(투표력)를 투자하세요.</p>
+                    <p style={{color: '#9CA3AF', marginTop: '10px', fontSize: '1rem'}}>AI와 함께 예술의 방향성을 정하고, 최고의 가치를 지닌 작품에 투자하세요.</p>
                 </div>
             </div>
 
+            {/* 🔥 관리자 데모 패널 (Phase 전환용) */}
             <div className="admin-demo-panel">
                 <div>
-                    <strong style={{color: '#EF4444'}}>⚙️ Admin Demo Controls</strong>
-                    <span style={{color: '#F87171', fontSize: '0.85rem', marginLeft: '10px'}}>(시연용 제어판)</span>
+                    <strong style={{color: '#EF4444'}}>⚙️ Admin Pipeline Controls</strong>
+                    <span style={{color: '#F87171', fontSize: '0.85rem', marginLeft: '10px'}}>(파이프라인 테스트)</span>
                 </div>
                 <div style={{display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap'}}>
-                    <button onClick={handleGenerateRoundDemo} disabled={isLoading} style={{background: '#B91C1C', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
-                        {isLoading ? "AI 생성 중..." : "1. 새 라운드 (AI 2개 생성)"}
+                    <button onClick={handleStartPhase1} style={{background: roundPhase === "KEYWORD" ? '#F59E0B' : '#4B5563', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
+                        Step 1. 트렌드 추출
                     </button>
-                    <button onClick={handleEndRoundDemo} disabled={isLoading} style={{background: '#991B1B', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
-                        2. 투표 마감 및 결산
+                    <button onClick={() => { setRoundPhase("VOTING"); handleGenerateRoundDemo(); }} style={{background: roundPhase === "VOTING" ? '#3B82F6' : '#4B5563', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
+                        Step 2. 그림 생성 & 투표
                     </button>
-                    {/* 🔥 [NEW] 토론창 다시 열기 버튼 */}
+                    <button onClick={() => setRoundPhase("VALUATION")} style={{background: roundPhase === "VALUATION" ? '#10B981' : '#4B5563', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
+                        Step 3. 결산 (가치 책정)
+                    </button>
+                    
                     {discussionLogs.length > 0 && !showDiscussion && (
                         <button onClick={() => setShowDiscussion(true)} style={{background: '#7C3AED', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
-                            💬 직전 토론 다시보기
+                            💬 직전 토론 보기
                         </button>
                     )}
                     {loadingStatus && <span style={{color: '#38BDF8', fontSize: '0.9rem', marginLeft: '10px'}}>{loadingStatus}</span>}
                 </div>
             </div>
 
-            {currentRound ? (
+            {/* ========================================== */}
+            {/* 🟢 PHASE 1: 키워드 투표 화면 */}
+            {/* ========================================== */}
+            {roundPhase === "KEYWORD" && (
+                <div className="co-creation-panel fade-in">
+                    <h3 style={{ color: '#38BDF8', marginBottom: '10px', fontSize: '1.4rem' }}>🔥 1. 예술의 방향성을 결정해주세요</h3>
+                    <p style={{ color: '#9CA3AF', marginBottom: '20px' }}>AI 트렌드 수집가가 가져온 키워드입니다. 이번 라운드에 반영할 키워드를 최대 3개 선택하세요.</p>
+                    
+                    <div className="keyword-tag-container">
+                        {mockKeywords.map((word) => (
+                        <button
+                            key={word}
+                            className={`keyword-tag ${selectedKeywords.includes(word) ? 'active' : ''}`}
+                            onClick={() => {
+                                if (selectedKeywords.includes(word)) {
+                                    setSelectedKeywords(selectedKeywords.filter(k => k !== word));
+                                } else if (selectedKeywords.length < 3) {
+                                    setSelectedKeywords([...selectedKeywords, word]);
+                                }
+                            }}
+                        >
+                            #{word}
+                        </button>
+                        ))}
+                    </div>
+                    
+                    {/* ⭕ 수정 후: 진짜로 유저 투표 DB에 전송 */}
+                    <button 
+                        className="glow-btn" 
+                        disabled={selectedKeywords.length === 0}
+                        onClick={submitKeywordVote}
+                        style={{ marginTop: '20px', width: 'auto', padding: '12px 30px' }}
+                    >
+                        선택한 키워드로 투표 완료하기
+                    </button>
+                </div>
+            )}
+
+            {/* ========================================== */}
+            {/* 🟢 PHASE 2: 기존 후보작 투표 화면 */}
+            {/* ========================================== */}
+            {roundPhase === "VOTING" && (
                 <>
                     <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0F0F0F', padding: '15px 20px', borderRadius: '12px', border: '1px solid #2A2A2A', marginBottom: '20px'}}>
-                        <span style={{color: '#38BDF8', fontWeight: 'bold', fontSize: '1.1rem'}}>🟢 Round #{currentRound.round_number} 진행 중</span>
+                        <span style={{color: '#38BDF8', fontWeight: 'bold', fontSize: '1.1rem'}}>🟢 Round #{currentRound?.round_number || "X"} 작품 투표 중</span>
                         <span style={{color: '#9CA3AF'}}>이번 라운드 잔여 투표력(VP): <strong style={{color: 'white'}}>{myInfo.balance} VP</strong></span>
                     </div>
 
-                    <div className="candidate-grid">
-    {currentRound.candidates.map(candidate => (
-        <div key={candidate.id} className="candidate-card" onClick={() => openCandidateModal(candidate)} style={{cursor: 'pointer'}}>
-            <div className="candidate-img-box">
-            	<img src={getImageUrl(candidate.image_url)} alt={candidate.title} />
-	    </div>
-            <div className="candidate-info">
-                <h3 className="candidate-title">{candidate.title}</h3>
-                <p className="candidate-desc" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                    {candidate.description}
-                </p>
-                
-                <div className="candidate-stats">
-                    <span style={{color: '#6B7280', fontSize: '0.9rem'}}>현재 누적 투자금</span>
-                    <span className="vp-count">{candidate.vp_votes} VP</span>
-                </div>
+                    {currentRound && currentRound.candidates && currentRound.candidates.length > 0 ? (
+                        <div className="candidate-grid">
+                            {currentRound.candidates.map(candidate => (
+                                <div key={candidate.id} className="candidate-card" onClick={() => openCandidateModal(candidate)} style={{cursor: 'pointer'}}>
+                                    <div className="candidate-img-box">
+                                        <img src={getImageUrl(candidate.image_url)} alt={candidate.title} />
+                                    </div>
+                                    <div className="candidate-info">
+                                        <h3 className="candidate-title">{candidate.title}</h3>
+                                        <p className="candidate-desc">{candidate.description}</p>
+                                        
+                                        <div className="candidate-stats">
+                                            <span style={{color: '#6B7280', fontSize: '0.9rem'}}>현재 누적 투자금</span>
+                                            <span className="vp-count">{candidate.vp_votes} VP</span>
+                                        </div>
 
-                <div className="vote-action-box" onClick={(e) => e.stopPropagation()}> 
-                    <input 
-                        type="number" 
-                        className="vp-input" 
-                        placeholder="VP 입력" 
-                        min="1"
-                        value={vpInputs[candidate.id] || ""}
-                        onKeyDown={(e) => {
-                            if (["-", "+", "e", "E"].includes(e.key)) e.preventDefault();
-                        }}
-                        onChange={(e) => {
-                            const val = e.target.value;
-                            if (val === "" || parseInt(val) > 0) {
-                                setVpInputs({...vpInputs, [candidate.id]: val});
-                            }
-                        }}
-                    />
-                    <button className="vote-btn" onClick={() => handleVote(candidate.id)}>투자하기</button>
-                </div>
-            </div>
-        </div>
-    ))}
-</div>                </>
-            ) : (
-                <div style={{textAlign: 'center', padding: '80px 20px', background: '#1A1A1A', borderRadius: '16px', border: '1px dashed #2A2A2A'}}>
-                    <span style={{fontSize: '3rem'}}>😴</span>
-                    <h3 style={{color: '#D1D5DB', marginTop: '20px'}}>현재 진행 중인 큐레이션 라운드가 없습니다.</h3>
-                    <p style={{color: '#6B7280'}}>관리자 패널에서 새로운 라운드를 생성해 주세요.</p>
+                                        <div className="vote-action-box" onClick={(e) => e.stopPropagation()}> 
+                                            <input 
+                                                type="number" 
+                                                className="vp-input" 
+                                                placeholder="VP 입력" 
+                                                min="1"
+                                                value={vpInputs[candidate.id] || ""}
+                                                onChange={(e) => setVpInputs({...vpInputs, [candidate.id]: e.target.value})}
+                                            />
+                                            <button className="vote-btn" onClick={() => handleVote(candidate.id)}>투자하기</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div style={{textAlign: 'center', padding: '80px 20px', background: '#1A1A1A', borderRadius: '16px', border: '1px dashed #2A2A2A'}}>
+                            <p style={{color: '#6B7280'}}>현재 생성된 작품이 없습니다. 'Step 2' 버튼을 눌러주세요.</p>
+                        </div>
+                    )}
+                </>
+            )}
+
+            {/* ========================================== */}
+            {/* 🟢 PHASE 3: 우승작 가치 평가 및 결산 화면 */}
+            {/* ========================================== */}
+            {roundPhase === "VALUATION" && (
+                <div className="co-creation-panel fade-in" style={{ display: 'flex', gap: '30px' }}>
+                    
+                    {/* 왼쪽: AI 비평가 보고서 */}
+                    <div style={{ flex: 1.5, background: '#0F0F0F', padding: '25px', borderRadius: '12px', border: '1px solid #2A2A2A' }}>
+                        <h3 style={{ color: '#FBBF24', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span>🔍</span> 수석 미술 비평가의 가치 평가
+                        </h3>
+                        <div className="critic-report-box">
+                            "이 작품은 유저들이 선택한 'Cyberpunk'와 'Seoul'의 키워드를 완벽하게 융합했습니다. 
+                            차가운 네온 불빛 속에 담긴 인간의 고립감을 르네상스적 구도로 표현하여 미학적 가치가 매우 뛰어납니다. 
+                            웹3 커뮤니티에서 밈(Meme)으로 소비될 잠재력도 높아 높은 상업적 가치를 지닙니다."
+                        </div>
+                        <p style={{ color: '#6B7280', fontSize: '0.9rem', marginTop: '15px' }}>
+                            * 위 보고서를 참고하여 아래 폼에서 최종 판매 가격과 기한을 결정해주세요.
+                        </p>
+                    </div>
+
+                    {/* 오른쪽: 유저 가격 책정 폼 */}
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                        <h3 style={{ color: '#fff', margin: '0 0 10px 0' }}>💰 최종 결산 및 컨트랙트 등록</h3>
+                        <label style={{ color: '#9CA3AF', fontSize: '0.95rem' }}>
+                            희망 시작가 (TUK 토큰)
+                            <input 
+                                type="number" 
+                                className="glass-input" 
+                                value={valuationPrice} 
+                                onChange={(e) => setValuationPrice(e.target.value)} 
+                                placeholder="예: 1000" 
+                                style={{ marginTop: '8px' }}
+                            />
+                        </label>
+                        
+                        <label style={{ color: '#9CA3AF', fontSize: '0.95rem' }}>
+                            경매 진행 기한
+                            <select 
+                                className="glass-input" 
+                                value={valuationDuration} 
+                                onChange={(e) => setValuationDuration(e.target.value)} 
+                                style={{ marginTop: '8px', cursor: 'pointer' }}
+                            >
+                                <option value="3">3일</option>
+                                <option value="7">7일 (권장)</option>
+                                <option value="14">14일</option>
+                            </select>
+                        </label>
+
+                        <button 
+                            className="glow-btn" 
+                            style={{ marginTop: 'auto', background: '#10B981', color: 'white' }}
+                            onClick={() => alert(`가격: ${valuationPrice} TUK, 기한: ${valuationDuration}일\n스마트 컨트랙트에 민팅 및 등록 요청을 보냅니다!`)}
+                        >
+                            이 조건으로 블록체인에 등록
+                        </button>
+                    </div>
                 </div>
             )}
           </div>
         )}
-
         {/* Hall of Fame */}
         {activeTab === "gallery" && (
             <div className="page fade-in">
