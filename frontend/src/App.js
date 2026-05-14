@@ -334,29 +334,21 @@ function App() {
     setIsDiscussing(false);
   };
 
-  // 에이전트별 아바타/색상 매핑
+ // 에이전트별 아바타/색상 매핑
   const getAgentStyle = (agentRole) => {
     const map = {
-      "수석 전시 기획자":     { icon: "🎨", color: "#A78BFA", bg: "rgba(167, 139, 250, 0.1)" },
-      "수석 디지털 아티스트": { icon: "🖌️", color: "#F472B6", bg: "rgba(244, 114, 182, 0.1)" },
-      "수석 미술 비평가":     { icon: "🔍", color: "#FBBF24", bg: "rgba(251, 191, 36, 0.1)" },
-      "소더비 수석 경매사":   { icon: "💰", color: "#34D399", bg: "rgba(52, 211, 153, 0.1)" },
-      "시스템":               { icon: "⚙️", color: "#60A5FA", bg: "rgba(96, 165, 250, 0.1)" },
+      "트렌드 수집가":     { icon: "📡", color: "#34D399", bg: "rgba(52, 211, 153, 0.1)" }, // 에메랄드
+      "키워드 스토리텔러": { icon: "✍️", color: "#A78BFA", bg: "rgba(167, 139, 250, 0.1)" }, // 보라색
+      "가중치 프롬프터":   { icon: "💻", color: "#F472B6", bg: "rgba(244, 114, 182, 0.1)" }, // 핑크색
+      "가치 증명자":       { icon: "📈", color: "#FBBF24", bg: "rgba(251, 191, 36, 0.1)" }, // 노란색
+      "AI 큐레이터":       { icon: "💬", color: "#10B981", bg: "rgba(16, 185, 129, 0.1)" }, // 진한 초록
+      "시스템":            { icon: "⚙️", color: "#60A5FA", bg: "rgba(96, 165, 250, 0.1)" }, // 파란색
     };
-    return map[agentRole] || { icon: "🤖", color: "#9CA3AF", bg: "rgba(156, 163, 175, 0.1)" };
-  };
 
-  const getLogTypeLabel = (type) => {
-    const map = {
-      "thought":       "💭 사고 중",
-      "action":        "🔧 도구 사용",
-      "output":        "📝 출력",
-      "task_complete": "✅ 작업 완료",
-      "system":        "ℹ️ 시스템",
-      "error":         "⚠️ 에러",
-      "final":         "🏁 토론 종료"
-    };
-    return map[type] || type;
+    // 💡 넘어온 이름에 위 키워드가 포함되어 있으면 해당 스타일을 반환
+    const foundKey = Object.keys(map).find(key => agentRole && agentRole.includes(key));
+    
+    return foundKey ? map[foundKey] : { icon: "🤖", color: "#9CA3AF", bg: "rgba(156, 163, 175, 0.1)" };
   };
 // ==========================================
   // 🔥 [NEW] Step 1. 트렌드 키워드 추출 & 새 라운드 생성 API
