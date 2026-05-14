@@ -59,7 +59,6 @@ function App() {
   const [roundPhase, setRoundPhase] = useState("VOTING"); // "KEYWORD", "VOTING", "VALUATION"
   
   // Step 1: 키워드 투표 상태
-  const mockKeywords = ['Cyberpunk', 'Cubism', 'Seoul', 'Impressionism', 'Minimalism', 'Space', 'Dystopia', 'Neon'];
   const [selectedKeywords, setSelectedKeywords] = useState([]);
   
   // Step 2: 결산 및 가치 책정 상태
@@ -715,7 +714,8 @@ function App() {
                     <p style={{ color: '#9CA3AF', marginBottom: '20px' }}>AI 트렌드 수집가가 가져온 키워드입니다. 이번 라운드에 반영할 키워드를 최대 3개 선택하세요.</p>
                     
                     <div className="keyword-tag-container">
-                        {mockKeywords.map((word) => (
+                        {/* 🔥 백엔드가 넘겨준 '진짜 AI 키워드'가 있을 때만 화면에 그리기! */}
+                        {currentRound && currentRound.keywords && currentRound.keywords.map((word) => (
                         <button
                             key={word}
                             className={`keyword-tag ${selectedKeywords.includes(word) ? 'active' : ''}`}

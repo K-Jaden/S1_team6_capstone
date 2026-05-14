@@ -31,7 +31,7 @@ except:
     ADMIN_ACCOUNT = None
 
 def get_dao_contract():
-    try:
+    try: 
         base_dir = os.path.dirname(os.path.abspath(__file__))
         with open(os.path.join(base_dir, "contract_address.json"), "r") as f:
             dao_address = json.load(f)["ArtPlanningDAO"]
@@ -471,14 +471,27 @@ def get_market_insights():
 # =========================================================
 # 🌟 [복구] 프론트엔드 화면 표시 및 투표용 필수 API
 # =========================================================
+# =========================================================
+# 🌟 [복구/수정] 프론트엔드 화면 표시 및 투표용 필수 API
+# =========================================================
 @app.get("/api/rounds/current")
 def get_current_round(db: Session = Depends(get_db)):
     from app.models import RoundPhase
-    # 상태가 ENDED가 아닌 가장 최근 라운드를 찾아 프론트엔드로 반환
+    # 상태가 ENDED가 아닌 가장 최근 라운드를 찾음
     active = db.query(models.Round).filter(models.Round.status != RoundPhase.ENDED).order_by(desc(models.Round.id)).first()
     if not active: 
         raise HTTPException(status_code=404, detail="진행 중인 라운드가 없습니다.")
-    return active
+    
+    # 🔥 [NEW] DB에 저장된 이번 라운드의 '진짜 키워드'들 찾아서 같이 묶어주기!
+    keywords = db.query(models.Keyword).filter(models.Keyword.round_id == active.id).all()
+    
+    return {
+        "id": active.id,
+        "round_number": active.round_number,
+        "status": active.status,
+        "candidates": active.candidates,
+        "keywords": [k.word for k in keywords] # 프론트엔드가 쓸 수 있게 리스트로 전달
+    }
 
 @app.get("/api/rounds/ended")
 def get_ended_rounds(db: Session = Depends(get_db)):
