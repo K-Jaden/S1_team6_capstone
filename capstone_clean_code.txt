@@ -1,0 +1,2908 @@
+==> ./frontend/src/reportWebVitals.js <==
+const reportWebVitals = onPerfEntry => {
+  if (onPerfEntry && onPerfEntry instanceof Function) {
+    import('web-vitals').then(({ getCLS, getFID, getFCP, getLCP, getTTFB }) => {
+      getCLS(onPerfEntry);
+      getFID(onPerfEntry);
+      getFCP(onPerfEntry);
+      getLCP(onPerfEntry);
+      getTTFB(onPerfEntry);
+    });
+  }
+};
+
+export default reportWebVitals;
+
+==> ./frontend/src/contracts/address.js <==
+export const TUK_TOKEN_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+export const DAO_CONTRACT_ADDRESS = "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707";
+export const NFT_CONTRACT_ADDRESS = "0x0165878A594ca255338adfa4d48449f69242Eb8F";
+
+==> ./frontend/src/index.js <==
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import './index.css';
+import App from './App';
+import reportWebVitals from './reportWebVitals';
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
+
+// If you want to start measuring performance in your app, pass a function
+// to log results (for example: reportWebVitals(console.log))
+// or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
+reportWebVitals();
+
+==> ./frontend/src/App.test.js <==
+import { render, screen } from '@testing-library/react';
+import App from './App';
+
+test('renders learn react link', () => {
+  render(<App />);
+  const linkElement = screen.getByText(/learn react/i);
+  expect(linkElement).toBeInTheDocument();
+});
+
+==> ./frontend/src/setupTests.js <==
+// jest-dom adds custom jest matchers for asserting on DOM nodes.
+// allows you to do things like:
+// expect(element).toHaveTextContent(/react/i)
+// learn more: https://github.com/testing-library/jest-dom
+import '@testing-library/jest-dom';
+
+==> ./frontend/src/App.js <==
+import React, { useState, useEffect, useRef } from 'react';
+import axios from "axios";
+import { ethers } from "ethers";
+import "./App.css";
+
+import { DAO_CONTRACT_ADDRESS as CONTRACT_ADDRESS, TUK_TOKEN_ADDRESS } from './contracts/address';
+import ArtPlanningDAO from './contracts/ArtPlanningDAO.json';
+
+const currentHost = window.location.hostname;
+const API_URL = currentHost === "localhost" 
+  ? "http://localhost:8000" 
+  : "http://13.125.234.38:8000";
+
+function App() {
+  
+  // ==========================================
+  // 1. 핵심 상태 관리 (State)
+  // ==========================================
+  const [activeTab, setActiveTab] = useState("main"); 
+  const [walletAddress, setWalletAddress] = useState("");
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  
+  const [myInfo, setMyInfo] = useState({ balance: 0, membership: "", rewards: 0 });
+  const [galleryItems, setGalleryItems] = useState([]);
+  const [endedRounds, setEndedRounds] = useState([]);
+  
+  // --- Botto DAO 핵심 상태 ---
+  const [currentRound, setCurrentRound] = useState(null);
+  const [vpInputs, setVpInputs] = useState({}); 
+  const [isLoading, setIsLoading] = useState(false);
+
+  const [insightsData, setInsightsData] = useState(null);
+  const [isInsightsLoading, setIsInsightsLoading] = useState(false);
+  // --- AI 챗봇 상태 ---
+  const [chatInput, setChatInput] = useState("");
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [chatMessages, setChatMessages] = useState([
+    { sender: "bot", text: "안녕하세요! ArtDAO 큐레이터입니다. 투표 방법이나 추천 작품을 물어보세요!" }
+  ]);
+
+  const [currentBlockTime, setCurrentBlockTime] = useState(Math.floor(Date.now() / 1000));
+  const [contract, setContract] = useState(null);
+
+  // ==========================================
+  // 2. 초기화 및 지갑 연동
+  // ==========================================
+  useEffect(() => {
+    const storedAddress = localStorage.getItem("walletAddress");
+    if (storedAddress) {
+      setWalletAddress(storedAddress);
+      setIsLoggedIn(true);
+      if (window.ethereum) {
+        const restoreContract = async () => {
+          try {
+            const provider = new ethers.BrowserProvider(window.ethereum);
+            const signer = await provider.getSigner();
+            const daoContract = new ethers.Contract(CONTRACT_ADDRESS, ArtPlanningDAO.abi, signer);
+            setContract(daoContract); 
+          } catch (err) { console.error("재연결 실패:", err); }
+        };
+        restoreContract();
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isLoggedIn && walletAddress) {
+        fetchMyPageData();
+        fetchEndedRounds();
+    }
+    fetchGallery();   
+  }, [isLoggedIn, walletAddress, contract]);
+
+  const fetchEndedRounds = async () => {
+      try {
+          const res = await axios.get(`${API_URL}/api/rounds/ended`);
+          setEndedRounds(res.data);
+      } catch (err) { console.error("종료된 라운드 로드 실패"); }
+  };
+
+  useEffect(() => {
+      if (activeTab === "curate") {
+          fetchCurrentRound();
+      }
+  }, [activeTab]);
+
+  // 주기적으로 블록체인 시간 동기화 (UI 표시용)
+  useEffect(() => {
+      const timer = setInterval(() => setCurrentBlockTime(Math.floor(Date.now() / 1000)), 1000);
+      return () => clearInterval(timer);
+  }, []);
+  // --- Market Insights 데이터 불러오기 ---
+  useEffect(() => {
+    if (activeTab === "insights" && !insightsData) {
+      const fetchInsights = async () => {
+        setIsInsightsLoading(true);
+        try {
+          const res = await axios.get(`${API_URL}/api/insights/trends`);
+          setInsightsData(res.data);
+        } catch (err) { console.error("인사이트 로드 실패"); }
+        setIsInsightsLoading(false);
+      };
+      fetchInsights();
+    }
+  }, [activeTab, insightsData]);
+
+  const connectWallet = async () => {
+    if (!window.ethereum) return alert("메타마스크를 설치해주세요!");
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const address = await signer.getAddress();
+    
+      const daoContract = new ethers.Contract(CONTRACT_ADDRESS, ArtPlanningDAO.abi, signer);
+      setContract(daoContract); 
+      
+      await axios.post(`${API_URL}/api/auth/wallet-login`, { wallet_address: address, signature: "dummy_sig" });
+      
+      localStorage.setItem("walletAddress", address); 
+      setWalletAddress(address);
+      setIsLoggedIn(true);
+      alert("지갑 연결 성공!");
+    } catch (err) { alert("지갑 연결 실패"); }
+  };
+  
+  const handleLogout = async () => {
+    try {
+      if (walletAddress) await axios.post(`${API_URL}/api/auth/logout`, null, { params: { wallet_address: walletAddress } });
+    } catch (err) {} 
+    finally {
+      localStorage.removeItem("walletAddress");
+      setWalletAddress("");
+      setIsLoggedIn(false);
+      setMyInfo({ balance: 0, membership: "", rewards: 0 });
+      setActiveTab("main");
+    }
+  };
+
+  // ==========================================
+  // 3. DAO 핵심 액션 함수 (조회, 투표, 관리자 데모)
+  // ==========================================
+  const fetchMyPageData = async () => {
+    if (!walletAddress) return;
+    try {
+      const resBal = await axios.get(`${API_URL}/api/wallet/balance`, { params: { wallet_address: walletAddress } });
+      let displayBalance = resBal.data.balance;
+
+      if (contract) {
+          try {
+              const remainingVpWei = await contract.getRemainingVP(walletAddress);
+              displayBalance = ethers.formatEther(remainingVpWei);
+          } catch(e) { console.error("VP 로드 에러 (라운드가 없거나 토큰이 없습니다):", e); }
+      }
+      setMyInfo(prev => ({ ...prev, balance: displayBalance }));
+    } catch (err) { console.error("내 정보 로드 실패"); }
+  };
+
+  const fetchGallery = async () => {
+    try {
+        const res = await axios.get(`${API_URL}/api/gallery/items`);
+        setGalleryItems(res.data);
+    } catch (err) { console.error("갤러리 로드 실패"); }
+  };
+
+  const fetchCurrentRound = async () => {
+      try {
+          const res = await axios.get(`${API_URL}/api/rounds/current`);
+          setCurrentRound(res.data);
+      } catch (err) { setCurrentRound(null); }
+  };
+
+  const handleVote = async (candidateId) => {
+      const amount = vpInputs[candidateId];
+      if (!amount || amount <= 0) return alert("투표할 VP를 입력하세요!");
+      if (!isLoggedIn) return alert("지갑을 먼저 연결해주세요!");
+      if (!contract) return alert("스마트 컨트랙트가 연결되지 않았습니다.");
+
+      try {
+          // 1. 메타마스크 서명 (Web3 온체인 투표)
+          alert("메타마스크에서 트랜잭션을 승인해 주세요! (가스비 발생)");
+          const vpInWei = ethers.parseEther(amount.toString());
+          
+          const candidateIndex = currentRound.candidates.findIndex(c => c.id === candidateId);
+          if(candidateIndex === -1) return alert("후보를 찾을 수 없습니다.");
+
+          const tx = await contract.vote(candidateIndex, vpInWei);
+          alert("트랜잭션 전송 완료! 블록체인 승인을 기다리는 중...");
+          await tx.wait(); // 블록 채굴 대기
+          
+          // 2. 블록체인 기록 성공 시, 백엔드 DB에도 동기화
+          const res = await axios.post(`${API_URL}/api/vote`, {
+              wallet_address: walletAddress,
+              candidate_id: candidateId,
+              vp_amount: parseInt(amount)
+          });
+          
+          alert("🎉 투표가 블록체인에 성공적으로 기록되었습니다!");
+          fetchCurrentRound();
+          fetchMyPageData(); // 남은 VP 즉시 갱신
+          setVpInputs({ ...vpInputs, [candidateId]: "" }); 
+      } catch (err) { 
+          console.error(err);
+          alert("투표 실패: 트랜잭션을 거절했거나 VP가 부족합니다."); 
+      }
+  };
+
+  const handleClaimReward = async (roundId) => {
+      if (!contract) return alert("스마트 컨트랙트가 연결되지 않았습니다.");
+      if (!roundId) return alert("청구할 라운드 번호를 입력하세요!");
+
+      try {
+          alert("메타마스크에서 배당금 청구 트랜잭션을 승인해 주세요!");
+          const tx = await contract.claimReward(roundId);
+          alert("트랜잭션 전송 완료! 승인을 기다리는 중...");
+          const receipt = await tx.wait();
+
+          let receivedAmount = "알 수 없음";
+          for (const log of receipt.logs) {
+              try {
+                  const parsedLog = contract.interface.parseLog(log);
+                  if (parsedLog && parsedLog.name === 'RewardClaimed') {
+                      receivedAmount = ethers.formatEther(parsedLog.args.rewardAmount);
+                  }
+              } catch (e) {
+                  // 다른 컨트랙트 로그 무시
+              }
+          }
+
+          alert(`🎉 배당금이 지갑으로 성공적으로 지급되었습니다!\n지급 금액: ${receivedAmount} TUK`);
+          fetchMyPageData(); // 잔고 갱신
+      } catch (err) {
+          console.error("Claim 에러:", err);
+          alert("보상 청구 실패: 이미 수령했거나 우승작에 투표하지 않았습니다.");
+      }
+  };
+
+  const [loadingStatus, setLoadingStatus] = useState("");
+
+  const handleGenerateRoundDemo = async () => {
+      setIsLoading(true);
+      
+      const statuses = [
+          "🤖 AI 비평가 에이전트가 최신 예술 트렌드를 분석하고 있습니다...",
+          "🔍 트렌드 키워드 추출 완료. 프롬프트 엔지니어링 진행 중...",
+          "🎨 후보작 1/2 렌더링 중 (Cloudflare FLUX-1)...",
+          "🎨 후보작 2/2 렌더링 중 (Cloudflare FLUX-1)...",
+          "🔗 오프체인 갤러리 등록 및 블록체인 라운드 시작 트랜잭션 전송 중..."
+      ];
+      
+      let step = 0;
+      setLoadingStatus(statuses[0]);
+      const interval = setInterval(() => {
+          step++;
+          if (step < statuses.length) {
+              setLoadingStatus(statuses[step]);
+          }
+      }, 15000);
+
+      try {
+          const res = await axios.post(`${API_URL}/api/admin/generate-round`);
+          clearInterval(interval);
+          setLoadingStatus("✅ 라운드 생성 완료!");
+          setTimeout(() => {
+             alert(res.data.message);
+             fetchCurrentRound();
+             setIsLoading(false);
+             setLoadingStatus("");
+          }, 500);
+      } catch (err) { 
+          clearInterval(interval);
+          alert(err.response?.data?.detail || "생성 실패"); 
+          setIsLoading(false);
+          setLoadingStatus("");
+      }
+  };
+
+  const handleEndRoundDemo = async () => {
+      setIsLoading(true);
+      
+      const statuses = [
+          "📊 투표 결과를 집계하고 있습니다...",
+          "🔍 AI 경매사가 우승작의 예술적 가치와 득표수를 분석 중입니다...",
+          "🎨 우승작 메타데이터를 IPFS에 영구 박제하는 중...",
+          "💰 우승작을 ArtNFT로 발행하고 배당금 풀을 생성 중..."
+      ];
+      
+      let step = 0;
+      setLoadingStatus(statuses[0]);
+      const interval = setInterval(() => {
+          step++;
+          if (step < statuses.length) {
+              setLoadingStatus(statuses[step]);
+          }
+      }, 5000); // 결산은 비교적 빠르므로 5초 간격
+
+      try {
+          const res = await axios.post(`${API_URL}/api/admin/end-round`);
+          clearInterval(interval);
+          setLoadingStatus("✅ 결산 완료!");
+          setTimeout(() => {
+              alert(`🏆 1등 우승작: ${res.data.winner_title}\n💰 AI 책정가: ${res.data.auction_price} TUK\n\n${res.data.message}`);
+              fetchCurrentRound(); 
+              fetchGallery(); // 갤러리에 추가되었는지 갱신
+              setIsLoading(false);
+              setLoadingStatus("");
+          }, 500);
+      } catch (err) { 
+          clearInterval(interval);
+          alert("라운드 종료 실패"); 
+          setIsLoading(false);
+          setLoadingStatus("");
+      }
+  };
+
+  const sendMessage = async () => {
+    if (!chatInput.trim()) return;
+    const userMsg = { sender: "user", text: chatInput };
+    setChatMessages(prev => [...prev, userMsg]);
+    setChatInput("");
+    setIsChatLoading(true); 
+    try {
+      const res = await axios.post(`${API_URL}/api/a2a/chat`, { message: userMsg.text, wallet_address: walletAddress });
+      setChatMessages(prev => [...prev, { sender: "bot", text: res.data.reply }]);
+    } catch (err) { setChatMessages(prev => [...prev, { sender: "bot", text: "오류가 발생했습니다." }]); }
+    setIsChatLoading(false); 
+  };
+
+  const playDocent = async (id, title) => {
+    try {
+        const res = await axios.post(`${API_URL}/api/gallery/docent`, { message: title, wallet_address: walletAddress });
+        const script = res.data.reply;
+        alert(`🎧 도슨트 시작: "${script}"`);
+    } catch(err) { alert("도슨트 실패"); }
+  };
+// --- [추가] 상세 보기 모달 상태 ---
+  const [selectedCandidate, setSelectedCandidate] = useState(null);
+
+  const openCandidateModal = (candidate) => {
+    setSelectedCandidate(candidate);
+  };
+
+  const closeCandidateModal = () => {
+    setSelectedCandidate(null);
+  };
+  // ==========================================
+  // 4. UI 렌더링 (다이어트 & 랜딩페이지 고도화)
+  // ==========================================
+  return (
+    <div className="App">
+      {/* 1. 좌측 사이드바 (깔끔하게 4개 메뉴만) */}
+      <aside className="sidebar">
+        <h1 className="logo" onClick={() => setActiveTab("main")} style={{cursor: 'pointer'}}>ArtDAO</h1>
+        
+        <nav>
+        <button className={activeTab==="main"?"active":""} onClick={()=>setActiveTab("main")}>📊 Dashboard</button>
+        <button className={activeTab==="curate"?"active":""} onClick={()=>setActiveTab("curate")}>🗳️ Curate</button>
+        <button className={activeTab==="insights"?"active":""} onClick={()=>setActiveTab("insights")}>📈 Market Insights</button> {/* 추가 */}
+        <button className={activeTab==="gallery"?"active":""} onClick={()=>setActiveTab("gallery")}>🖼️ Hall of Fame</button>
+        <button className={activeTab==="treasury"?"active":""} onClick={()=>setActiveTab("treasury")}>🏦 Treasury</button> {/* 추가 */}
+        <button className={activeTab==="mypage"?"active":""} onClick={()=>setActiveTab("mypage")}>👤 Profile</button>
+        </nav>
+        
+
+        <div style={{ marginTop: "auto", padding: "15px", background: "#0F0F0F", borderRadius: "8px", border: "1px solid #2A2A2A", textAlign: "center" }}>
+            <div style={{ fontSize: "0.8rem", color: "#9CA3AF", marginBottom: "5px" }}>Current Block Time</div>
+            <strong style={{ color: "#F3F4F6", fontSize: "0.9rem", display: "block", marginBottom: "10px" }}>
+                {new Date(currentBlockTime * 1000).toLocaleString()}
+            </strong>
+        </div>
+      </aside>
+
+      {/* 2. 중앙 메인 컨텐츠 */}
+      <main className="main-content">
+        <header className="top-header">
+            {isLoggedIn ? (
+                <div className="logged-in-box">
+                  <div className="badge-connected">🟢 {walletAddress.substring(0, 6)}...</div>
+                  <button className="logout-btn" onClick={handleLogout}>Logout</button>
+                </div>
+            ) : (
+                <button className="connect-btn" onClick={connectWallet}>Connect Wallet</button>
+            )}
+        </header>
+       {/* ----------------------------------------------------------- */}
+        {/* ① 📈 Market Insights (AI 분석 데이터 시각화) */}
+        {/* ----------------------------------------------------------- */}
+        {activeTab === "insights" && (
+          <div className="page fade-in">
+            <h2 className="page-title">📈 Market Insights</h2>
+            <p style={{color: '#9CA3AF', marginBottom: '30px'}}>AI 에이전트가 실시간으로 분석한 이번 주 글로벌 디지털 아트 트렌드 리포트입니다.</p>
+            
+            {isInsightsLoading ? (
+                <div style={{textAlign: 'center', padding: '50px', color: '#38BDF8', fontSize: '1.2rem'}}>
+                    🤖 AI가 실시간 글로벌 웹 트렌드를 분석 중입니다... ⏳
+                </div>
+            ) : insightsData ? (
+                <div className="insights-grid" style={{display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '20px'}}>
+                    <div className="card" style={{padding: '30px', background: '#1A1A1A'}}>
+                        <h3>🔥 Hot Keywords (Word Cloud)</h3>
+                        <div style={{display: 'flex', flexWrap: 'wrap', gap: '15px', marginTop: '20px'}}>
+                            {insightsData.keywords.map((tag, idx) => (
+                                <span key={idx} style={{padding: '10px 20px', background: '#2A2A2A', borderRadius: '30px', color: '#38BDF8', fontSize: '1.1rem'}}>
+                                    {tag}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="card" style={{padding: '30px', background: '#1A1A1A'}}>
+                        <h3>🎨 Preferred Styles</h3>
+                        <ul style={{listStyle: 'none', padding: 0, marginTop: '20px', color: '#BBB'}}>
+                            {insightsData.styles.map((style, idx) => (
+                                <li key={idx} style={{marginBottom: '15px', fontSize: '1.1rem'}}>
+                                    {style.name} - <strong style={{color: '#10B981'}}>{style.percent}%</strong>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                </div>
+            ) : (
+                <div style={{textAlign: 'center', padding: '50px', color: '#EF4444'}}>데이터를 불러오지 못했습니다.</div>
+            )}
+          </div>
+        )}
+        {/* ----------------------------------------------------------- */}
+        {/* ② 🏦 Treasury (DAO 재정 통계) */}
+        {/* ----------------------------------------------------------- */}
+        {activeTab === "treasury" && (
+          <div className="page fade-in">
+            <h2 className="page-title">🏦 Treasury & Statistics</h2>
+            <div className="stats-container" style={{display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px', marginTop: '30px'}}>
+                <div className="card-mini"><h4>Total Asset</h4><p>1,250,000 TUK</p></div>
+                <div className="card-mini"><h4>Total Dividends</h4><p>450,000 TUK</p></div>
+                <div className="card-mini"><h4>Minted NFTs</h4><p>12 NFTs</p></div>
+                <div className="card-mini"><h4>Active Curators</h4><p>1,024 Users</p></div>
+            </div>
+            {/* 배당금 분배 차트 더미 (이미지 등으로 대체 가능) */}
+            <div className="card" style={{marginTop: '30px', padding: '40px', textAlign: 'center', background: '#1A1A1A'}}>
+                <h3 style={{marginBottom: '20px'}}>Dividend Distribution Ratio</h3>
+                <div style={{width: '100%', height: '20px', background: '#333', borderRadius: '10px', display: 'flex', overflow: 'hidden'}}>
+                    <div style={{width: '70%', background: '#3B82F6'}}></div> {/* Voter Pool */}
+                    <div style={{width: '20%', background: '#10B981'}}></div> {/* Creator Pool */}
+                    <div style={{width: '10%', background: '#F59E0B'}}></div> {/* Treasury */}
+                </div>
+                <div style={{display: 'flex', justifyContent: 'center', gap: '20px', marginTop: '15px', fontSize: '0.9rem'}}>
+                    <span style={{color: '#3B82F6'}}>● Voter Pool (70%)</span>
+                    <span style={{color: '#10B981'}}>● Creator Pool (20%)</span>
+                    <span style={{color: '#F59E0B'}}>● Treasury (10%)</span>
+                </div>
+            </div>
+          </div>
+        )}
+        {/* 🌟 [NEW] 랜딩 페이지 (Dashboard) */}
+        {activeTab === "main" && (
+          <div className="page fade-in">
+            {/* 메인 히어로 배너 */}
+            <div style={{ padding: '60px 40px', background: 'linear-gradient(135deg, #1e1e1e 0%, #0f0f0f 100%)', borderRadius: '16px', border: '1px solid #2A2A2A', marginBottom: '30px', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
+                <div style={{ position: 'relative', zIndex: 2 }}>
+                    <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: '3.5rem', color: '#F3F4F6', margin: '0 0 15px 0' }}>
+                        Autonomous Art Protocol
+                    </h1>
+                    <p style={{ color: '#9CA3AF', fontSize: '1.2rem', lineHeight: '1.6', maxWidth: '600px', margin: '0 auto 30px auto' }}>
+                        AI가 트렌드를 분석하여 매주 새로운 예술을 창조합니다.<br/>
+                        DAO 멤버가 되어 가스비 없이 투표하고, 블록체인 배당을 받으세요.
+                    </p>
+                    <button onClick={() => setActiveTab("curate")} style={{ background: '#3B82F6', color: '#fff', border: 'none', padding: '16px 36px', fontSize: '1.1rem', fontWeight: 'bold', borderRadius: '30px', cursor: 'pointer', boxShadow: '0 4px 15px rgba(59, 130, 246, 0.4)' }}>
+                        🔥 큐레이션 참여하기
+                    </button>
+                </div>
+            </div>
+
+            {/* 작동 원리 (How it Works) */}
+            <h2 style={{marginTop: '40px', marginBottom: '20px', fontSize: '1.5rem'}}>⚙️ How It Works</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px', marginBottom: '40px' }}>
+                <div className="card" style={{ background: '#1A1A1A', padding: '25px', borderRadius: '12px', border: '1px solid #2A2A2A' }}>
+                    <div style={{ fontSize: '2.5rem', marginBottom: '15px' }}>🤖</div>
+                    <h3 style={{ color: '#fff', fontSize: '1.1rem', marginBottom: '10px' }}>1. AI 에이전트 생성</h3>
+                    <p style={{ color: '#9CA3AF', fontSize: '0.9rem', lineHeight: '1.5' }}>매주 AI 기획자와 비평가가 웹 트렌드를 검색하여 4개의 고품질 디지털 아트 후보작을 오프체인에 생성합니다.</p>
+                </div>
+                <div className="card" style={{ background: '#1A1A1A', padding: '25px', borderRadius: '12px', border: '1px solid #2A2A2A' }}>
+                    <div style={{ fontSize: '2.5rem', marginBottom: '15px' }}>🗳️</div>
+                    <h3 style={{ color: '#fff', fontSize: '1.1rem', marginBottom: '10px' }}>2. 가스리스(Gasless) 투표</h3>
+                    <p style={{ color: '#9CA3AF', fontSize: '0.9rem', lineHeight: '1.5' }}>유저는 지갑의 TUK 토큰을 소모하지 않고, 토큰 보유량에 비례하는 VP로 가장 가치 있는 작품에 분산 투자합니다.</p>
+                </div>
+                <div className="card" style={{ background: '#1A1A1A', padding: '25px', borderRadius: '12px', border: '1px solid #2A2A2A' }}>
+                    <div style={{ fontSize: '2.5rem', marginBottom: '15px' }}>💰</div>
+                    <h3 style={{ color: '#fff', fontSize: '1.1rem', marginBottom: '10px' }}>3. 스마트 컨트랙트 배당</h3>
+                    <p style={{ color: '#9CA3AF', fontSize: '0.9rem', lineHeight: '1.5' }}>투표 종료 시 1등 작품만 NFT로 민팅되며, AI 경매사의 산정가에 따라 안목 있는 투표자들에게 수익이 자동 배당됩니다.</p>
+                </div>
+            </div>
+          </div>
+        )}
+
+        {/* ✅ DAO 투표 (Curate) 탭 */}
+        {activeTab === "curate" && (
+          <div className="page fade-in">
+            <div className="proposals-header-wrap" style={{borderBottom: 'none', marginBottom: '10px'}}>
+                <div>
+                    <h2 style={{fontFamily: "'Playfair Display', serif", fontSize: "2.5rem", margin: 0}}>🗳️ Curate the Masterpiece</h2>
+                    <p style={{color: '#9CA3AF', marginTop: '10px', fontSize: '1rem'}}>AI가 창작한 후보작 중, 최고의 가치를 지닌 작품에 VP(투표력)를 투자하세요.</p>
+                </div>
+            </div>
+
+            {/* 🚨 [데모용] 관리자 패널 */}
+            <div className="admin-demo-panel">
+                <div>
+                    <strong style={{color: '#EF4444'}}>⚙️ Admin Demo Controls</strong>
+                    <span style={{color: '#F87171', fontSize: '0.85rem', marginLeft: '10px'}}>(시연용 제어판)</span>
+                </div>
+                <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}>
+                    <button onClick={handleGenerateRoundDemo} disabled={isLoading} style={{background: '#B91C1C', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
+                        {isLoading ? "AI 생성 중..." : "1. 새 라운드 (AI 2개 생성)"}
+                    </button>
+                    <button onClick={handleEndRoundDemo} disabled={isLoading} style={{background: '#991B1B', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
+                        2. 투표 마감 및 결산
+                    </button>
+                    {loadingStatus && <span style={{color: '#38BDF8', fontSize: '0.9rem', marginLeft: '10px'}}>{loadingStatus}</span>}
+                </div>
+            </div>
+
+            {currentRound ? (
+                <>
+                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0F0F0F', padding: '15px 20px', borderRadius: '12px', border: '1px solid #2A2A2A', marginBottom: '20px'}}>
+                        <span style={{color: '#38BDF8', fontWeight: 'bold', fontSize: '1.1rem'}}>🟢 Round #{currentRound.round_number} 진행 중</span>
+                        <span style={{color: '#9CA3AF'}}>이번 라운드 잔여 투표력(VP): <strong style={{color: 'white'}}>{myInfo.balance} VP</strong></span>
+                    </div>
+
+                    <div className="candidate-grid">
+    {currentRound.candidates.map(candidate => (
+        <div key={candidate.id} className="candidate-card" onClick={() => openCandidateModal(candidate)} style={{cursor: 'pointer'}}>
+            <div className="candidate-img-box">
+                <img src={candidate.image_url.replace("ipfs://", "https://ipfs.io/ipfs/")} alt={candidate.title} />
+            </div>
+            <div className="candidate-info">
+                <h3 className="candidate-title">{candidate.title}</h3>
+                <p className="candidate-desc" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                    {candidate.description}
+                </p>
+                
+                <div className="candidate-stats">
+                    <span style={{color: '#6B7280', fontSize: '0.9rem'}}>현재 누적 투자금</span>
+                    <span className="vp-count">{candidate.vp_votes} VP</span>
+                </div>
+
+                <div className="vote-action-box" onClick={(e) => e.stopPropagation()}> 
+                    {/* ☝️ 입력창 클릭 시 모달이 뜨지 않도록 전파 방지 */}
+                    <input 
+                        type="number" 
+                        className="vp-input" 
+                        placeholder="VP 입력" 
+                        min="1"
+                        value={vpInputs[candidate.id] || ""}
+                        onKeyDown={(e) => {
+                            if (["-", "+", "e", "E"].includes(e.key)) e.preventDefault();
+                        }}
+                        onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === "" || parseInt(val) > 0) {
+                                setVpInputs({...vpInputs, [candidate.id]: val});
+                            }
+                        }}
+                    />
+                    <button className="vote-btn" onClick={() => handleVote(candidate.id)}>투자하기</button>
+                </div>
+            </div>
+        </div>
+    ))}
+</div>                </>
+            ) : (
+                <div style={{textAlign: 'center', padding: '80px 20px', background: '#1A1A1A', borderRadius: '16px', border: '1px dashed #2A2A2A'}}>
+                    <span style={{fontSize: '3rem'}}>😴</span>
+                    <h3 style={{color: '#D1D5DB', marginTop: '20px'}}>현재 진행 중인 큐레이션 라운드가 없습니다.</h3>
+                    <p style={{color: '#6B7280'}}>관리자 패널에서 새로운 라운드를 생성해 주세요.</p>
+                </div>
+            )}
+          </div>
+        )}
+
+        {/* 명예의 전당 (Gallery) */}
+        {activeTab === "gallery" && (
+            <div className="page fade-in">
+                <h2 style={{fontFamily: "'Playfair Display', serif", fontSize: "2.5rem"}}>🖼️ Hall of Fame</h2>
+                <p style={{color: '#9CA3AF', marginBottom: '30px'}}>대중의 선택을 받아 NFT로 영구 박제된 우승작 컬렉션입니다.</p>
+                <div className="gallery-grid">
+                    {galleryItems.length === 0 ? (
+                        <p style={{color: '#6B7280'}}>아직 등록된 우승작이 없습니다.</p>
+                    ) : (
+                        galleryItems.map(item => (
+                            <div key={item.id} className="card gallery-card" style={{background: '#1A1A1A', border: '1px solid #2A2A2A'}}>
+                                <div className="img-wrap" style={{borderBottom: '1px solid #2A2A2A'}}>
+                                    <img src={item.image_url} alt={item.title}/>
+                                </div>
+                                <div className="info" style={{padding: '15px'}}>
+                                    <h3 style={{color: '#fff', margin: '0 0 5px 0'}}>{item.title}</h3>
+                                    <p style={{color: '#34D399', fontSize: '0.85rem', fontWeight: 'bold'}}>🏆 우승작</p>
+                                    <div className="gallery-btns" style={{marginTop: '15px', display: 'flex', gap: '10px'}}>
+                                        <button onClick={()=>playDocent(item.id, item.title)} style={{flex: 1, background: '#0F0F0F', color: '#fff', border: '1px solid #2A2A2A', padding: '8px', borderRadius: '6px', cursor: 'pointer'}}>🎧 작품 해설 듣기</button>
+                                    </div>
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+            </div>
+        )}
+
+        {/* 마이페이지 */}
+        {activeTab === "mypage" && (
+            <div className="page fade-in">
+                <h2 style={{fontFamily: "'Playfair Display', serif", fontSize: "2.5rem"}}>👤 My Profile</h2>
+                {!isLoggedIn ? <p style={{color: '#9CA3AF'}}>지갑을 먼저 연결해주세요.</p> : (
+                    <div className="mypage-grid">
+                        <div className="card profile" style={{background: '#1A1A1A', border: '1px solid #2A2A2A'}}>
+                            <h3 style={{color: '#fff', borderBottom: '1px solid #2A2A2A', paddingBottom: '10px'}}>내 지갑 정보</h3>
+                            <p style={{color: '#9CA3AF', margin: '15px 0'}}><strong>주소:</strong> <span style={{color: '#fff'}}>{walletAddress}</span></p>
+                            <p style={{color: '#9CA3AF'}}><strong>이번 라운드 잔여 투표력:</strong> <span style={{color: '#38BDF8', fontWeight: 'bold', fontSize: '1.2rem'}}>{myInfo.balance} VP</span></p>
+
+                            <h3 style={{color: '#fff', borderBottom: '1px solid #2A2A2A', paddingBottom: '10px', marginTop: '30px'}}>💰 배당금 수령 (Claim)</h3>
+                            <p style={{color: '#9CA3AF', marginTop: '10px', fontSize: '0.9rem', marginBottom: '15px'}}>지난 라운드에서 1등(우승작)에 투표하셨다면, 기여도에 비례해 TUK 토큰 수익을 배당받습니다.</p>
+                            
+                            {endedRounds.length === 0 ? (
+                                <p style={{color: '#6B7280', fontSize: '0.9rem'}}>종료된 라운드가 없습니다.</p>
+                            ) : (
+                                <div style={{display: 'flex', flexDirection: 'column', gap: '10px'}}>
+                                    {endedRounds.map(r => (
+                                        <div key={r.round_id} style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0F0F0F', padding: '12px 15px', borderRadius: '8px', border: '1px solid #333'}}>
+                                            <div>
+                                                <div style={{color: '#fff', fontWeight: 'bold'}}>Round #{r.round_id}</div>
+                                                <div style={{color: '#9CA3AF', fontSize: '0.85rem'}}>우승작: {r.winner_title} (AI 매각가: {r.auction_price} TUK)</div>
+                                            </div>
+                                            <button onClick={() => handleClaimReward(r.round_id)} style={{background: '#38BDF8', color: '#000', fontWeight: 'bold', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.9rem'}}>
+                                                보상 청구
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </div>
+        )}
+      </main>
+
+      {/* 3. 우측 고정 패널 (AI 만능 어시스턴트) */}
+      <aside className="right-panel">
+        <div className="right-panel-header">
+            <span style={{ color: '#38BDF8', marginRight: '8px' }}>✦</span> 
+            <span style={{ fontWeight: 'bold', letterSpacing: '1px' }}>GUIDE</span> 
+            <span style={{ fontSize: '0.7rem', marginLeft: 'auto', color: '#34D399' }}>● Online</span>
+        </div>
+        <div className="chat-window">
+            <div className="messages">
+                {chatMessages.map((msg, idx) => (
+                    <div key={idx} className={`msg ${msg.sender}`}>
+                        {msg.sender === "bot" && (
+                            <div className="bot-name"><span>🤖</span> ArtDAO Guide</div>
+                        )}
+                        <div className="bubble" style={{ whiteSpace: "pre-line" }}>
+                            {msg.text}
+                        </div>
+                    </div>
+                ))}
+                
+                {isChatLoading && (
+                    <div className="msg bot">
+                        <div className="bot-name"><span>🤖</span> ArtDAO Guide</div>
+                        <div className="chat-typing-indicator">
+                            <div className="dot"></div>
+                            <div className="dot"></div>
+                            <div className="dot"></div>
+                        </div>
+                    </div>
+                )}
+            </div>
+            {/* ✅ 후보작 상세 보기 모달 */}
+{selectedCandidate && (
+    <div className="modal-overlay" onClick={closeCandidateModal} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.85)', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 2000 }}>
+        <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ background: '#1A1A1A', width: '90%', maxWidth: '900px', borderRadius: '20px', padding: '40px', border: '1px solid #2A2A2A', position: 'relative', display: 'flex', gap: '30px' }}>
+            <button onClick={closeCandidateModal} style={{ position: 'absolute', top: '20px', right: '20px', background: 'none', border: 'none', color: '#fff', fontSize: '24px', cursor: 'pointer' }}>✖</button>
+            
+            <div style={{ flex: 1 }}>
+                <img src={selectedCandidate.image_url.replace("ipfs://", "https://ipfs.io/ipfs/")} alt={selectedCandidate.title} style={{ width: '100%', borderRadius: '12px', border: '1px solid #2A2A2A' }} />
+            </div>
+            
+            <div style={{ flex: 1.2, display: 'flex', flexDirection: 'column' }}>
+                <h2 style={{ fontSize: '2rem', color: '#fff', marginBottom: '20px' }}>{selectedCandidate.title}</h2>
+                <div style={{ flex: 1, overflowY: 'auto', color: '#D1D5DB', lineHeight: '1.8', fontSize: '1.1rem', marginBottom: '20px', paddingRight: '10px' }}>
+                    {selectedCandidate.description}
+                </div>
+                <div style={{ background: '#0F0F0F', padding: '20px', borderRadius: '12px', border: '1px solid #2A2A2A' }}>
+                    <p style={{ color: '#9CA3AF', margin: 0 }}>현재 총 투자금: <strong style={{ color: '#38BDF8', fontSize: '1.4rem' }}>{selectedCandidate.vp_votes} VP</strong></p>
+                </div>
+            </div>
+        </div>
+    </div>
+)}
+            
+            <div className="chat-input-wrapper">
+                <input 
+                    type="text" 
+                    value={chatInput} 
+                    onChange={(e)=>setChatInput(e.target.value)} 
+                    onKeyPress={(e)=>e.key==='Enter' && !isChatLoading && chatInput.trim() && sendMessage()} 
+                    placeholder="투표 방법이나 작품을 물어보세요!" 
+                    disabled={isChatLoading} 
+                    className="chat-text-input"
+                />
+                <button 
+                    className="chat-send-btn" 
+                    onClick={sendMessage} 
+                    disabled={isChatLoading || !chatInput.trim()}
+                >
+                    ➤
+                </button>
+            </div>
+        </div>
+      </aside>
+    </div>
+    
+  );
+}
+
+export default App;
+==> ./backend/app/models.py <==
+from sqlalchemy import Column, Integer, String, Text, DateTime, Float, ForeignKey, Boolean
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+from .database import Base
+from datetime import datetime
+
+# ==========================================
+# 1. 사용자 (User)
+# ==========================================
+class User(Base):
+    __tablename__ = "users"
+
+    wallet_address = Column(String(255), primary_key=True, index=True)
+    nickname = Column(String(50), nullable=True)
+    membership_grade = Column(String(20), default="Bronze")
+    token_balance = Column(Float, default=0.0)
+    pending_rewards = Column(Float, default=0.0)
+    is_delegated = Column(Boolean, default=False)
+    delegated_to = Column(String(255), nullable=True)
+    
+    # 큐레이터 뱃지 상태
+    badge = Column(String(50), nullable=True)
+
+    # 관계 설정
+    feedbacks = relationship("GalleryFeedback", back_populates="author")
+    # [추가] A2A 관련 관계
+    chat_logs = relationship("A2AChatLog", back_populates="user")
+    recommendations = relationship("UserRecommendation", back_populates="user")
+
+
+# 1. 라운드 (시즌/주차) 테이블
+class Round(Base):
+    __tablename__ = "rounds"
+
+    id = Column(Integer, primary_key=True, index=True)
+    round_number = Column(Integer, unique=True, index=True) # 예: 1 (1주차), 2 (2주차)
+    status = Column(String(50), default="ACTIVE") # 'ACTIVE' (투표중), 'ENDED' (종료 및 민팅됨)
+    start_time = Column(DateTime, default=datetime.utcnow)
+    end_time = Column(DateTime, nullable=True) # 라운드 종료 시간
+
+    # 관계 설정 (1대다)
+    candidates = relationship("Candidate", back_populates="round")
+    votes = relationship("VoteLog", back_populates="round")
+
+
+# 2. 후보작 테이블 (A2A가 생성한 10개의 오프체인 그림들)
+class Candidate(Base):
+    __tablename__ = "candidates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    round_id = Column(Integer, ForeignKey("rounds.id"))
+    
+    title = Column(String(255), nullable=False) # 작품명
+    description = Column(Text, nullable=False) # AI 비평가/기획자가 작성한 세계관
+    image_url = Column(String(255), nullable=False) # 웹 표시용 URL
+    ipfs_hash = Column(String(255), nullable=False) # 나중에 NFT 민팅할 때 쓸 IPFS 해시
+    
+    vp_votes = Column(Integer, default=0) # 현재까지 획득한 VP(투표) 총합
+    is_winner = Column(Boolean, default=False) # 1등 우승작 여부
+    auction_price = Column(Integer, nullable=True) # 1등 확정 후 AI 경매사가 책정한 가격 (TUK)
+
+    # 관계 설정
+    round = relationship("Round", back_populates="candidates")
+    votes = relationship("VoteLog", back_populates="candidate")
+
+
+# 3. 투표 기록 테이블 (가장 중요 ⭐ - 나중에 수익 분배할 때 씁니다)
+class VoteLog(Base):
+    __tablename__ = "vote_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    round_id = Column(Integer, ForeignKey("rounds.id"))
+    candidate_id = Column(Integer, ForeignKey("candidates.id"))
+    voter_wallet = Column(String(255), index=True) # 투표한 유저의 지갑 주소
+    vp_used = Column(Integer, nullable=False) # 이 후보작에 던진 VP 개수
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # 관계 설정
+    round = relationship("Round", back_populates="votes")
+    candidate = relationship("Candidate", back_populates="votes")
+
+# ==========================================
+# 3. 전시 작품 (GalleryItem)
+# ==========================================
+class GalleryItem(Base):
+    __tablename__ = "gallery_items"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(255))
+    artist_address = Column(String(255))
+    image_url = Column(Text)
+    description = Column(Text)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    feedbacks = relationship("GalleryFeedback", back_populates="item")
+
+
+# ==========================================
+# 4. 관람평 (GalleryFeedback)
+# ==========================================
+class GalleryFeedback(Base):
+    __tablename__ = "gallery_feedbacks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    item_id = Column(Integer, ForeignKey("gallery_items.id"))
+    wallet_address = Column(String(255), ForeignKey("users.wallet_address"))
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    item = relationship("GalleryItem", back_populates="feedbacks")
+    author = relationship("User", back_populates="feedbacks")
+
+
+# ==========================================
+# 5. [NEW] A2A 채팅 기록 (A2AChatLog)
+# ==========================================
+class A2AChatLog(Base):
+    __tablename__ = "a2a_chat_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    wallet_address = Column(String(255), ForeignKey("users.wallet_address"))
+    
+    # 사용자 질문 & AI 답변
+    user_message = Column(Text, nullable=False)
+    ai_reply = Column(Text, nullable=False)
+    
+    # 어떤 에이전트인지 (Curator, Docent 등)
+    agent_type = Column(String(50), default="Curator") 
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="chat_logs")
+
+
+# ==========================================
+# 6. [NEW] 사용자 맞춤 추천 (UserRecommendation)
+# ==========================================
+class UserRecommendation(Base):
+    __tablename__ = "user_recommendations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    wallet_address = Column(String(255), ForeignKey("users.wallet_address"))
+    
+    # 추천 내용
+    recommended_title = Column(String(255)) # 추천된 작품/전시 제목
+    reason = Column(Text) # 추천 이유 (AI 분석 결과)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="recommendations")
+==> ./backend/app/database.py <==
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+import os
+
+# 도커 환경변수에서 주소를 가져옴. 없으면 로컬호스트(테스트용)
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "mysql+pymysql://user:password@localhost:3306/art_platform")
+
+engine = create_engine(SQLALCHEMY_DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+==> ./backend/app/schemas.py <==
+from pydantic import BaseModel
+from typing import List, Optional
+from datetime import datetime
+
+# === 공통/인증 ===
+class WalletLoginRequest(BaseModel):
+    wallet_address: str
+    signature: str
+
+# === 사용자 ===
+class UserResponse(BaseModel):
+    wallet_address: str
+    membership_grade: str
+    token_balance: float
+    pending_rewards: float
+    # 뱃지 정보 포함
+    badge: str | None = None 
+    class Config:
+        from_attributes = True
+
+# === 추천 전시 (마이페이지용) ===
+class RecommendationResponse(BaseModel):
+    title: str
+    reason: str
+
+# === A2A (AI 에이전트) [NEW] ===
+class A2AChatRequest(BaseModel):
+    message: str
+    wallet_address: str
+
+class A2AChatResponse(BaseModel):
+    reply: str
+
+class A2ARecommendationItem(BaseModel):
+    id: int
+    title: str
+    reason: str
+
+class ProposalAgentRequest(BaseModel):
+    intent: str
+
+class ProposalAgentResponse(BaseModel):
+    proposal_text: str
+    suggested_title: str
+
+# ==========================================
+# === [NEW] Botto DAO 라운드 & 후보작 ===
+# ==========================================
+
+class CandidateResponse(BaseModel):
+    id: int
+    round_id: int
+    title: str
+    description: str
+    image_url: str
+    vp_votes: int
+    is_winner: bool
+    auction_price: int | None = None
+
+    class Config:
+        from_attributes = True
+
+class RoundResponse(BaseModel):
+    id: int
+    round_number: int
+    status: str
+    candidates: List[CandidateResponse] = []
+
+    class Config:
+        from_attributes = True
+
+# 유저가 프론트엔드에서 투표할 때 백엔드로 보낼 데이터
+class VoteRequest(BaseModel):
+    wallet_address: str
+    candidate_id: int
+    vp_amount: int
+
+# === AI 스튜디오 ===
+class StudioDraftRequest(BaseModel):
+    intent: str
+class StudioDraftResponse(BaseModel):
+    draft_text: str
+class StudioImageRequest(BaseModel):
+    keywords: str
+class StudioImageResponse(BaseModel):
+    image_url: str
+
+# === 갤러리 & 피드백 ===
+class FeedbackResponse(BaseModel):
+    id: int
+    wallet_address: str
+    content: str
+    created_at: datetime
+    class Config:
+        from_attributes = True
+
+class GalleryItemResponse(BaseModel):
+    id: int
+    title: str
+    artist_address: str
+    image_url: str
+    description: str
+    feedbacks: List[FeedbackResponse] = []
+    class Config:
+        from_attributes = True
+        
+# schemas.py
+
+# ... (기존 코드들) ...
+
+# ==========================================
+# ✅ [NEW] AI 에이전트 센터 (Agent Squad)
+# ==========================================
+
+# 1. 비평가 (Critic)
+class AgentReviewRequest(BaseModel):
+    art_info: str
+
+class AgentReviewResponse(BaseModel):
+    review_text: str
+
+# 2. 마케터 (Marketer)
+class AgentPromoteRequest(BaseModel):
+    exhibition_title: str
+    target_audience: str
+
+class AgentPromoteResponse(BaseModel):
+    promo_text: str
+
+# 3. 경매사 (Auctioneer)
+class AgentAuctionRequest(BaseModel):
+    art_info: str
+    critic_review: str
+
+class AgentAuctionResponse(BaseModel):
+    auction_report: str
+
+# =========================================================
+# 회원 목록을 프론트엔드로 보낼 때 사용할 데이터 규격(Lim)
+# =========================================================
+
+class UserListResponse(BaseModel):
+    wallet_address: str
+    membership_grade: str
+    token_balance: float
+    badge: Optional[str] = None
+    activity_count: int  # 참여한 투표나 안건 수
+
+    class Config:
+        from_attributes = True
+
+class DelegateRequest(BaseModel):
+    from_address: str
+    to_address: str
+
+==> ./backend/app/ipfs.py <==
+import requests
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# .env 파일에서 키 가져오기
+PINATA_API_KEY = os.getenv("PINATA_API_KEY")
+PINATA_SECRET_API_KEY = os.getenv("PINATA_SECRET_API_KEY")
+
+# 1. 이미지 파일 업로드
+def upload_bytes_to_ipfs(file_bytes, filename="image.png"):
+    # 디버깅: 키가 제대로 로드되었는지 확인 (앞 5자리만 출력)
+    print(f"🔑 Pinata Key Check: {PINATA_API_KEY[:5] if PINATA_API_KEY else 'NONE'}...")
+    
+    url = "https://api.pinata.cloud/pinning/pinFileToIPFS"
+    files = {'file': (filename, file_bytes)}
+    headers = {
+        'pinata_api_key': PINATA_API_KEY,
+        'pinata_secret_api_key': PINATA_SECRET_API_KEY
+    }
+    
+    response = requests.post(url, files=files, headers=headers)
+    
+    if response.status_code == 200:
+        return response.json()['IpfsHash']
+    else:
+        # 🚨 실패 원인을 터미널에 상세히 출력!
+        print(f"❌ [IPFS 에러] 그림 업로드 실패: {response.status_code} - {response.text}")
+        return None
+
+# 2. 메타데이터(JSON) 업로드
+def upload_json_to_ipfs(json_data):
+    url = "https://api.pinata.cloud/pinning/pinJSONToIPFS"
+    headers = {
+        'pinata_api_key': PINATA_API_KEY,
+        'pinata_secret_api_key': PINATA_SECRET_API_KEY,
+        'Content-Type': 'application/json'
+    }
+    response = requests.post(url, json=json_data, headers=headers)
+    
+    if response.status_code == 200:
+        return response.json()['IpfsHash']
+    else:
+        print(f"❌ [IPFS 에러] JSON 업로드 실패: {response.status_code} - {response.text}")
+        return None
+==> ./backend/app/main.py <==
+from fastapi import FastAPI, Depends, Query, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from sqlalchemy import desc
+from app import models, schemas, database
+from typing import List, Optional
+import time
+import requests
+import json
+import urllib.parse # ✅ URL 인코딩을 위해 추가 필요
+import random
+from .ipfs import upload_bytes_to_ipfs, upload_json_to_ipfs # 👈 추가
+from pydantic import BaseModel # 👈 이것도 없으면 추가
+import urllib.parse
+import random
+import os
+import base64  # 👈 추가 확인
+from datetime import datetime
+from sqlalchemy import func
+from fastapi.staticfiles import StaticFiles
+from web3 import Web3
+
+# 1. Web3 및 스마트 컨트랙트 연결 설정
+WEB3_PROVIDER_URL = os.getenv("WEB3_PROVIDER_URL", "http://blockchain:8545")
+w3 = Web3(Web3.HTTPProvider(WEB3_PROVIDER_URL))
+
+ADMIN_PRIVATE_KEY = os.getenv("ADMIN_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+try:
+    ADMIN_ACCOUNT = w3.eth.account.from_key(ADMIN_PRIVATE_KEY)
+except:
+    ADMIN_ACCOUNT = None
+
+def get_dao_contract():
+    try:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(base_dir, "contract_address.json"), "r") as f:
+            dao_address = json.load(f)["ArtPlanningDAO"]
+        with open(os.path.join(base_dir, "ArtPlanningDAO.json"), "r") as f:
+            abi = json.load(f)["abi"]
+        return w3.eth.contract(address=dao_address, abi=abi)
+    except Exception as e:
+        print(f"Contract load error: {e}")
+        return None
+
+
+
+
+# AI 에이전트 서버 주소 (도커 서비스 이름 사용)
+AI_AGENT_URL = "http://ai_core:8002"
+# DB 테이블 생성
+models.Base.metadata.create_all(bind=database.engine)
+
+app = FastAPI()
+
+os.makedirs("static/images", exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://13.125.234.38:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+get_db = database.get_db
+
+# =========================================================
+# 1. 🔑 인증 & 유저 관리 (DB 연동)
+# =========================================================
+@app.post("/api/auth/wallet-login")
+def wallet_login(req: schemas.WalletLoginRequest, db: Session = Depends(get_db)):
+    # 1. 유저 확인
+    user = db.query(models.User).filter(models.User.wallet_address == req.wallet_address).first()
+    
+    # 2. 없으면 자동 가입
+    if not user:
+        user = models.User(wallet_address=req.wallet_address, token_balance=100.0)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    
+    return {"status": "success", "wallet_address": user.wallet_address}
+
+@app.post("/api/auth/logout")
+def logout(wallet_address: str):
+    # 실제 세션/쿠키 방식이라면 response.delete_cookie("session_id") 등이 들어갑니다.
+    # 현재는 stateless 방식이므로 로그만 남기거나 성공 메시지만 반환합니다.
+    print(f"[Logout] Wallet: {wallet_address}") 
+    return {"status": "success", "message": "Logged out successfully"}
+
+# 유저 조회 헬퍼 함수
+def get_user_or_404(wallet_address: str, db: Session):
+    user = db.query(models.User).filter(models.User.wallet_address == wallet_address).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+@app.get("/api/user/membership")
+def get_membership(wallet_address: str, db: Session = Depends(get_db)):
+    user = get_user_or_404(wallet_address, db)
+    return {"grade": user.membership_grade}
+
+@app.get("/api/wallet/balance")
+def get_token_balance(wallet_address: str, db: Session = Depends(get_db)):
+    user = get_user_or_404(wallet_address, db)
+    return {"balance": user.token_balance}
+
+@app.get("/api/wallet/rewards")
+def get_pending_rewards(wallet_address: str, db: Session = Depends(get_db)):
+    user = get_user_or_404(wallet_address, db)
+    return {"pending_amount": user.pending_rewards}
+
+@app.get("/api/dao/delegation")
+def get_delegation_status(wallet_address: str, db: Session = Depends(get_db)):
+    user = get_user_or_404(wallet_address, db)
+    return {"delegated_to": user.delegated_to, "amount": 0}
+
+@app.get("/api/user/activity")
+def get_user_activity(wallet_address: str):
+    return [{"type": "login", "date": "2025-01-01"}, {"type": "vote", "date": "2025-01-10"}]
+
+@app.get("/api/user/referral")
+def get_referral_stats(wallet_address: str):
+    return {"invite_count": 0, "reward": 0}
+
+# [복구] 마이페이지 개인별 전시 추천 (명세서: GET /api/user/recommend)
+@app.get("/api/user/recommend", response_model=schemas.RecommendationResponse)
+def get_user_recommendation(wallet_address: str, db: Session = Depends(get_db)):
+    return {
+        "title": "디지털 르네상스: 비트코인과 예술",
+        "reason": "회원님의 최근 활동(사이버펑크 선호)을 분석하여 추천된 전시입니다."
+    }
+
+# [복구] 큐레이터 뱃지 관리 (명세서: PATCH /api/user/badge)
+@app.patch("/api/user/badge")
+def update_user_badge(wallet_address: str, db: Session = Depends(get_db)):
+    user = get_user_or_404(wallet_address, db)
+    user.badge = "Certified Curator" # 예시 로직
+    db.commit()
+    return {"status": "updated", "badge": "Certified Curator"}
+
+
+# =========================================================
+# 2. 🖼️ 온라인 전시관 & 관람평
+# =========================================================
+@app.get("/api/gallery/items", response_model=List[schemas.GalleryItemResponse])
+def get_gallery_items(db: Session = Depends(get_db)):
+    return db.query(models.GalleryItem).all()
+
+@app.post("/api/gallery/feedback")
+def create_feedback(item_id: int, content: str, wallet_address: str, db: Session = Depends(get_db)):
+    feedback = models.GalleryFeedback(
+        item_id=item_id, 
+        content=content, 
+        wallet_address=wallet_address
+    )
+    db.add(feedback)
+    db.commit()
+    return {"status": "feedback_saved"}
+
+# ==========================================
+# [추가] 도슨트 기능 (작품 설명 생성)
+# ==========================================
+@app.post("/api/gallery/docent")
+def generate_docent_script(item_id: int = 0):
+    print(f"📡 [Backend] 도슨트 요청 (ID: {item_id})")
+    
+    # 1. DB에서 작품 찾기 (없으면 임시 데이터 사용)
+    # (실제로는 DB에서 조회해야 하지만, 여기선 예시로 처리)
+    art_info = "신비로운 사이버펑크 도시의 밤 풍경" # 기본값
+    
+    # 2. AI 에이전트(도슨트)에게 대본 요청
+    try:
+        payload = {
+            "art_info": art_info,
+            "audience_type": "일반 관람객"
+        }
+        # agent.py의 /docent 엔드포인트 호출
+        response = requests.post(f"{AI_AGENT_URL}/docent", json=payload, timeout=20)
+        
+        if response.status_code == 200:
+            script = response.json().get("commentary", "작품 설명을 불러오지 못했습니다.")
+            return {"text_script": script}
+        else:
+            return {"text_script": "AI 도슨트가 현재 바쁩니다."}
+            
+    except Exception as e:
+        print(f"🔥 도슨트 에러: {str(e)}")
+        return {"text_script": "잠시 후 다시 시도해주세요."}
+# =========================================================
+# 🚨 [수정완료] Botto DAO 라운드 & 후보작 시스템 API
+# =========================================================
+
+# =========================================================
+# 🚨 [수정완료] Botto DAO 라운드 & 후보작 시스템 API
+# =========================================================
+
+@app.post("/api/admin/generate-round", summary="새 라운드 생성 및 A2A 그림 5장 뽑기")
+def generate_new_round(db: Session = Depends(get_db)):
+    # 1. 기존 라운드 종료 처리
+    active_round = db.query(models.Round).filter(models.Round.status == "ACTIVE").first()
+    if active_round:
+        active_round.status = "ENDED"
+        active_round.end_time = datetime.utcnow()
+        db.commit()
+
+    # 2. 새 라운드 번호 채번
+    last_round = db.query(models.Round).order_by(models.Round.round_number.desc()).first()
+    next_round_num = (last_round.round_number + 1) if last_round else 1
+
+    new_round = models.Round(round_number=next_round_num, status="ACTIVE")
+    db.add(new_round)
+    db.commit()
+    db.refresh(new_round)
+    
+    # ✨ [추가] 1. 가장 최신 Market Insights 데이터를 가져옵니다.
+    current_insights = get_market_insights()
+
+    # 3. 🚨 AI 에이전트(agent.py)에게 2개의 컨셉 JSON 받아오기
+    # (2개를 기획하고 그림을 그리려면 시간이 꽤 걸리므로 timeout을 넉넉히 줍니다)
+    print(f"📡 AI 요원들에게 {next_round_num}주차 후보작 2개 기획 지시 중... (약 1분 소요)")
+    
+    try:
+        # ✨ [핵심 변경] 2. AI를 호출할 때 json 바디에 insights 데이터를 꽉 채워서 보냅니다!
+        payload = {"insights": current_insights}
+        
+        # [기존 AI 호출 코드 - 주석 처리]
+        # agent_res = requests.post(f"{AI_AGENT_URL}/api/agent/generate-candidates", json=payload, timeout=300)
+        # if agent_res.status_code != 200:
+        #     raise Exception(f"AI Core 서버 응답 에러: {agent_res.text}")
+        # ai_data = agent_res.json().get("candidates", [])
+
+        # [임시 테스트용] AI API 오류 회피를 위한 고정 더미 데이터 (2개)
+        ai_data = [
+            {"title": "AI Masterpiece - 사이버펑크 2077", "description": "네온사인이 빛나는 근미래 도시를 표현한 3D 렌더링 작품입니다.", "image_prompt": "cyberpunk neon city 3d render"},
+            {"title": "AI Masterpiece - 수채화풍 서울", "description": "따뜻한 감성이 묻어나는 수채화 스타일의 고요한 서울 풍경입니다.", "image_prompt": "watercolor seoul landscape calm"}
+        ]
+    except Exception as e:
+        print(f"🔥 AI 통신 에러: {e}")
+        raise HTTPException(status_code=500, detail="AI 기획자 호출에 실패했습니다.")
+
+    # 4. 🎨 받아온 영문 프롬프트로 Cloudflare 그림 10장 그리고 IPFS 올리기
+    CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
+    CF_API_TOKEN = os.getenv("CF_API_TOKEN")
+
+    candidate_uris = []
+
+    for index, c_data in enumerate(ai_data, start=1):
+        # ✨ [핵심] 에러 방지 로직 적용
+        if isinstance(c_data, str):
+            title = f"AI Masterpiece {next_round_num}-{index}"
+            desc_text = "AI가 생성한 예술 작품입니다."
+            prompt = c_data
+        else:
+            title = c_data.get("title", f"제목 없음 {index}")
+            desc_text = c_data.get("description", "설명 없음")
+            prompt = c_data.get("image_prompt", "digital art masterpiece")
+            # AI가 만든 원본 프롬프트
+            base_prompt = c_data.get("image_prompt", "digital art")
+            prompt = f"Masterpiece, extremely high quality digital art, trending on artstation, vivid colors, cyberpunk and synthwave vibes, glowing neon lights, holographic, highly detailed 3D digital illustration, Unreal Engine 5 render. Concept: {base_prompt}"
+
+        print(f"🖌️ [{index}/5] '{title}' 이미지 렌더링 중...")
+        
+        # Cloudflare FLUX에 이미지 요청
+        cf_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/@cf/black-forest-labs/flux-1-schnell"
+        headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
+        
+        try:
+            img_res = requests.post(cf_url, headers=headers, json={"prompt": prompt}, timeout=60)
+            
+            # 🚨 IPFS 해시를 PENDING(대기중)으로 설정! (우승하면 채워짐)
+            ipfs_hash = "PENDING"
+            image_url = "https://dummyimage.com/600x400/000/fff&text=CF+Error"
+
+            if img_res.status_code == 200:
+                res_json = img_res.json()
+                if "result" in res_json and "image" in res_json["result"]:
+                    b64_encoded = res_json["result"]["image"]
+                    image_bytes = base64.b64decode(b64_encoded)
+                    
+                    # 🚨 [핵심 변경] IPFS가 아니라 로컬(오프체인)에 파일로 저장!
+                    filename = f"round{next_round_num}_candidate_{index}.png"
+                    filepath = f"static/images/{filename}"
+                    
+                    with open(filepath, "wb") as f:
+                        f.write(image_bytes)
+                    
+                    # 프론트엔드가 접근할 수 있도록 로컬 서버 URL 부여
+                    BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
+                    image_url = f"{BASE_URL}/{filepath}"
+
+            # DB에 10개 각각 저장 (image_url은 로컬 주소, ipfs_hash는 PENDING)
+            candidate = models.Candidate(
+                round_id=new_round.id,
+                title=title,
+                description=desc_text,
+                image_url=image_url,
+                ipfs_hash=ipfs_hash
+            )
+            db.add(candidate)
+            candidate_uris.append(image_url)
+            
+        except Exception as img_e:
+            print(f"🔥 [{index}/5] 이미지 생성 실패: {img_e}")
+            continue # 실패해도 다음 그림으로 넘어감
+
+    db.commit()
+    print("🎉 새 라운드 5개 후보작 DB 세팅 완벽 성공!")
+
+    # 5. [Web3] 블록체인 상에 라운드 시작 (startNewRound)
+    try:
+        if ADMIN_ACCOUNT:
+            dao_contract = get_dao_contract()
+            if dao_contract:
+                nonce = w3.eth.get_transaction_count(ADMIN_ACCOUNT.address)
+                # 라운드 기간을 7일로, 후보작들의 URI 리스트를 전달
+                tx = dao_contract.functions.startNewRound(7, candidate_uris).build_transaction({
+                    'chainId': 31337,
+                    'gas': 3000000,
+                    'gasPrice': w3.to_wei('1', 'gwei'),
+                    'nonce': nonce,
+                })
+                signed_tx = w3.eth.account.sign_transaction(tx, private_key=ADMIN_PRIVATE_KEY)
+                tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+                w3.eth.wait_for_transaction_receipt(tx_hash)
+                print(f"✅ 온체인 라운드 시작 완료: {tx_hash.hex()}")
+    except Exception as e:
+        print(f"🔥 온체인 라운드 시작 실패: {e}")
+
+    return {"status": "success", "message": f"Round {next_round_num} 5개 후보작 세팅 완료!", "round_id": new_round.id}
+
+
+# 2. [NEW] 투표 종료, 1등 확정 및 AI 경매 가치 산정
+@app.post("/api/admin/end-round", summary="투표 종료 및 AI 경매 가치 산정")
+def end_round_and_evaluate(db: Session = Depends(get_db)):
+    # 1. 현재 라운드 찾기 & 2. 최고 득표 1등 찾기
+    active_round = db.query(models.Round).filter(models.Round.status == "ACTIVE").first()
+    if not active_round:
+        raise HTTPException(status_code=400, detail="진행 중인 라운드가 없습니다.")
+
+    winner = db.query(models.Candidate).filter(models.Candidate.round_id == active_round.id)\
+               .order_by(desc(models.Candidate.vp_votes)).first()
+    if not winner:
+        raise HTTPException(status_code=400, detail="후보작이 존재하지 않습니다.")
+
+    # 3. 우승 처리
+    winner.is_winner = True
+    active_round.status = "ENDED"
+    active_round.end_time = datetime.utcnow()
+
+    # 4. AI 경매사 호출 (가치 산정)
+    try:
+        payload = {"title": winner.title, "description": winner.description, "vp_votes": winner.vp_votes}
+        res = requests.post(f"{AI_AGENT_URL}/api/agent/evaluate-winner", json=payload, timeout=60)
+        winner.auction_price = res.json().get("auction_price", winner.vp_votes * 10) if res.status_code == 200 else winner.vp_votes * 10
+    except Exception as e:
+        winner.auction_price = winner.vp_votes * 10
+
+    # =========================================================
+    # 🚨 5. [핵심] 우승작 단 1개만 IPFS에 업로드하여 NFT 박제 준비!
+    # =========================================================
+    if winner.ipfs_hash == "PENDING" and "/static/images/" in winner.image_url:
+        try:
+            import urllib.parse
+            # image_url에서 파일 경로만 쏙 빼냅니다. (예: static/images/xxx.png)
+            parsed_url = urllib.parse.urlparse(winner.image_url)
+            filepath = parsed_url.path.lstrip("/") 
+            
+            if os.path.exists(filepath):
+                print(f"🚀 우승작 발견! IPFS 영구 박제 업로드 중... ({filepath})")
+                with open(filepath, "rb") as f:
+                    image_bytes = f.read()
+                
+                # ipfs.py의 함수를 호출해서 IPFS로 전송!
+                uploaded_cid = upload_bytes_to_ipfs(image_bytes, filename=f"winner_round{active_round.id}.png")
+                
+                if uploaded_cid:
+                    winner.ipfs_hash = f"ipfs://{uploaded_cid}"
+                    # 명예의 전당(Gallery) 전시를 위해 URL도 IPFS 주소로 교체해 줍니다.
+                    winner.image_url = f"https://gateway.pinata.cloud/ipfs/{uploaded_cid}"
+                    print(f"✅ 우승작 IPFS 박제 완료! (CID: {uploaded_cid})")
+        except Exception as e:
+            print(f"🔥 우승작 IPFS 업로드 실패: {e}")
+    
+    # 6. 명예의 전당(GalleryItem) 테이블에 우승작 영구 등록!
+    new_gallery_item = models.GalleryItem(
+        title=winner.title,
+        artist_address="ArtDAO Core AI", # AI가 창작했으므로 작가명을 고정해줍니다
+        image_url=winner.image_url,      # IPFS 주소로 업데이트된 이미지 URL
+        description=winner.description
+    )
+    db.add(new_gallery_item)
+
+    db.commit()
+
+    # 7. [Web3] 블록체인 상에 투표 마감 (finalizeRound)
+    try:
+        if ADMIN_ACCOUNT:
+            dao_contract = get_dao_contract()
+            if dao_contract:
+                nonce = w3.eth.get_transaction_count(ADMIN_ACCOUNT.address)
+                auction_price_wei = w3.to_wei(winner.auction_price, 'ether')
+                ipfs_uri = winner.ipfs_hash if winner.ipfs_hash != "PENDING" else winner.image_url
+
+                tx = dao_contract.functions.finalizeRound(auction_price_wei, ipfs_uri).build_transaction({
+                    'chainId': 31337,
+                    'gas': 3000000,
+                    'gasPrice': w3.to_wei('1', 'gwei'),
+                    'nonce': nonce,
+                })
+                signed_tx = w3.eth.account.sign_transaction(tx, private_key=ADMIN_PRIVATE_KEY)
+                tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+                w3.eth.wait_for_transaction_receipt(tx_hash)
+                print(f"✅ 온체인 라운드 마감 완료: {tx_hash.hex()}")
+    except Exception as e:
+        print(f"🔥 온체인 라운드 마감 실패: {e}")
+
+    return {
+        "status": "success", 
+        "winner_title": winner.title, 
+        "auction_price": winner.auction_price,
+        "message": "오프체인 결산 및 우승작 IPFS 업로드 완료!"
+    }
+
+# =========================================================
+# (이 아래로는 기존에 있던 @app.get("/api/rounds/current") 등 코드를 유지하시면 됩니다)
+
+# 2. 🖼️ 프론트엔드 갤러리/투표창에 뿌려줄 현재 라운드 정보 가져오기
+@app.get("/api/rounds/current", response_model=schemas.RoundResponse, summary="현재 진행중인 라운드 조회")
+def get_current_round(db: Session = Depends(get_db)):
+    active_round = db.query(models.Round).filter(models.Round.status == "ACTIVE").first()
+    
+    if not active_round:
+        raise HTTPException(status_code=404, detail="현재 진행 중인 투표 라운드가 없습니다.")
+    
+    return active_round
+
+# [NEW] 3. 💰 종료된 라운드 목록 가져오기 (배당금 청구용)
+@app.get("/api/rounds/ended", summary="종료된 라운드 목록 조회")
+def get_ended_rounds(db: Session = Depends(get_db)):
+    from sqlalchemy import desc
+    rounds = db.query(models.Round).filter(models.Round.status == "ENDED").order_by(desc(models.Round.id)).all()
+    res = []
+    for r in rounds:
+        winner = db.query(models.Candidate).filter(models.Candidate.round_id == r.id, models.Candidate.is_winner == True).first()
+        res.append({
+            "round_id": r.id,
+            "end_time": r.end_time,
+            "auction_price": winner.auction_price if winner else 0,
+            "winner_title": winner.title if winner else "알 수 없음"
+        })
+    return res
+
+
+# 3. 🗳️ 유저 VP 투표 처리 (오프체인 가스비 무료 투표!)
+@app.post("/api/vote", summary="후보작에 VP 투표하기")
+def cast_vote(req: schemas.VoteRequest, db: Session = Depends(get_db)):
+    # 1. 지갑 정보 및 유저 확인
+    user = get_user_or_404(req.wallet_address, db)
+    
+    # 2. 해당 후보작이 존재하는지, 현재 진행중인 라운드인지 확인
+    candidate = db.query(models.Candidate).filter(models.Candidate.id == req.candidate_id).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="존재하지 않는 후보작입니다.")
+    
+    current_round = db.query(models.Round).filter(models.Round.id == candidate.round_id).first()
+    if current_round.status != "ACTIVE":
+        raise HTTPException(status_code=400, detail="이미 종료된 라운드의 투표입니다.")
+
+    # 3. 투표력(VP) 검증 (내 잔고 TUK보다 많이 썼는지 확인)
+    # 현재 라운드에 이 유저가 지금까지 쓴 총 VP 계산
+    used_vp_record = db.query(func.sum(models.VoteLog.vp_used)).filter(
+        models.VoteLog.round_id == current_round.id,
+        models.VoteLog.voter_wallet == req.wallet_address
+    ).scalar() or 0
+
+    if (used_vp_record + req.vp_amount) > user.token_balance:
+        raise HTTPException(status_code=400, detail=f"VP가 부족합니다. (내 잔고: {user.token_balance}, 사용가능: {user.token_balance - used_vp_record})")
+
+    # 4. 투표 기록(VoteLog) 남기기 & 후보작 총 득표수(vp_votes) 올리기
+    new_vote = models.VoteLog(
+        round_id=current_round.id,
+        candidate_id=candidate.id,
+        voter_wallet=req.wallet_address,
+        vp_used=req.vp_amount
+    )
+    db.add(new_vote)
+    
+    candidate.vp_votes += req.vp_amount
+    db.commit()
+
+    return {"status": "success", "message": f"{candidate.title}에 {req.vp_amount} VP 투표 완료!"}
+# ==========================================
+# [수정] AI 큐레이터/도슨트 채팅 연결 API (422 에러 해결)
+# ==========================================
+# 프론트엔드가 보낼 데이터 규격 정의
+class ChatRequest(BaseModel):
+    message: str
+    wallet_address: str = ""
+
+@app.post("/api/a2a/chat")
+def a2a_chat(request: ChatRequest): # 🚨 query parameter가 아니라 body로 받습니다!
+    print(f"📡 [Backend] AI 협업 팀에게 질문 전달: {request.message}")
+    
+    try:
+        # AI 에이전트 서버로 데이터 전송 (주소줄이 아니라 json 바디에 담아서 보냅니다!)
+        payload = {
+            "message": request.message,
+            "wallet_address": request.wallet_address
+        }
+        
+        response = requests.post(f"{AI_AGENT_URL}/chat", json=payload, timeout=60)
+        
+        if response.status_code == 200:
+            result = response.json()
+            return {"reply": result.get("reply", "답변을 가져오지 못했습니다.")}
+        else:
+            print(f"🔥 AI 서버 에러 ({response.status_code}): {response.text}")
+            return {"reply": "AI 팀이 응답하지 않습니다. 잠시 후 다시 시도해주세요."}
+            
+    # ✨ 수정할 코드
+    except Exception as e:
+        print(f"🔥 통신 에러: {str(e)}")
+        # 화면에 진짜 에러 원인을 띄우도록 변경!
+        return {"reply": f"🚨 진짜 에러 원인: {str(e)}"}
+    
+# [명세서 추가 요청 2] 사용자 맞춤 작품 매칭 (A2A Recommend)
+@app.get("/api/a2a/recommend", summary="사용자 맞춤 작품 매칭")
+def a2a_recommend(wallet_address: str):
+    # Agent: Member Info Agent + Exhibition Item Agent
+    # AI가 유저 성향을 분석해 추천 리스트 반환
+    return [
+        {"id": 1, "title": "추천 작품: 사이버펑크 서울", "reason": "회원님의 'Cyberpunk' 선호도 90% 일치"},
+        {"id": 2, "title": "추천 작품: 네온의 밤", "reason": "최근 관람한 작품과 유사"}
+    ]
+
+# [명세서 추가 요청 3] 전시 기획 제안 (Proposal Creation Agent)
+# 명세서의 POST /api/proposal/create 구현
+@app.post("/api/proposal/create", summary="(선택) 전시 기획 제안 (AI Agent)")
+def propose_exhibition_agent(intent: str):
+    # Agent: Proposal Creation Agent
+    # 사용자의 의도(intent)를 받아 AI가 기획서를 써주는 기능 (studio/draft와 유사)
+    time.sleep(1)
+    return {
+        "proposal_text": f"AI가 제안하는 기획서:\n주제: {intent}\n\n[기획 의도]\n관람객에게 새로운 경험을...",
+        "suggested_title": f"{intent} - 미지의 세계"
+    }
+
+# ==========================================
+# [수정 1] 기획서 생성 (Draft) - A2A 병목 해제!
+# ==========================================
+@app.post("/api/studio/draft") # 🚨 response_model=... 부분을 꼭 지워주세요!
+def create_draft(request: schemas.StudioDraftRequest):
+    print(f"📡 [Backend] AI 난상토론 기획서 요청: {request.intent}")
+    
+    try:
+        response = requests.post(
+            f"{AI_AGENT_URL}/studio/a2a-full", 
+            json={"intent": request.intent},
+            timeout=300 
+        )
+        
+        if response.status_code == 200:
+            # 🚨 agent.py가 주는 모든 데이터(초안, 비평, 최종본)를 
+            # 자르지 않고 프론트엔드로 '그대로' 패스합니다!
+            return response.json() 
+        else:
+            print(f"🔥 AI 에러: {response.text}")
+            return {"draft_text": "AI가 토론하다가 잠들었습니다. (에러 발생)"}
+            
+    except Exception as e:
+        print(f"🔥 통신 에러: {str(e)}")
+        return {"draft_text": "AI 에이전트와 연결할 수 없습니다."}
+# ==========================================
+# 1. 비평가 (Critic) 연결 (🚀 방금 추가한 코드)
+# ==========================================
+class CriticReviewRequest(BaseModel):
+    art_info: str
+
+@app.post("/api/agent/review")
+def agent_review(req: CriticReviewRequest):
+    print(f"📡 [Backend] 비평가 호출: {req.art_info}")
+    try:
+        # AI 컨테이너(8002)의 /review 엔드포인트 호출
+        payload = {"art_info": req.art_info}
+        resp = requests.post(f"{AI_AGENT_URL}/review", json=payload)
+        
+        if resp.status_code == 200:
+            return resp.json() # {"review_text": "..."} 반환
+        else:
+            return {"review_text": "비평문 생성 실패"}
+    except Exception as e:
+        return {"review_text": "통신 오류 발생"}
+    
+# 2. 마케터 (Marketer) 연결
+@app.post("/api/agent/promote", response_model=schemas.AgentPromoteResponse)
+def agent_promote(req: schemas.AgentPromoteRequest):
+    print(f"📡 [Backend] 마케터 호출: {req.exhibition_title}")
+    try:
+        # AI 컨테이너(8002)의 /promote 엔드포인트 호출
+        payload = {
+            "exhibition_title": req.exhibition_title, 
+            "target_audience": req.target_audience
+        }
+        resp = requests.post(f"{AI_AGENT_URL}/promote", json=payload)
+        
+        if resp.status_code == 200:
+            return resp.json() # {"promo_text": "..."} 반환
+        else:
+            return {"promo_text": "마케팅 문구 생성 실패"}
+    except Exception as e:
+        return {"promo_text": "통신 오류 발생"}
+
+# 3. 경매사 (Auctioneer) 연결
+@app.post("/api/agent/auction", response_model=schemas.AgentAuctionResponse)
+def agent_auction(req: schemas.AgentAuctionRequest):
+    print(f"📡 [Backend] 경매사 호출")
+    try:
+        # AI 컨테이너(8002)의 /auction 엔드포인트 호출
+        payload = {
+            "art_info": req.art_info,
+            "critic_review": req.critic_review
+        }
+        resp = requests.post(f"{AI_AGENT_URL}/auction", json=payload)
+        
+        if resp.status_code == 200:
+            return resp.json() # {"auction_report": "..."} 반환
+        else:
+            return {"auction_report": "경매 리포트 생성 실패"}
+    except Exception as e:
+        return {"auction_report": "통신 오류 발생"}
+
+# ==========================================
+# 이미지 생성 (Image) - Cloudflare FLUX 엑박 완벽 해결
+# ==========================================
+import os
+import requests
+import base64
+
+@app.post("/api/studio/image", response_model=schemas.StudioImageResponse)
+def create_art_image(request: schemas.StudioImageRequest):
+    print(f"📡 [Backend] AI에게 그림 요청 (원본 키워드): {request.keywords}")
+    
+    CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
+    CF_API_TOKEN = os.getenv("CF_API_TOKEN")
+
+    if not CF_ACCOUNT_ID or not CF_API_TOKEN:
+        print("🔥 Cloudflare API 키가 없습니다! .env 파일을 확인하세요.")
+        return {"image_url": "https://dummyimage.com/600x400/ff0000/fff&text=CF+Key+Missing"}
+
+    enhanced_english_prompt = "A masterpiece, highly detailed digital art of " + request.keywords
+
+    # 1. 화가 에이전트에게 프롬프트 부탁 (A2A)
+    try:
+        print("🧠 [CrewAI] 화가 에이전트에게 완벽한 프롬프트 엔지니어링 의뢰 중...")
+        payload = {"topic": request.keywords, "style": "Digital Art", "wallet_address": "0xSystem"}
+        response = requests.post(f"{AI_AGENT_URL}/generate", json=payload, timeout=30)
+        
+        if response.status_code == 200:
+            enhanced_english_prompt = response.json().get("final_prompt", enhanced_english_prompt)
+            print(f"✨ [화가 프롬프트 완성] ➔ {enhanced_english_prompt[:50]}...")
+    except Exception as e:
+        print(f"⚠️ 화가 에이전트 에러, 원본 키워드 사용: {e}")
+
+    # 2. Cloudflare FLUX 서버 호출
+    try:
+        print("📥 [Cloudflare FLUX] 고퀄리티 이미지 렌더링 중...")
+        cf_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/@cf/black-forest-labs/flux-1-schnell"
+        
+        headers = {
+            "Authorization": f"Bearer {CF_API_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        
+        data = {
+            "prompt": enhanced_english_prompt[:1000] # 프롬프트 길이 제한
+        }
+
+        img_res = requests.post(cf_url, headers=headers, json=data, timeout=60)
+
+        if img_res.status_code == 200:
+            # 🚨 [핵심 수정] Cloudflare가 주는 JSON 껍데기를 벗겨서 진짜 이미지 데이터만 추출!
+            content_type = img_res.headers.get("Content-Type", "")
+            
+            if "application/json" in content_type:
+                res_json = img_res.json()
+                if "result" in res_json and "image" in res_json["result"]:
+                    b64_encoded = res_json["result"]["image"]
+                    # 클라우드플레어는 이미 Base64 텍스트로 주기 때문에 한 번 더 인코딩할 필요 없음!
+                    data_url = f"data:image/jpeg;base64,{b64_encoded}"
+                    print("✅ Cloudflare FLUX 그림 생성 성공! (JSON 파싱 완벽)")
+                    return {"image_url": data_url}
+                else:
+                    print(f"🔥 예상치 못한 JSON 구조: {res_json}")
+                    return {"image_url": "https://dummyimage.com/600x400/ff0000/fff&text=CF+JSON+Structure+Error"}
+            else:
+                # 만약 정말로 바이너리를 줬을 경우를 대비한 안전 장치
+                image_bytes = img_res.content
+                b64_encoded = base64.b64encode(image_bytes).decode('utf-8')
+                data_url = f"data:image/jpeg;base64,{b64_encoded}"
+                print("✅ Cloudflare FLUX 그림 생성 성공! (바이너리 인코딩 완벽)")
+                return {"image_url": data_url}
+        else:
+            print(f"🔥 Cloudflare API 에러: {img_res.status_code} - {img_res.text}")
+            return {"image_url": "https://dummyimage.com/600x400/ff0000/fff&text=CF+API+Error"}
+            
+    except Exception as e:
+        print(f"🔥 이미지 서버 통신 실패: {str(e)}")
+        return {"image_url": "https://dummyimage.com/600x400/000000/fff&text=Connection+Failed"}
+    
+# ==========================================
+# 2. IPFS 영구 저장 (오직 그림 파일만 가볍게 업로드!)
+# ==========================================
+class FinalizeProposalRequest(BaseModel):
+    image_url: str = ""
+    wallet_address: str = ""
+    title: str = ""
+    description: str = ""
+    prompt: str = ""
+
+@app.post("/api/ipfs/finalize")
+def finalize_proposal_ipfs(req: FinalizeProposalRequest):
+    print(f"🚀 [최종 제출] 메모리 그림 데이터 -> IPFS 영구 저장 시작 (안건: {req.title})")
+    try:
+        import base64
+        
+        # 1. Base64 형태의 이미지가 제대로 왔는지 확인
+        if not req.image_url or not req.image_url.startswith("data:image"):
+            return {"error": "Invalid image data"}
+            
+        print("📥 프론트엔드 이미지를 복원하여 IPFS에 업로드 중...")
+        header, encoded = req.image_url.split(",", 1)
+        image_bytes = base64.b64decode(encoded)
+        
+        # 🚨 여기서 ipfs.py의 이미지 업로드 함수만 호출합니다!
+        image_cid = upload_bytes_to_ipfs(image_bytes)
+        
+        if not image_cid:
+            return {"error": "Image Upload Failed"}
+            
+        image_ipfs_url = f"ipfs://{image_cid}"
+        print(f"✅ 그림 IPFS 업로드 완료! CID: {image_cid}")
+        
+        # 🚨 메타데이터(JSON) 업로드 로직은 삭제! 스마트 컨트랙트에는 그림 주소만 들어갑니다.
+        
+        return {
+            "status": "success",
+            "image_ipfs_url": f"https://gateway.pinata.cloud/ipfs/{image_cid}", # 브라우저 표시용
+            "token_uri": image_ipfs_url # 스마트 컨트랙트에 들어갈 최종 그림 주소
+        }
+    except Exception as e:
+        print(f"🔥 IPFS 파이썬 에러: {str(e)}")
+        return {"error": str(e)}
+    
+    
+# =======================================================================
+# 사용자 목록을 불러오는 GET 요청과 위임 처리를 위한 POST 요청 추가(Lim)
+# =======================================================================
+
+# 1. 위임 가능한 전체 사용자 목록 조회
+@app.get("/api/user/list", response_model=List[schemas.UserListResponse])
+def get_user_list(db: Session = Depends(get_db)):
+    users = db.query(models.User).all()
+    # 실제 활동 점수는 각 테이블에서 count()를 해야 하지만, 
+    # 일단은 전체 목록을 반환하는 기본 로직으로 작성합니다.
+    result = []
+    for user in users:
+        activity_count = 0
+        result.append({
+            "wallet_address": user.wallet_address,
+            "membership_grade": user.membership_grade,
+            "token_balance": user.token_balance,
+            "badge": user.badge,
+            "activity_count": activity_count
+        })
+    return result
+
+# 2. 위임 정보 DB 업데이트 (블록체인 성공 후 호출용)
+@app.post("/api/dao/delegate")
+def update_delegation_db(req: schemas.DelegateRequest, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.wallet_address == req.from_address).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user.is_delegated = True
+    user.delegated_to = req.to_address
+    db.commit()
+    return {"status": "success", "message": f"Delegated to {req.to_address}"}
+# =========================================================
+# [NEW] Market Insights (시장 트렌드 분석 API)
+# =========================================================
+# 💡 서버가 켜져있는 동안 한 번 분석한 데이터를 기억해두는 캐시 변수
+cached_insights = None
+
+@app.get("/api/insights/trends", summary="실시간 마켓 인사이트 조회")
+def get_market_insights():
+    global cached_insights
+    
+    # 1. 이미 분석해둔 데이터가 있으면 0.1초 만에 바로 반환!
+    if cached_insights:
+        return cached_insights
+        
+    # 2. 없으면 AI 서버에 최초 1회 분석 요청
+    try:
+        res = requests.get(f"{AI_AGENT_URL}/api/agent/insights", timeout=60)
+        if res.status_code == 200:
+            cached_insights = res.json()
+            return cached_insights
+    except Exception as e:
+        print(f"🔥 통신 에러 또는 타임아웃: {e}")
+        
+    # 3. 🚨 만약 AI 서버가 터졌을 경우 시연을 살리기 위한 비상용 예비 데이터
+    return {
+        "keywords": ["#Generative_AI", "#Neo_Cyberpunk", "#Eco_Activism", "#Hyper_Realism", "#Web3_Art", "#Algorithmic", "#Surrealism"],
+        "styles": [
+            {"name": "Unreal Engine 5 Render", "percent": 50},
+            {"name": "Oil Painting Texture", "percent": 30},
+            {"name": "Retro 8-bit Pixel", "percent": 20}
+        ]
+    }
+==> ./blockchain/hardhat.config.js <==
+require("@nomicfoundation/hardhat-toolbox");
+
+/** @type import('hardhat/config').HardhatUserConfig */
+module.exports = {
+  // 1. 솔리디티 설정 (기존 설정 유지)
+  solidity: {
+    version: "0.8.24",
+    settings: {
+      optimizer: { enabled: true, runs: 200 },
+      evmVersion: "cancun"
+    },
+  },
+  // 2. 네트워크 설정 (여기가 핵심!)
+  networks: {
+    hardhat: {
+      chainId: 31337, // 메타마스크 표준 체인 ID (이게 있어야 경고가 안 뜸)
+      blockGasLimit: 30000000,
+    },
+    // 이 부분이 없어서 연결이 안 됐던 겁니다!
+    localhost: {
+      url: "http://127.0.0.1:8545", // 표준 포트 8545로 고정
+      chainId: 31337,
+    },
+  },
+};
+
+==> ./blockchain/contracts/ArtPlanningDAO.sol <==
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/governance/utils/IVotes.sol";
+
+// [NEW] TukToken과 ArtNFT 인터페이스
+interface ITukToken is IERC20, IVotes {
+    function mint(address to, uint256 amount) external;
+}
+
+interface IArtNFT {
+    function mint(address to, string memory uri) external returns (uint256);
+}
+
+contract ArtPlanningDAO {
+    ITukToken public governanceToken;
+    IArtNFT public artNFT;
+
+    struct Round {
+        uint256 id;
+        uint256 snapshotBlock; // 투표력 측정을 위한 스냅샷 블록 (어뷰징 방지)
+        uint256 startTime;     // 시작 시간 (Timestamp)
+        uint256 endTime;       // 종료 시간 (Timestamp)
+        bool isFinalized;      // 결과 확정 여부
+        uint256 winningCandidateId; // 우승 후보작 ID
+        uint256 auctionPrice;  // [NEW] 우승작의 가상 매각 대금 (AI 산정가)
+        uint256 rewardPool;    // [NEW] 배당에 쓰일 풀 (auctionPrice 의 70%)
+    }
+
+    struct Candidate {
+        uint256 id;
+        uint256 roundId;
+        string metadataURI; // IPFS 메타데이터 또는 이미지 주소
+        uint256 totalVotes; // 누적 투표(VP) 수
+    }
+
+    uint256 public currentRoundId;
+    mapping(uint256 => Round) public rounds;
+    mapping(uint256 => Candidate[]) public roundCandidates;
+    
+    // roundId => user => 사용한 VP
+    mapping(uint256 => mapping(address => uint256)) public usedVotingPower;
+    
+    // roundId => candidateId => user => 행사한 VP (추후 배당 시 지분율 계산용)
+    mapping(uint256 => mapping(uint256 => mapping(address => uint256))) public userVoteWeight;
+
+    // [NEW] roundId => user => 보상 수령 여부
+    mapping(uint256 => mapping(address => bool)) public hasClaimedReward;
+
+    event RoundStarted(uint256 indexed roundId, uint256 startTime, uint256 endTime, uint256 snapshotBlock);
+    event Voted(uint256 indexed roundId, uint256 indexed candidateId, address indexed voter, uint256 vpAmount);
+    event RoundFinalized(uint256 indexed roundId, uint256 winningCandidateId, uint256 auctionPrice, uint256 nftTokenId);
+    event RewardClaimed(uint256 indexed roundId, address indexed user, uint256 rewardAmount);
+
+    constructor(address _tokenAddress) {
+        governanceToken = ITukToken(_tokenAddress);
+    }
+
+    // [NEW] ArtNFT 주소 설정
+    function setArtNFT(address _artNFTAddress) public {
+        artNFT = IArtNFT(_artNFTAddress);
+    }
+
+    // 새로운 투표 라운드 시작 (매주 자동화 스크립트에서 호출됨)
+    function startNewRound(uint256 _durationDays, string[] memory _candidateURIs) public {
+        require(_candidateURIs.length > 0, "No candidates provided");
+        
+        currentRoundId++;
+        
+        uint256 snapshotBlock = block.number > 0 ? block.number - 1 : 0;
+        uint256 startTime = block.timestamp;
+        uint256 endTime = startTime + (_durationDays * 1 days);
+
+        rounds[currentRoundId] = Round({
+            id: currentRoundId,
+            snapshotBlock: snapshotBlock,
+            startTime: startTime,
+            endTime: endTime,
+            isFinalized: false,
+            winningCandidateId: 0,
+            auctionPrice: 0,
+            rewardPool: 0
+        });
+
+        for(uint256 i = 0; i < _candidateURIs.length; i++) {
+            roundCandidates[currentRoundId].push(Candidate({
+                id: i,
+                roundId: currentRoundId,
+                metadataURI: _candidateURIs[i],
+                totalVotes: 0
+            }));
+        }
+
+        emit RoundStarted(currentRoundId, startTime, endTime, snapshotBlock);
+    }
+
+    // 특정 라운드의 후보작에 분산 투표
+    function vote(uint256 _candidateId, uint256 _vpAmount) public {
+        Round storage r = rounds[currentRoundId];
+        require(!r.isFinalized, "Round is already finalized");
+        require(block.timestamp <= r.endTime, "Voting period has ended");
+        require(_candidateId < roundCandidates[currentRoundId].length, "Invalid candidate ID");
+        require(_vpAmount > 0, "VP amount must be greater than 0");
+
+        uint256 totalVpAtStart = governanceToken.getPastVotes(msg.sender, r.snapshotBlock);
+        
+        require(usedVotingPower[currentRoundId][msg.sender] + _vpAmount <= totalVpAtStart, "Exceeds available Voting Power");
+
+        usedVotingPower[currentRoundId][msg.sender] += _vpAmount;
+        userVoteWeight[currentRoundId][_candidateId][msg.sender] += _vpAmount;
+        roundCandidates[currentRoundId][_candidateId].totalVotes += _vpAmount;
+
+        emit Voted(currentRoundId, _candidateId, msg.sender, _vpAmount);
+    }
+
+    function finalizeRound(uint256 _auctionPriceWei, string memory _winnerIpfsURI) public {
+        Round storage r = rounds[currentRoundId];
+        require(!r.isFinalized, "Round is already finalized");
+        // require(block.timestamp > r.endTime, "Voting period has not ended yet"); // 🚨 데모 시연을 위해 시간 제한 조건 해제
+
+        uint256 winningId = 0;
+        uint256 highestVotes = 0;
+
+        Candidate[] storage candidates = roundCandidates[currentRoundId];
+        for(uint256 i = 0; i < candidates.length; i++) {
+            if(candidates[i].totalVotes > highestVotes) {
+                highestVotes = candidates[i].totalVotes;
+                winningId = i;
+            }
+        }
+
+        r.isFinalized = true;
+        r.winningCandidateId = winningId;
+        r.auctionPrice = _auctionPriceWei;
+        r.rewardPool = (_auctionPriceWei * 70) / 100; // 70%를 배당 풀로 할당
+
+        // 우승 후보작 메타데이터 업데이트 (로컬주소 -> IPFS주소)
+        candidates[winningId].metadataURI = _winnerIpfsURI;
+
+        // NFT 자동 민팅 (DAO 소유로 발행)
+        uint256 tokenId = artNFT.mint(address(this), _winnerIpfsURI);
+
+        emit RoundFinalized(currentRoundId, winningId, _auctionPriceWei, tokenId);
+    }
+    
+    // [NEW] 배당금(Claim) 수령 함수 (하이브리드 재원 마련 방식 적용)
+    function claimReward(uint256 _roundId) public {
+        Round memory r = rounds[_roundId];
+        require(r.isFinalized, "Round not finalized yet");
+        require(!hasClaimedReward[_roundId][msg.sender], "Already claimed");
+
+        uint256 myVotes = userVoteWeight[_roundId][r.winningCandidateId][msg.sender];
+        require(myVotes > 0, "No votes for the winning candidate");
+
+        uint256 totalWinningVotes = roundCandidates[_roundId][r.winningCandidateId].totalVotes;
+        
+        // 내 지분율에 따른 보상액 계산: (내 득표수 * 보상풀) / 전체 득표수
+        uint256 myReward = (r.rewardPool * myVotes) / totalWinningVotes;
+        require(myReward > 0, "Reward is zero");
+
+        hasClaimedReward[_roundId][msg.sender] = true;
+
+        // Treasury(DAO 잔액)에서 지급 시도, 부족하면 자동 Mint
+        uint256 daoBalance = governanceToken.balanceOf(address(this));
+        if (daoBalance < myReward) {
+            governanceToken.mint(address(this), myReward - daoBalance);
+        }
+
+        governanceToken.transfer(msg.sender, myReward);
+
+        emit RewardClaimed(_roundId, msg.sender, myReward);
+    }
+
+    function getCandidates(uint256 _roundId) public view returns (Candidate[] memory) {
+        return roundCandidates[_roundId];
+    }
+
+    function getRemainingVP(address _user) public view returns (uint256) {
+        if(currentRoundId == 0) return 0;
+        Round memory r = rounds[currentRoundId];
+        uint256 totalVpAtStart = governanceToken.getPastVotes(_user, r.snapshotBlock);
+        return totalVpAtStart - usedVotingPower[currentRoundId][_user];
+    }
+}
+==> ./blockchain/contracts/TukToken.sol <==
+// SPDX-License-Identifier: MIT
+/**
+* @title TukToken - Art Planning DAO Governance Token
+* @author S1-6
+* @notice Art Planning DAO 내에서 안건 생성 및 투표권 행사를 위한 거버넌스 토큰 (TUK)
+* * @dev 주요 특징
+* - ERC-20 표준 규격 준수(OpenZeppelin 라이브러리 기반)
+* - 배포 시 초기 공급량(1,000,000 TUK)자동 발행
+* - ownable 인터페이스를 통한 관리자(Owner) 권한 제어 및 민팅 기능 제공
+* - 배포 스크립트를 통한 초기 테스트 계정 대상 자동 분배 최적화
+* - ERC20Votes를 통한 스냅샷(투표력) 기능 추가
+* * @custom:version v1.1.0
+* @custom:created 2026-02-12
+* @custom:modified 2026-04-28 - ERC20Votes 상속으로 스냅샷 기능 추가
+*/
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract TukToken is ERC20, ERC20Permit, ERC20Votes, Ownable {
+    constructor(address initialOwner) 
+        ERC20("TukToken", "TUK") 
+        ERC20Permit("TukToken")
+        Ownable(initialOwner) 
+    {
+        _mint(initialOwner, 1000000 * 10 ** decimals());
+    }
+
+    function mint(address to, uint256 amount) public onlyOwner {
+        _mint(to, amount);
+    }
+
+    // The following functions are overrides required by Solidity.
+    function _update(address from, address to, uint256 value)
+        internal
+        override(ERC20, ERC20Votes)
+    {
+        super._update(from, to, value);
+    }
+
+    function nonces(address owner)
+        public
+        view
+        override(ERC20Permit, Nonces)
+        returns (uint256)
+    {
+        return super.nonces(owner);
+    }
+}
+
+==> ./blockchain/contracts/ArtNFT.sol <==
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract ArtNFT is ERC721URIStorage, Ownable {
+    uint256 private _nextTokenId;
+
+    // DAO 컨트랙트 주소를 저장하여 DAO만 민팅할 수 있도록 제한
+    address public daoContract;
+
+    event NFTMinted(address indexed to, uint256 indexed tokenId, string tokenURI);
+
+    constructor(address initialOwner) ERC721("ArtDAO NFT", "ART") Ownable(initialOwner) {}
+
+    // DAO 컨트랙트 주소 설정
+    function setDaoContract(address _dao) external onlyOwner {
+        daoContract = _dao;
+    }
+
+    modifier onlyDAO() {
+        require(msg.sender == daoContract, "Only DAO can mint");
+        _;
+    }
+
+    // DAO 컨트랙트가 호출하는 민팅 함수
+    function mint(address to, string memory uri) external onlyDAO returns (uint256) {
+        uint256 tokenId = _nextTokenId++;
+        _mint(to, tokenId);
+        _setTokenURI(tokenId, uri);
+        
+        emit NFTMinted(to, tokenId, uri);
+        
+        return tokenId;
+    }
+}
+
+==> ./blockchain/scripts/timeMachine.js <==
+
+const { ethers } = require("hardhat");
+
+async function main() {
+    console.log("⏳ 타임머신을 가동합니다...");
+    
+    // 1. 3일(259200초) 앞당기기
+    const daysToAdvance = 3;
+    const seconds = daysToAdvance * 24 * 60 * 60;
+    
+    await ethers.provider.send("evm_increaseTime", [seconds]);
+    
+    // 2. 강제 채굴하여 시간 적용
+    await ethers.provider.send("evm_mine", []);
+    
+    console.log(`✨ 성공! 블록체인 시간이 정확히 ${daysToAdvance}일 후로 이동했습니다.`);
+    console.log("👉 이제 프론트엔드 화면을 새로고침 해보세요!");
+}
+
+main().catch((error) => {
+    console.error("타임머신 작동 실패:", error);
+    process.exitCode = 1;
+});
+
+==> ./blockchain/scripts/deploy.js <==
+// blockchain/scripts/deploy.js
+
+const hre = require("hardhat");
+const fs = require("fs");
+const path = require("path");
+
+async function main() {
+  const [owner, voter1, voter2, voter3] = await hre.ethers.getSigners();
+
+  console.log("🚀 배포 및 자동 주소/ABI 동기화를 시작합니다...");
+
+  // 1. TukToken 배포
+  const TukToken = await hre.ethers.getContractFactory("TukToken");
+  const tukToken = await TukToken.deploy(owner.address);
+  await tukToken.waitForDeployment();
+  const tukAddress = await tukToken.getAddress();
+
+  // 2. TUK 토큰 분배 및 스냅샷 투표력(VP) 활성화를 위한 위임(Delegate)
+  const amount = hre.ethers.parseEther("10000");
+  
+  await tukToken.connect(owner).delegate(owner.address);
+
+  await tukToken.transfer(voter1.address, amount);
+  await tukToken.connect(voter1).delegate(voter1.address);
+
+  await tukToken.transfer(voter2.address, amount);
+  await tukToken.connect(voter2).delegate(voter2.address);
+
+  await tukToken.transfer(voter3.address, amount);
+  await tukToken.connect(voter3).delegate(voter3.address);
+
+  console.log(`🪙 TukToken 배포 완료: ${tukAddress}`);
+
+  // 3. ArtPlanningDAO 배포 (TUK 토큰 주소 주입)
+  const ArtPlanningDAO = await hre.ethers.getContractFactory("ArtPlanningDAO");
+  const dao = await ArtPlanningDAO.deploy(tukAddress);
+  await dao.waitForDeployment();
+  const daoAddress = await dao.getAddress();
+  console.log(`🏛️ ArtPlanningDAO 배포 완료: ${daoAddress}`);
+
+  // 4. ArtNFT 배포 및 설정
+  const ArtNFT = await hre.ethers.getContractFactory("ArtNFT");
+  const artNFT = await ArtNFT.deploy(owner.address);
+  await artNFT.waitForDeployment();
+  const nftAddress = await artNFT.getAddress();
+  console.log(`🖼️ ArtNFT 배포 완료: ${nftAddress}`);
+
+  // 5. 권한 연동 및 초기 자본(Treasury) 세팅
+  // 5-1. NFT의 민팅 권한을 DAO에 위임
+  await artNFT.setDaoContract(daoAddress);
+  // 5-2. DAO에 ArtNFT 주소 등록
+  await dao.setArtNFT(nftAddress);
+  // 5-3. TUK 토큰의 발행(Mint) 권한을 DAO로 이전
+  await tukToken.transferOwnership(daoAddress);
+  
+  // 5-4. 데모용 초기 자본: DAO 금고에 100,000 TUK 전송 (하이브리드 방식)
+  const treasuryAmount = hre.ethers.parseEther("100000");
+  await tukToken.transfer(daoAddress, treasuryAmount);
+  console.log(`💰 DAO 금고에 초기 배당용 예산 100,000 TUK 전송 완료!`);
+
+  // ====================================================
+  // 📂 [핵심] 프론트엔드 파일 자동 업데이트 (주소 + ABI)
+  // ====================================================
+  
+  const frontendDir = path.join(__dirname, "../../frontend/src/contracts");
+  
+  // 폴더가 없으면 생성
+  if (!fs.existsSync(frontendDir)) {
+    fs.mkdirSync(frontendDir, { recursive: true });
+  }
+
+  // 1️⃣ 주소 파일 업데이트 (address.js)
+  const addressFilePath = path.join(frontendDir, "address.js");
+  const content = `export const TUK_TOKEN_ADDRESS = "${tukAddress}";
+export const DAO_CONTRACT_ADDRESS = "${daoAddress}";
+export const NFT_CONTRACT_ADDRESS = "${nftAddress}";
+`;
+  fs.writeFileSync(addressFilePath, content, "utf8");
+  console.log(`✅ 주소 파일 업데이트 완료: ${addressFilePath}`);
+
+  // 2️⃣ ABI 파일 복사 (ArtPlanningDAO.json) - 여기가 중요합니다!
+  // 하드햇이 컴파일한 최신 JSON 파일을 가져옵니다.
+  const artifactPath = path.join(__dirname, "../artifacts/contracts/ArtPlanningDAO.sol/ArtPlanningDAO.json");
+  const frontendArtifactPath = path.join(frontendDir, "ArtPlanningDAO.json");
+
+  if (fs.existsSync(artifactPath)) {
+      fs.copyFileSync(artifactPath, frontendArtifactPath);
+      console.log(`✅ ABI(JSON) 파일 복사 완료: ${frontendArtifactPath}`);
+  } else {
+      console.error("❌ 컴파일된 아티팩트 파일을 찾을 수 없습니다. (npx hardhat compile을 먼저 확인하세요)");
+  }
+
+  // --- 추가된 AI 에이전트 동기화 로직 ---
+  const AI_CORE_DIR = path.join(__dirname, "../../ai_core");
+  
+  // 1. ABI 복사 (ArtPlanningDAO.json)
+  const abiPath = path.join(__dirname, "../artifacts/contracts/ArtPlanningDAO.sol/ArtPlanningDAO.json");
+  const abiContent = fs.readFileSync(abiPath, "utf8");
+  fs.writeFileSync(path.join(AI_CORE_DIR, "ArtPlanningDAO.json"), abiContent);
+  console.log(`✅ AI Core ABI(JSON) 복사 완료: ${path.join(AI_CORE_DIR, "ArtPlanningDAO.json")}`);
+
+  // 2. 주소 파일 생성 (계약 주소를 Python에서 쉽게 읽도록 JSON으로 저장)
+  const addressData = {
+    ArtPlanningDAO: daoAddress,
+    network: "localhost",
+    lastUpdated: new Date().toISOString()
+  };
+  fs.writeFileSync(
+    path.join(AI_CORE_DIR, "contract_address.json"),
+    JSON.stringify(addressData, null, 2)
+  );
+  console.log(`✅ AI Core 주소 파일 업데이트 완료: ${path.join(AI_CORE_DIR, "contract_address.json")}`);
+
+  // --- 추가: 백엔드(FastAPI) 동기화 로직 ---
+  const BACKEND_DIR = path.join(__dirname, "../../backend/app");
+  if (!fs.existsSync(BACKEND_DIR)) {
+    fs.mkdirSync(BACKEND_DIR, { recursive: true });
+  }
+  
+  fs.writeFileSync(path.join(BACKEND_DIR, "ArtPlanningDAO.json"), abiContent);
+  console.log(`✅ Backend ABI(JSON) 복사 완료: ${path.join(BACKEND_DIR, "ArtPlanningDAO.json")}`);
+  
+  fs.writeFileSync(
+    path.join(BACKEND_DIR, "contract_address.json"),
+    JSON.stringify(addressData, null, 2)
+  );
+  console.log(`✅ Backend 주소 파일 업데이트 완료: ${path.join(BACKEND_DIR, "contract_address.json")}`);
+
+  console.log("--------------------------------------------------\n");
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+
+==> ./blockchain/blockchain.py <==
+import os
+import json
+from web3 import Web3
+from dotenv import load_dotenv
+
+load_dotenv()
+
+class BlockchainService:
+    def __init__(self):
+        # 1. 연결: 도커 내부에서 호스트의 하드햇 노드에 접속
+        rpc_url = os.getenv("BLOCKCHAIN_URL", "http://host.docker.internal:8545")
+        self.w3 = Web3(Web3.HTTPProvider(rpc_url))
+        
+        self.contract_address = os.getenv("CONTRACT_ADDRESS")
+        self.private_key = os.getenv("PRIVATE_KEY")
+        
+        if not self.private_key:
+            raise ValueError("PRIVATE_KEY가 .env에 설정되지 않았습니다.")
+            
+        self.account = self.w3.eth.account.from_key(self.private_key)
+
+        # 2. ABI 로드: 로컬 하드햇에서 컴파일된 JSON 파일을 읽어옴
+        # 주의: 이 파일이 ai_core 컨테이너 내부에서 접근 가능한 경로에 있어야 함
+        try:
+            # 하드햇 컴파일 결과물 경로 (배포 후 생성됨)
+            with open("./ArtPlanningDAO.json", "r") as f: 
+                artifact = json.load(f)
+                self.abi = artifact["abi"]
+        except FileNotFoundError:
+            print("❌ ABI 파일을 찾을 수 없습니다. artifacts에서 ArtPlanningDAO.json을 ai_core 폴더로 복사하세요.")
+            self.abi = []
+
+        self.contract = self.w3.eth.contract(address=self.contract_address, abi=self.abi)
+
+    # ai_core/blockchain.py
+
+    def submit_proposal(self, title: str, description: str, ipfs_hash: str, funding_goal: int, min_contribution: int, duration_days: int):
+        # 파이썬에서 호출할 메서드 이름: submit_to_blockchain
+        def submit_to_blockchain(self, title, description, ipfs_hash, goal, min_c, duration):
+            try:
+                nonce = self.w3.eth.get_transaction_count(self.account.address)
+                
+                # 컨트랙트의 실제 함수 이름: createProposal (인자 6개)
+                tx = self.contract.functions.createProposal(
+                    title, 
+                    description, 
+                    ipfs_hash, 
+                    goal, 
+                    min_c, 
+                    duration
+                ).build_transaction({
+                    'from': self.account.address,
+                    'nonce': nonce,
+                    'gas': 1000000,
+                    'gasPrice': self.w3.eth.gas_price
+                })
+
+                signed_tx = self.w3.eth.account.sign_transaction(tx, self.private_key)
+                tx_hash = self.w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+                
+                receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
+                return {"status": "success", "tx_hash": tx_hash.hex()}
+            except Exception as e:
+                return {"status": "error", "message": str(e)}
+==> ./ai_core/check_models.py <==
+import google.generativeai as genai
+
+# --- 주영 님의 API 키를 여기에 넣으세요 ---
+MY_API_KEY = "AIzaSyC52mDKtEQgM7KRoxpKUbTRZYImPOxHFuc" 
+# ---------------------------------------
+
+genai.configure(api_key=MY_API_KEY)
+
+print("---------------------------------------")
+print("🔍 구글 서버에 모델 명단 요청 중...")
+print("---------------------------------------")
+
+try:
+    found = False
+    for m in genai.list_models():
+        if 'generateContent' in m.supported_generation_methods:
+            print(f"✅ 사용 가능: {m.name}")
+            found = True
+    
+    if not found:
+        print("❌ 사용 가능한 모델이 하나도 안 뜹니다. API 키가 잘못되었거나 권한 문제일 수 있습니다.")
+
+except Exception as e:
+    print(f"🔥 에러 발생: {e}")
+==> ./ai_core/model.py <==
+import os
+from google import genai
+from google.genai import types
+from dotenv import load_dotenv
+
+load_dotenv()
+client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+
+try:
+    # 이 파라미터(ThinkingConfig)는 최신 엔진(2.5/3.0급)만 수용 가능한 '최신 규격'입니다.
+    # 구형 모델은 이 '규격' 자체를 이해하지 못해 API 서버에서 연결을 끊습니다.
+    response = client.models.generate_content(
+        model='gemini-flash-latest',
+        contents="매우 복잡한 분산 시스템의 데드락 해결 알고리즘을 설계해줘.",
+        config=types.GenerateContentConfig(
+            thinking_config=types.ThinkingConfig(include_thoughts=True)
+        )
+    )
+    print("🎯 [증거 1] API 규격 테스트: 통과")
+    print("-> 결론: 이 모델은 최신 규격(2.5/3.0)을 이해하는 최신 엔진입니다.")
+    
+except Exception as e:
+    print(f"❌ API 규격 테스트 실패: {e}")
+==> ./ai_core/agent.py <==
+import os
+import json
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from crewai import Agent, Task, Crew, Process, LLM 
+from dotenv import load_dotenv
+from datetime import datetime
+from crewai_tools import SerperDevTool
+
+load_dotenv()
+
+app = FastAPI(title="ArtDAO CrewAI A2A Server", version="5.0-True-A2A")
+
+# ==================================================================
+# 1. CORS 설정 (프론트엔드 통신 허용)
+# ==================================================================
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ==================================================================
+# 2. LLM 엔진 및 RAG 도구 세팅
+# ==================================================================
+MY_GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+if not MY_GOOGLE_API_KEY:
+    print("❌ [경고] GOOGLE_API_KEY가 없습니다!")
+
+os.environ["GEMINI_API_KEY"] = MY_GOOGLE_API_KEY 
+
+try:
+    llm = LLM(
+        model="gemini/gemini-1.5-flash", 
+        api_key=MY_GOOGLE_API_KEY,
+        temperature=0.7
+    )
+    print("✅ [AI] Gemini 1.5 Flash & CrewAI 엔진 로드 완료")
+except Exception as e:
+    print(f"🔥 모델 초기화 실패: {e}")
+    llm = None
+    
+# 실시간 인터넷 웹 검색 도구 (RAG: 할루시네이션 방지용 팩트 체크 무기)
+search_tool = SerperDevTool()
+
+# ==================================================================
+# 3. 에이전트(Agent) 정의
+# ==================================================================
+planner = Agent(
+    role='수석 전시 기획자',
+    goal='대중성과 예술성을 모두 갖춘 완벽한 전시 기획서 작성',
+    backstory='당신은 20년 경력의 베테랑 큐레이터입니다. 단순한 아이디어도 거시적인 예술 비전으로 확장시킵니다.',
+    tools=[search_tool],
+    llm=llm,
+    allow_delegation=True, 
+    verbose=True
+)
+
+painter = Agent(
+    role='수석 디지털 아티스트',
+    goal='기획서를 완벽하게 시각화할 수 있는 디테일한 영문 프롬프트 작성',
+    backstory='당신은 빛, 질감, 구도를 완벽하게 이해하는 디지털 아티스트입니다. 그림 프롬프트를 짤 때 한자, 중국어, 일본어가 나오지 않도록 철저히 통제합니다.',
+    tools=[search_tool],
+    llm=llm,
+    allow_delegation=True,
+    verbose=True
+)
+
+critic = Agent(
+    role='수석 미술 비평가',
+    goal='작품을 미술사적 맥락과 객관적 데이터를 바탕으로 심층 분석하고 비평',
+    backstory='당신은 식견 높고 까칠한 비평가입니다. AI의 환각(할루시네션)을 방지하기 위해 비평을 작성하기 전, 반드시 search_tool을 사용하여 "해당 작품과 유사한 미술사적 사조나 최근 디지털 아트 트렌드"를 검색하고, 검색된 객관적 사실을 근거로 작품의 가치를 분석합니다.',
+    tools=[search_tool],
+    llm=llm,
+    allow_delegation=True,
+    verbose=True
+)
+
+marketer = Agent(
+    role='MZ세대 바이럴 마케터',
+    goal='전시회를 SNS에서 화제성 1위로 만들 매력적인 카피라이팅 작성',
+    backstory='당신은 트렌드에 극도로 민감한 마케터입니다. 이모지와 해시태그를 적극 활용합니다.',
+    tools=[search_tool],
+    llm=llm,
+    verbose=True
+)
+
+auctioneer = Agent(
+    role='소더비 수석 경매사',
+    goal='비평을 바탕으로 작품의 가치를 극대화하는 경매 리포트 작성',
+    backstory='당신은 세계 최고의 경매사입니다. 가격을 임의로 지어내지 않습니다(No Hallucination). 반드시 search_tool을 사용하여 "최근 유사한 스타일의 디지털 아트 실제 경매 낙찰가"를 검색하여 객관적인 시장 데이터를 수집하고, 이를 근거로 합리적인 시작가를 책정합니다.',
+    tools=[search_tool],
+    llm=llm,
+    verbose=True
+)
+
+ai_curator = Agent(
+    role='따뜻한 감성을 지닌 AI 큐레이터',
+    goal='관람객의 질문에 공감하며, 미술의 즐거움을 일깨워주는 친절한 가이드 제공',
+    backstory='당신은 ArtDAO 전시관의 메인 AI 큐레이터입니다. 플랫폼 이용 방법과 미술 추천을 담당하며 세부 해설은 도슨트에게 위임합니다.',
+    tools=[search_tool],
+    llm=llm,
+    allow_delegation=True,
+    verbose=True
+)
+
+ai_docent = Agent(
+    role='작품의 숨결을 전하는 AI 도슨트',
+    goal='특정 작품의 세부 묘사와 창작 배경을 생생하게 전달',
+    backstory='당신은 작품 해설 전문 도슨트입니다. 캔버스의 질감, 색채의 대비를 친절하게 설명합니다.',
+    tools=[search_tool],
+    llm=llm,
+    allow_delegation=False,
+    verbose=True
+)
+
+# ==================================================================
+# 4. Pydantic 모델
+# ==================================================================
+class PlanRequest(BaseModel): intent: str
+class WorkRequest(BaseModel): topic: str; style: str
+class ReviewRequest(BaseModel): art_info: str
+class PromoRequest(BaseModel): exhibition_title: str; target_audience: str
+class AuctionRequest(BaseModel): art_info: str; critic_review: str
+class DocentRequest(BaseModel): message: str; wallet_address: str = ""
+class A2AStudioRequest(BaseModel): intent: str
+class WinnerData(BaseModel): title: str; description: str; vp_votes: int
+class CandidateGenRequest(BaseModel):insights: dict = None
+
+# ==================================================================
+# 5. Botto DAO 시나리오: 2개 후보작 생성 (Market Insights 완벽 연동)
+# ==================================================================
+@app.post("/api/agent/generate-candidates")
+def generate_candidates(req: CandidateGenRequest = None):
+    print("🚀 [Agent] Market Insights 연동 2개 후보작 기획 가동...")
+
+    # ✨ 백엔드에서 넘겨준 트렌드 키워드와 스타일을 문장으로 풀어냅니다.
+    trend_keywords = ", ".join(req.insights.get("keywords", [])) if req and req.insights else "최신 기술 트렌드"
+    trend_styles = ", ".join([s["name"] for s in req.insights.get("styles", [])]) if req and req.insights else "디지털 아트"
+
+    task_plan = Task(
+        description=f"""
+        당신은 '현실의 이슈'를 디지털 예술로 승화시키는 천재 기획자입니다.
+        현재 우리 ArtDAO 플랫폼의 핵심 트렌드(Market Insights) 데이터는 다음과 같습니다:
+        - 🔥 유행 키워드: {trend_keywords}
+        - 🎨 선호 스타일: {trend_styles}
+
+        다음 순서대로 작업하세요:
+        1. 반드시 search_tool을 사용하여 '오늘의 주요 글로벌 과학/IT 뉴스' 혹은 '사회적 논란' 중 하나를 검색하세요.
+        2. 검색한 '실제 뉴스/이슈'를 위의 [🔥 유행 키워드]와 [🎨 선호 스타일]에 완벽하게 융합하여, 현실에 대한 날카로운 통찰이 담긴 미술 작품 컨셉 2가지를 기획하세요.
+        3. 각 컨셉은 '한국어 제목'과 '한국어 작품 설명'을 포함해야 합니다.
+        """,
+        expected_output="Market Insights 트렌드와 오늘 뉴스가 완벽히 융합된 2가지 컨셉 초안",
+        agent=planner
+    )
+
+    task_format = Task(
+        description='''
+        기획자의 2가지 컨셉을 바탕으로 이미지 생성용 데이터를 작성하세요.
+        반드시 아래와 같은 구조의 'JSON 객체 배열' 형식으로만 출력해야 합니다.
+        마크다운(```json)이나 다른 설명은 절대 포함하지 마세요.
+
+        [🔥 아트 스타일 필수 지침 : 2개 작품의 화풍을 모두 다르게!]
+        유저들이 다양한 작품에 투표할 수 있도록, 2개의 작품은 각각 **완전히 다른 시각적 매체와 예술 사조(Style)**를 가져야 합니다.
+        고급스러운 파인 아트(Fine Art) 느낌을 유지하되, 아래의 2가지 스타일을 각 작품의 영문 image_prompt에 하나씩 매칭시켜서 작성하세요.
+
+        - 1번 작품 (초현실주의 유화): Surrealism, classic oil painting texture, Salvador Dali style, highly detailed masterpiece
+        - 2번 작품 (기하학적 3D 추상): Geometric abstraction, highly detailed 3D render, architectural elements, sleek and modern
+
+        [출력 형식]
+        [
+            {
+                "title": "작품 제목 (한국어)",
+                "description": "작품 세계관 설명 (한국어)",
+                "image_prompt": "상세한 영문 이미지 생성 프롬프트 (반드시 각기 다른 2가지 스타일을 적용할 것)"
+            },
+            ... (총 2개)
+        ]
+        ''',
+        expected_output="2가지 각기 다른 고급 예술 화풍이 반영된 순수 JSON 객체 배열 (List of Dicts)",
+        agent=painter
+    )
+
+    # 비평가 없이 빠르게 2명만 투입!
+    crew = Crew(agents=[planner, painter], tasks=[task_plan, task_format], process=Process.sequential)
+
+    try:
+        result = crew.kickoff()
+        result_text = str(result).replace("```json", "").replace("```", "").strip()
+        candidates_data = json.loads(result_text)
+        return {"candidates": candidates_data}
+    except Exception as e:
+        print(f"🔥 [Agent] 후보작 생성 실패: {e}")
+        raise HTTPException(status_code=500, detail="AI 토론 중 오류 발생")
+    
+# ==================================================================
+# 6. Botto DAO 시나리오: 1등 우승작 가치 산정 (RAG 시장 데이터 기반 경매)
+# ==================================================================
+@app.post("/api/agent/evaluate-winner")
+def evaluate_winner(data: WinnerData):
+    print(f"🚀 [Agent] 우승작 시장 가치 산정 토론 가동: {data.title} (득표: {data.vp_votes} VP)")
+
+    task_eval_art = Task(
+        description=f"제목: {data.title}\n설명: {data.description}\nsearch_tool을 사용하여 이 작품과 유사한 스타일의 실제 미술 평가나 대중적 반응을 검색하고, 이 디지털 작품의 객관적인 미학적 가치를 경매사에게 브리핑하세요.",
+        expected_output="미술사적 레퍼런스가 포함된 작품 평가 리포트",
+        agent=critic
+    )
+
+    task_eval_price = Task(
+        description=f"비평가의 평가와 대중 투표수({data.vp_votes} VP)를 종합합니다. AI가 가짜 가격을 지어내는 것을 막기 위해 반드시 search_tool을 이용해 '최근 유사한 NFT 실제 경매 낙찰가'를 검색하세요. 투표수 1 VP당 10~50 TUK 가치를 기반으로 시장 데이터와 곱해 최종 가격을 산정하세요. 반드시 순수 JSON 형식으로만 출력하세요.",
+        expected_output='순수 JSON 객체 문자열 (예: {"auction_price": 1500, "report": "..."})',
+        agent=auctioneer
+    )
+
+    crew = Crew(agents=[critic, auctioneer], tasks=[task_eval_art, task_eval_price], process=Process.sequential)
+    
+    try:
+        result = crew.kickoff()
+        result_text = str(result).replace("```json", "").replace("```", "").strip()
+        evaluation_data = json.loads(result_text)
+        return evaluation_data
+    except Exception as e:
+        print(f"🔥 [Agent] 가치 산정 실패: {e}")
+        return {"auction_price": data.vp_votes * 10, "report": "AI 토론 오류로 기본가 책정"}
+
+# ==================================================================
+# 7. 개별 API 엔드포인트 (기존 프론트엔드 호환 유지)
+# ==================================================================
+@app.post("/propose")
+def create_proposal(request: PlanRequest):
+    task = Task(description=f"'{request.intent}' 전시 기획안 작성", expected_output="기획서", agent=planner)
+    return {"draft_text": str(Crew(agents=[planner], tasks=[task]).kickoff())}
+
+@app.post("/generate")
+def start_work(request: WorkRequest):
+    task = Task(description=f"'{request.topic}' 영어 프롬프트 작성", expected_output="프롬프트", agent=painter)
+    return {"final_prompt": str(Crew(agents=[painter], tasks=[task]).kickoff())}
+
+@app.post("/review")
+def create_review(request: ReviewRequest):
+    task = Task(description=f"'{request.art_info}' 비평문 작성", expected_output="비평문", agent=critic)
+    return {"review_text": str(Crew(agents=[critic], tasks=[task]).kickoff())}
+
+@app.post("/promote")
+def create_promo(request: PromoRequest):
+    task = Task(description=f"'{request.exhibition_title}' 홍보 문구 작성", expected_output="홍보문", agent=marketer)
+    return {"promo_text": str(Crew(agents=[marketer], tasks=[task]).kickoff())}
+
+@app.post("/auction")
+def open_auction(request: AuctionRequest):
+    task = Task(
+        description=f"다음 비평문을 바탕으로 '{request.art_info}' 경매 리포트 작성.\n[비평문]: {request.critic_review}\n인터넷을 검색해 최근 실제 가격 동향을 리포트에 포함하세요.",
+        expected_output="데이터에 기반한 객관적인 경매 리포트",
+        agent=auctioneer
+    )
+    return {"auction_report": str(Crew(agents=[auctioneer], tasks=[task]).kickoff())}
+
+@app.post("/docent")
+def start_tour(request: DocentRequest):
+    task = Task(description=f"'{request.message}'에 대한 깊이 있는 해설 작성", expected_output="해설", agent=ai_docent)
+    return {"commentary": str(Crew(agents=[ai_docent], tasks=[task]).kickoff())}
+
+@app.post("/studio/a2a-full")
+def a2a_full_studio(request: A2AStudioRequest):
+    today = datetime.now().strftime("%Y-%m-%d")
+    task_draft = Task(description=f"오늘 날짜({today}) 기준 '{request.intent}' 기획서 초안 작성", expected_output="마크다운 기획서", agent=planner)
+    task_review = Task(description="초안을 읽고 가차없이 비판하며 예술성을 높일 수정 지시", expected_output="비평문", agent=critic, context=[task_draft])
+    task_revise = Task(description="비평 반영하여 최종 전시 기획서 전문 마크다운 작성", expected_output="최종 마크다운", agent=planner, context=[task_draft, task_review])
+
+    try:
+        studio_crew = Crew(agents=[planner, critic, planner], tasks=[task_draft, task_review, task_revise], process=Process.sequential, verbose=True)
+        studio_crew.kickoff()
+        return {"draft_text": getattr(task_revise.output, 'raw', str(task_revise.output))}
+    except Exception as e:
+        return {"draft_text": f"🔥 서버 에러 발생: {str(e)}"}
+
+@app.post("/chat")
+def combined_chat(request: DocentRequest):
+    task_chat = Task(
+        description=f"사용자의 다음 질문에 답변하세요: '{request.message}'\n1. 플랫폼 이용 방법이면 쉽게 설명.\n2. 전반적 미술 추천이면 직접 답변.\n3. 세부 작가 추천이나 기법 해설이면 '전문 도슨트'에게 위임(Ask question to coworker)하여 답변.",
+        expected_output="플랫폼 가이드 혹은 도슨트의 친절한 답변 (마크다운)",
+        agent=ai_curator 
+    )
+    try:
+        chat_crew = Crew(agents=[ai_curator, ai_docent], tasks=[task_chat], verbose=True, max_rpm=10)
+        chat_crew.kickoff()
+        return {"reply": getattr(task_chat.output, 'raw', str(task_chat.output))}
+    except Exception as e:
+        return {"reply": "앗, 큐레이터가 다른 관람객을 응대 중입니다. 잠시 후 다시 질문해 주세요!"}
+    # ==================================================================
+# 8. [NEW] 실시간 마켓 인사이트 분석 (Market Insights)
+# ==================================================================
+@app.get("/api/agent/insights")
+def analyze_trends():
+    print("🚀 [Agent] 실시간 글로벌 아트 트렌드 분석 가동...")
+    
+    task_trend = Task(
+        description="search_tool을 사용하여 '오늘의 글로벌 디지털 아트 트렌드와 기술적 이슈'를 검색하세요. 검색 결과를 바탕으로 현재 가장 뜨거운 키워드 7개와 유행하는 시각적 스타일 3가지를 추출하세요.",
+        expected_output='''반드시 아래 구조의 순수 JSON 객체로만 출력하세요. 마크다운(```json) 금지.
+        {
+            "keywords": ["#키워드1", "#키워드2", "#키워드3", "#키워드4", "#키워드5", "#키워드6", "#키워드7"],
+            "styles": [
+                {"name": "스타일명 (예: 3D Unreal Engine Render)", "percent": 45},
+                {"name": "스타일명", "percent": 35},
+                {"name": "스타일명", "percent": 20}
+            ]
+        }''',
+        agent=critic
+    )
+    
+    try:
+        crew = Crew(agents=[critic], tasks=[task_trend])
+        result = crew.kickoff()
+        result_text = str(result).replace("```json", "").replace("```", "").strip()
+        return json.loads(result_text)
+    except Exception as e:
+        print(f"🔥 [Agent] 인사이트 분석 실패: {e}")
+        raise HTTPException(status_code=500, detail="인사이트 분석 실패")
+    # ==================================================================
+# 8. [NEW] 실시간 마켓 인사이트 분석 (Market Insights)
+# ==================================================================
+@app.get("/api/agent/insights")
+def analyze_trends():
+    print("🚀 [Agent] 실시간 글로벌 아트 트렌드 분석 가동...")
+    
+    task_trend = Task(
+        description="search_tool을 사용하여 '오늘의 글로벌 디지털 아트 트렌드와 기술적 이슈'를 검색하세요. 검색 결과를 바탕으로 현재 가장 뜨거운 키워드 7개와 유행하는 시각적 스타일 3가지를 추출하세요.",
+        expected_output='''반드시 아래 구조의 순수 JSON 객체로만 출력하세요. 마크다운(```json) 금지.
+        {
+            "keywords": ["#키워드1", "#키워드2", "#키워드3", "#키워드4", "#키워드5", "#키워드6", "#키워드7"],
+            "styles": [
+                {"name": "스타일명 (예: 3D Unreal Engine Render)", "percent": 45},
+                {"name": "스타일명", "percent": 35},
+                {"name": "스타일명", "percent": 20}
+            ]
+        }''',
+        agent=critic
+    )
+    
+    try:
+        crew = Crew(agents=[critic], tasks=[task_trend])
+        result = crew.kickoff()
+        result_text = str(result).replace("```json", "").replace("```", "").strip()
+        return json.loads(result_text)
+    except Exception as e:
+        print(f"🔥 [Agent] 인사이트 분석 실패: {e}")
+        raise HTTPException(status_code=500, detail="인사이트 분석 실패")

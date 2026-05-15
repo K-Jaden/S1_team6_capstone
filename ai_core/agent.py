@@ -420,10 +420,9 @@ def get_trends_keywords():
     except:
         return {"keywords": ["Cyberpunk", "Minimalism", "Neon", "Space", "AI", "Dystopia", "Retro", "Surrealism"]}
 
-# 🟢 [Phase 2] 가중치 기반 후보작 5개 생성
-# 🟢 [Phase 2] 가중치 기반 후보작 생성 (1등 5개, 2등 3개, 3등 2개 = 총 10개)
+# 🟢 [Phase 2] 가중치 기반 후보작 5개 생성 (1등 40%, 2등 30%, 3등 20%, 4등 7%, 5등 3% 비율 반영)
 class WeightedCandidateRequest(BaseModel):
-    weights: dict  # 이제는 { "Cyberpunk": 5, "Neon": 3, "Space": 2 } 형태의 개수가 들어옴
+    weights: dict  # { "Cyberpunk": 0.4, "Neon": 0.3, "Space": 0.2, ... } 형태의 비율로 들어옴
     session_id: str = ""
 
 @app.post("/api/agent/generate-weighted-candidates")
@@ -439,22 +438,35 @@ def generate_weighted_candidates(req: WeightedCandidateRequest):
     push_log(session_id, "시스템", "system", f"🎨 유저 투표 반영 기획 시작: {dist_str} (총 {total_count}개)")
     
     task_plan = Task(
-        description=f"유저 투표 결과에 따라 다음 수량만큼 이미지를 기획해야 합니다: {dist_str}\n각 키워드의 철학적/시각적 핵심을 분석하고, 총 {total_count}개의 차별화된 예술 컨셉 스토리라인 초안을 한국어로 작성하세요.",
-        expected_output=f"{total_count}개의 컨셉 초안 (한국어)",
-        agent=planner, callback=make_task_callback(session_id, "키워드 스토리텔러")
-    )
+    description=f"""유저 투표 결과 키워드 가중치: {dist_str}
+    
+    총 5개의 후보작을 기획하세요. 아래 규칙을 따르세요.
+    - 작품 1~3: 가중치 높은 상위 키워드를 강하게 반영한 컨셉
+    - 작품 4~5: 모든 키워드를 가중치 비율대로 골고루 섞은 컨셉
+    
+    각 작품의 컨셉 스토리라인을 한국어로 작성하세요.""",
+    expected_output="5개의 컨셉 초안 (한국어)",
+    agent=planner, callback=make_task_callback(session_id, "키워드 스토리텔러")
+)
     
     task_format = Task(
-        description=f"""기획안을 바탕으로 총 {total_count}개의 고해상도 영문 프롬프트를 작성하세요.
-        반드시 다음 수량을 정확히 지켜야 합니다: {dist_str}.
-        출력은 무조건 다음 구조의 '순수 JSON 배열'이어야 합니다:
-        [ 
-          {{"title": "한국어 제목1", "description": "설명1", "image_prompt": "Prompt 1"}}, 
-          ... (총 {total_count}개) 
-        ]""",
-        expected_output=f"후보작 {total_count}개가 담긴 순수 JSON 배열",
-        agent=painter, context=[task_plan], callback=make_task_callback(session_id, "가중치 프롬프터")
-    )
+    description=f"""기획안을 바탕으로 총 5개의 고해상도 영문 이미지 프롬프트를 작성하세요.
+    키워드와 가중치: {dist_str}
+    
+    작품 1~3: 가중치 높은 키워드를 강하게 반영
+    예시) "cyberpunk city::4, neon lights::3, surrealism::2, masterpiece, ultra detailed"
+    
+    작품 4~5: 모든 키워드를 가중치 비율대로 골고루 반영
+    예시) "cyberpunk::4, neon::3, surrealism::2, space::0.7, minimalism::0.3, masterpiece"
+    
+    출력은 무조건 순수 JSON 배열:
+    [
+      {{"title": "한국어 제목", "description": "한국어 설명", "image_prompt": "영문 프롬프트"}},
+      ... (총 5개)
+    ]""",
+    expected_output="후보작 5개가 담긴 순수 JSON 배열",
+    agent=painter, context=[task_plan], callback=make_task_callback(session_id, "가중치 프롬프터")
+)
 
     crew = Crew(agents=[planner, painter], tasks=[task_plan, task_format], process=Process.sequential)
     try:

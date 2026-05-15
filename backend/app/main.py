@@ -589,26 +589,23 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
     target_round.status = RoundPhase.IMAGE_GENERATING
     db.commit()
 
-    # 🔥 [수정됨] 1등 3개, 2등 2개 분배 로직! (Top 2 추출)
-    top_kws = db.query(models.Keyword).filter(models.Keyword.round_id == round_id).order_by(desc(models.Keyword.vote_count)).limit(2).all()
-    
-    keyword_distribution = {}
-    counts = [3, 2] # 1등 3개, 2등 2개
-    
-    for i, kw in enumerate(top_kws):
-        if i < len(counts):
-            keyword_distribution[kw.word] = counts[i]
+    top_kws = db.query(models.Keyword).filter(models.Keyword.round_id == round_id).order_by(desc(models.Keyword.vote_count)).limit(5).all()
 
-    # 💡 [안전 장치] 만약 유저들이 키워드를 1종류만 투표해서 1등 하나밖에 없다면 몰빵(5개) 해줍니다.
+    weights_map = [0.4, 0.3, 0.2, 0.07, 0.03]
+    keyword_distribution = {}
+
+    for i, kw in enumerate(top_kws):
+        keyword_distribution[kw.word] = weights_map[i]
+
+    # 안전장치: 키워드가 1개뿐일 때
     if len(keyword_distribution) == 1:
-        keyword_distribution[top_kws[0].word] = 5
+        keyword_distribution[top_kws[0].word] = 1.0
 
     try:
-        # AI에게 딕셔너리(예: {"Cyberpunk": 3, "Neon": 2})를 던져주면 알아서 총합(5개)을 계산해서 뽑아옵니다.
         res = requests.post(f"{AI_AGENT_URL}/api/agent/generate-weighted-candidates", json={"weights": keyword_distribution, "session_id": session_id}, timeout=300)
         ai_data = res.json().get("candidates", [])
     except:
-        ai_data = [{"title": "임시", "description": "임시", "image_prompt": "digital art"}] * 5
+        ai_data = [{"title": f"임시 아트 {i}", "description": "임시", "image_prompt": "digital art"} for i in range(1, 6)]
 
     CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
     CF_API_TOKEN = os.getenv("CF_API_TOKEN")
@@ -616,7 +613,6 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
     headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
 
     candidate_uris = []
-    # AI가 만들어준 5개의 프롬프트를 차례대로 Cloudflare에 렌더링!
     for idx, c_data in enumerate(ai_data, 1):
         prompt = c_data.get("image_prompt", "digital art") + ", masterpiece"
         try:
@@ -626,10 +622,10 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
                 img_bytes = base64.b64decode(b64)
                 filename = f"round{round_id}_c{idx}.png"
                 with open(f"static/images/{filename}", "wb") as f: f.write(img_bytes)
-                
+
                 image_url = f"http://13.125.234.38:8000/static/images/{filename}"
                 db.add(models.Candidate(
-                    round_id=round_id, title=c_data.get("title", f"작품 {idx}"), 
+                    round_id=round_id, title=c_data.get("title", f"작품 {idx}"),
                     description=c_data.get("description", ""), image_url=image_url, ipfs_hash="PENDING"
                 ))
                 candidate_uris.append(image_url)
@@ -638,7 +634,6 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
     target_round.status = RoundPhase.CANDIDATE_VOTING
     db.commit()
 
-    # 스마트 컨트랙트 라운드 시작
     try:
         if ADMIN_ACCOUNT:
             dao_contract = get_dao_contract()
@@ -652,8 +647,6 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
     except Exception as e: print(f"온체인 라운드 시작 에러: {e}")
 
     return {"message": f"Phase 2: 총 {len(ai_data)}개 그림 생성 및 VP 투표 시작!"}
-
-
 # 🟢 [Step 3] 가치 평가 (가격 책정 전, 비평문만 받기)
 @app.post("/api/admin/phase3-valuation")
 def start_phase3_valuation(round_id: int = 0, session_id: str = "", db: Session = Depends(get_db)):
