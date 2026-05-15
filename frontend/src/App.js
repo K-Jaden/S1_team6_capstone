@@ -436,14 +436,13 @@ function App() {
       const sessionId = `round_${Date.now()}`;
       startDiscussionStream(sessionId);
       
-      const statuses = [
-          "🤖 AI 비평가 에이전트가 최신 예술 트렌드를 분석하고 있습니다...",
-          "🔍 트렌드 키워드 추출 완료. 프롬프트 엔지니어링 진행 중...",
-          "🎨 후보작 1/2 렌더링 중 (Cloudflare FLUX-1)...",
-          "🎨 후보작 2/2 렌더링 중 (Cloudflare FLUX-1)...",
-          "🔗 오프체인 갤러리 등록 및 블록체인 라운드 시작 트랜잭션 전송 중..."
-      ];
-      
+     const statuses = [
+        "📊 투자자들의 키워드 투표 결과를 집계하고 있습니다...",
+        "🧠 투표 1~5위 가중치 비율을 적용하여 AI가 프롬프트를 설계 중입니다...",
+        "🎨 조합된 가이드라인으로 후보작 5개를 렌더링하고 있습니다...",
+        "🔗 생성된 후보작들을 투표 풀에 등록하는 중입니다..."
+    ];
+
       let step = 0;
       setLoadingStatus(statuses[0]);
       const interval = setInterval(() => {
@@ -529,10 +528,10 @@ function App() {
               duration_days: parseInt(valuationDuration)
           });
 
-          alert("🎉 최종 결산 및 스마트 컨트랙트 등록이 완료되었습니다!\n우승작이 명예의 전당(Hall of Fame)에 영구 박제되었습니다.");
           fetchGallery(); // 갤러리 데이터 새로고침
           setActiveTab("gallery"); // 🔥 명예의 전당 탭으로 자동 이동!
           setRoundPhase("KEYWORD"); // 라운드 상태 초기화
+          alert("🎉 최종 결산 및 스마트 컨트랙트 등록이 완료되었습니다!\n우승작이 명예의 전당(Hall of Fame)에 영구 박제되었습니다.");
       } catch (err) {
           console.error(err);
           alert("블록체인 등록에 실패했습니다.");
