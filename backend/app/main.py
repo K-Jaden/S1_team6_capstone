@@ -666,7 +666,7 @@ def start_phase3_valuation(round_id: int = 0, session_id: str = "", db: Session 
     db.commit()
 
     try:
-        res = requests.post(f"{AI_AGENT_URL}/api/agent/evaluate-winner-only", json={"title": winner.title, "description": winner.description, "session_id": session_id}, timeout=60)
+        res = requests.post(f"{AI_AGENT_URL}/api/agent/evaluate-winner-only", json={"title": winner.title, "description": winner.description, "session_id": session_id}, timeout=180)
         report = res.json().get("report", "훌륭한 작품입니다.")
     except:
         report = "비평문 에러"
@@ -689,7 +689,36 @@ def finalize_round_to_chain(req: FinalizeReq, db: Session = Depends(get_db)):
     target_round.duration_days = req.duration_days
     target_round.status = RoundPhase.ENDED
     db.commit()
-    
+   
+class VirtualSellReq(BaseModel):
+    item_id: int
+    wallet_address: str
+
+@app.post("/api/gallery/virtual-sell")
+def virtual_sell_item(req: VirtualSellReq, db: Session = Depends(get_db)):
+    item = db.query(models.GalleryItem).filter(models.GalleryItem.id == req.item_id).first()
+    if not item or getattr(item, 'is_sold', False):
+        return {"error": "판매할 수 없는 작품입니다."}
+
+    winner = db.query(models.Candidate).filter(models.Candidate.title == item.title, models.Candidate.is_winner == True).first()
+    user_vote = db.query(models.VoteLog).filter(models.VoteLog.candidate_id == winner.id, models.VoteLog.voter_wallet == req.wallet_address).first()
+
+    if not user_vote:
+        return {"error": "투자 지분이 존재하지 않습니다."}
+
+    stake_ratio = user_vote.vp_used / winner.vp_votes
+    auction_price = getattr(winner, 'auction_price', 1000) or 1000
+    my_profit = float(auction_price) * stake_ratio
+
+    user = db.query(models.User).filter(models.User.wallet_address == req.wallet_address).first()
+    if user:
+        user.token_balance += my_profit
+
+    item.is_sold = True
+    db.commit()
+
+    return {"status": "success", "stake_ratio": stake_ratio * 100, "profit": my_profit, "total_price": auction_price}
+
     # =========================================================
     # 🚨 5. [핵심] 우승작 단 1개만 IPFS에 업로드하여 NFT 박제 준비!
     # =========================================================

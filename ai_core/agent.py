@@ -210,7 +210,7 @@ critic = Agent(
     role='가치 증명자 (미술 비평가)',
     goal='우승작의 미학적, 상업적 가치(밈 가능성 포함)를 극대화하여 유저들이 가격을 높게 책정하도록 뽐뿌(?)를 넣는 비평문을 작성한다.',
     backstory='당신은 시장의 흐름을 읽고 대중의 투심을 자극하는 최고의 비평가입니다. 절대 직접 가격을 책정하지 않으며, 오직 작품의 폭발적인 가치만을 증명합니다.',
-    tools=[search_tool], llm=llm_creative, max_iter=3, verbose=True
+    tools=[], llm=llm_creative, max_iter=3, verbose=True
 )
 
 ai_curator = Agent(
@@ -362,7 +362,6 @@ def a2a_full_studio(request: A2AStudioRequest):
             tasks=[task_draft, task_review, task_revise],
             process=Process.sequential,
             verbose=True,
-            max_rpm=5,
             step_callback=make_step_callback(session_id, "AI 에이전트")
         )
         studio_crew.kickoff()

@@ -112,6 +112,7 @@ class GalleryItem(Base):
     artist_address = Column(String(255))
     image_url = Column(Text)
     description = Column(Text)
+    is_sold = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     feedbacks = relationship("GalleryFeedback", back_populates="item")
 

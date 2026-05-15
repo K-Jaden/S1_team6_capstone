@@ -64,7 +64,8 @@ function App() {
   // Step 2: 결산 및 가치 책정 상태
   const [valuationPrice, setValuationPrice] = useState("");
   const [valuationDuration, setValuationDuration] = useState("7");
-  
+  const [criticReport, setCriticReport] = useState(""); // 🔥 [추가] AI 비평문 저장용
+
   // ==========================================
   // 2. 초기화 및 지갑 연동
   // ==========================================
@@ -277,6 +278,32 @@ function App() {
       }
   };
 
+  const handleVirtualSell = async (item) => {
+    if (!isLoggedIn) return alert("지갑을 먼저 연결해주세요!");
+    
+    if (window.confirm(`'${item.title}' 작품을 가상 판매하시겠습니까?\n투자한 VP 지분에 따라 수익이 배당됩니다.`)) {
+        setIsLoading(true);
+        try {
+            const res = await axios.post(`${API_URL}/api/gallery/virtual-sell`, {
+                item_id: item.id,
+                wallet_address: walletAddress
+            });
+
+            if (res.data.error) {
+                alert(`❌ 실패: ${res.data.error}`);
+            } else {
+                alert(`🎉 판매 완료!\n💰 총 판매가: ${res.data.total_price} TUK\n📈 나의 지분: ${res.data.stake_ratio.toFixed(2)}%\n💸 배당 수익: ${res.data.profit.toFixed(2)} TUK 입금 완료!`);
+                fetchGallery(); 
+                fetchMyPageData(); 
+            }
+        } catch (err) {
+            alert("서버 오류로 판매를 진행할 수 없습니다.");
+        } finally {
+            setIsLoading(false);
+        }
+    }
+  };
+
   const [loadingStatus, setLoadingStatus] = useState("");
 
   // ==========================================
@@ -450,40 +477,34 @@ function App() {
 
   const handleEndRoundDemo = async () => {
       setIsLoading(true);
+      setRoundPhase("VALUATION"); // 🔥 [추가] UI를 Phase 3으로 넘김
       
-      // 🔥 [NEW] SSE 연결
       const sessionId = `endround_${Date.now()}`;
       startDiscussionStream(sessionId);
       
       const statuses = [
-          "📊 투표 결과를 집계하고 있습니다...",
-          "🔍 AI 경매사가 우승작의 예술적 가치와 득표수를 분석 중입니다...",
-          "🎨 우승작 메타데이터를 IPFS에 영구 박제하는 중...",
-          "💰 우승작을 ArtNFT로 발행하고 배당금 풀을 생성 중..."
+          "📊 투표 결과를 집계하여 1등 우승작을 선정하고 있습니다...",
+          "🔍 AI 수석 비평가가 우승작의 미학적, 상업적 가치를 분석 중입니다..."
       ];
       
       let step = 0;
       setLoadingStatus(statuses[0]);
       const interval = setInterval(() => {
           step++;
-          if (step < statuses.length) {
-              setLoadingStatus(statuses[step]);
-          }
+          if (step < statuses.length) setLoadingStatus(statuses[step]);
       }, 5000);
 
       try {
-          // 🔥 [수정] 옛날 URL(end-round)을 새 URL(phase3-valuation)로 변경!
           const targetRoundId = currentRound ? currentRound.id : 0;
           const res = await axios.post(`${API_URL}/api/admin/phase3-valuation`, null, {
               params: { round_id: targetRoundId, session_id: sessionId }
           });
           clearInterval(interval);
-          setLoadingStatus("✅ 결산 완료!");
+          setLoadingStatus("✅ 가치 분석 완료!");
+          
+          setCriticReport(res.data.report); // 🔥 [추가] AI가 써준 비평문 상태에 저장
+
           setTimeout(() => {
-              // 🔥 [수정] 팝업창 메시지도 비평가 리포트를 띄우도록 변경
-              alert(`🏆 가치 평가 완료!\n\n📜 비평가 리포트:\n${res.data.report}`);
-              fetchCurrentRound(); 
-              fetchGallery();
               setIsLoading(false);
               setLoadingStatus("");
           }, 500);
@@ -492,6 +513,33 @@ function App() {
           alert("라운드 종료 실패"); 
           setIsLoading(false);
           setLoadingStatus("");
+      }
+  };
+
+  // 🔥 [NEW] 유저가 가격을 입력하고 최종 승인할 때 실행되는 함수
+  const submitFinalization = async () => {
+      if (!valuationPrice || valuationPrice <= 0) return alert("적정 희망 시작가를 입력해주세요!");
+      setIsLoading(true);
+      setLoadingStatus("🔗 블록체인 스마트 컨트랙트에 등록 중...");
+
+      try {
+          await axios.post(`${API_URL}/api/admin/finalize`, {
+              round_id: currentRound.id,
+              price_tuk: parseInt(valuationPrice),
+              duration_days: parseInt(valuationDuration)
+          });
+
+          alert("🎉 최종 결산 및 스마트 컨트랙트 등록이 완료되었습니다!\n우승작이 명예의 전당(Hall of Fame)에 영구 박제되었습니다.");
+          fetchGallery(); // 갤러리 데이터 새로고침
+          setActiveTab("gallery"); // 🔥 명예의 전당 탭으로 자동 이동!
+          setRoundPhase("KEYWORD"); // 라운드 상태 초기화
+      } catch (err) {
+          console.error(err);
+          alert("블록체인 등록에 실패했습니다.");
+      } finally {
+          setIsLoading(false);
+          setLoadingStatus("");
+          setValuationPrice("");
       }
   };
 
@@ -702,7 +750,7 @@ function App() {
                     <button onClick={() => { setRoundPhase("VOTING"); handleGenerateRoundDemo(); }} style={{background: roundPhase === "VOTING" ? '#3B82F6' : '#4B5563', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
                         Step 2. 그림 생성 & 투표
                     </button>
-                    <button onClick={() => setRoundPhase("VALUATION")} style={{background: roundPhase === "VALUATION" ? '#10B981' : '#4B5563', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
+                    <button onClick={handleEndRoundDemo} style={{background: roundPhase === "VALUATION" ? '#10B981' : '#4B5563', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
                         Step 3. 결산 (가치 책정)
                     </button>
                     
@@ -814,12 +862,10 @@ function App() {
                         <h3 style={{ color: '#FBBF24', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '10px' }}>
                             <span>🔍</span> 수석 미술 비평가의 가치 평가
                         </h3>
-                        <div className="critic-report-box">
-                            "이 작품은 유저들이 선택한 'Cyberpunk'와 'Seoul'의 키워드를 완벽하게 융합했습니다. 
-                            차가운 네온 불빛 속에 담긴 인간의 고립감을 르네상스적 구도로 표현하여 미학적 가치가 매우 뛰어납니다. 
-                            웹3 커뮤니티에서 밈(Meme)으로 소비될 잠재력도 높아 높은 상업적 가치를 지닙니다."
-                        </div>
-                        <p style={{ color: '#6B7280', fontSize: '0.9rem', marginTop: '15px' }}>
+                        <div className="critic-report-box" style={{ whiteSpace: "pre-wrap", lineHeight: "1.6", color: "#D1D5DB" }}>
+    				{criticReport || "분석 데이터를 불러오고 있습니다..."}
+			</div>
+		    	<p style={{ color: '#6B7280', fontSize: '0.9rem', marginTop: '15px' }}>
                             * 위 보고서를 참고하여 아래 폼에서 최종 판매 가격과 기한을 결정해주세요.
                         </p>
                     </div>
@@ -856,7 +902,7 @@ function App() {
                         <button 
                             className="glow-btn" 
                             style={{ marginTop: 'auto', background: '#10B981', color: 'white' }}
-                            onClick={() => alert(`가격: ${valuationPrice} TUK, 기한: ${valuationDuration}일\n스마트 컨트랙트에 민팅 및 등록 요청을 보냅니다!`)}
+                            onClick={submitFinalization}
                         >
                             이 조건으로 블록체인에 등록
                         </button>
@@ -931,8 +977,32 @@ function App() {
                                     <div style={{marginTop: '15px', color: '#3B82F6', fontSize: '0.85rem', fontWeight: 'bold'}}>
                                         더 보기...
                                     </div>
+				{/* 가상 판매 상태 및 버튼 UI */}
+    <div
+        className="sale-status"
+        style={{ marginTop: '15px', padding: '12px', background: '#0F0F0F', borderRadius: '8px', border: '1px solid #333' }}
+        onClick={(e) => e.stopPropagation()}
+    >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ color: item.is_sold ? '#EF4444' : '#10B981', fontWeight: 'bold', fontSize: '0.9rem' }}>
+                {item.is_sold ? "🔴 판매 완료" : "🟢 판매 대기 중"}
+            </span>
+            {!item.is_sold && (
+                <button
+                    onClick={() => handleVirtualSell(item)}
+                    style={{
+                        background: 'linear-gradient(135deg, #3B82F6, #8B5CF6)',
+                        color: '#fff', border: 'none', padding: '6px 14px',
+                        borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 'bold'
+                    }}
+                >
+                    💰 배당금 받기
+                </button>
+            )}
+        </div>
+    </div>
                                 </div>
-                            </div>
+                          </div>
                         ))
                     )}
                 </div>
