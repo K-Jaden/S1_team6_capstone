@@ -129,6 +129,35 @@ critic = Agent(role='가치 증명자 (미술 비평가)', goal='비평문 작�
 ai_curator = Agent(role='따뜻한 감성을 지닌 AI 큐레이터', goal='도슨트', backstory='...', tools=[], llm=llm_chat, allow_delegation=False, max_iter=3)
 
 # ==================================================================
+# 🔥 [NEW] Phase 1: 실시간 트렌드 키워드 추출 (카테고리별 3개씩)
+# ==================================================================
+@app.get("/api/agent/trends-keywords")
+def get_trends_keywords():
+    try:
+        task_trend = Task(
+            description="""현재 전 세계 디지털 아트 및 웹 트렌드를 분석하여, 다음 3가지 카테고리의 트렌드 키워드를 한국어로 3개씩 추출하세요.
+            1. subjects (기획 대상/테마): 예) 사이버펑크 닌자, 해저 도시 등
+            2. styles (화풍/사조): 예) 베이퍼웨이브, 네오 팝아트 등
+            3. expressions (표현 매체/질감): 예) 3D 복셀, 글리치 왜곡 등
+            
+            반드시 아래 형식의 순수 JSON으로만 출력하세요:
+            {"subjects": ["A", "B", "C"], "styles": ["D", "E", "F"], "expressions": ["G", "H", "I"]}""",
+            expected_output='순수 JSON 객체',
+            agent=trends_agent
+        )
+        crew = Crew(agents=[trends_agent], tasks=[task_trend])
+        res = str(crew.kickoff()).replace("```json", "").replace("```", "").strip()
+        return json.loads(res)
+    except Exception as e:
+        print(f"🔥 트렌드 추출 실패: {e}")
+        # 실패 시 안전하게 넘겨줄 폴백 데이터
+        return {
+            "subjects": ["메타버스 공간", "우주 탐사선", "포스트 아포칼립스"],
+            "styles": ["베이퍼웨이브", "초현실주의", "네오 펑크"],
+            "expressions": ["홀로그램 이펙트", "클레이 애니메이션", "글리치 아트"]
+        }
+
+# ==================================================================
 # 4. Phase 2: 그림 생성 및 프롬프트 조립 (🔥 버그 수정 핵심 구간)
 # ==================================================================
 class WeightedCandidateRequest(BaseModel):

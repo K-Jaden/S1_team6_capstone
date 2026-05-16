@@ -521,38 +521,71 @@ def cast_vote(req: VoteReq, db: Session = Depends(get_db)):
 @app.post("/api/admin/phase1-keywords")
 def start_phase1_keywords(session_id: str = "", db: Session = Depends(get_db)):
     from app.models import RoundPhase
+    import random
+    import requests
+
     db.query(models.Round).filter(models.Round.status != RoundPhase.ENDED).update({"status": RoundPhase.ENDED})
-    
     last_round = db.query(models.Round).order_by(models.Round.round_number.desc()).first()
     new_num = (last_round.round_number + 1) if last_round else 1
     new_round = models.Round(round_number=new_num, status=RoundPhase.KEYWORD_VOTING)
     db.add(new_round)
     db.commit()
 
-    pool_subjects = ["사이버 로봇", "버려진 놀이공원", "심해 도시", "홀로그램 소녀", "고대 신전", "거대 고양이", "드래곤", "우주 비행사"]
-    pool_styles = ["빈센트 반 고흐 풍", "지브리 애니메이션 풍", "다크 판타지", "레트로 신스웨이브", "피카소 큐비즘", "르네상스 명화"]
-    pool_expressions = ["팝아트", "수채화", "거친 유화", "3D 언리얼 엔진", "픽셀 아트", "스테인드글라스", "연필 스케치"]
+    # 💡 1. 고정 키워드 창고를 15개 이상으로 대폭 확장 (이 중에서 무작위 7개를 뽑습니다)
+    pool_subjects = [
+        "사이버 로봇", "버려진 놀이공원", "심해 도시", "홀로그램 소녀", "고대 신전", "거대 고양이", "드래곤", "우주 비행사",
+        "스팀펑크 비행선", "마법의 숲", "미래형 서울", "외계 행성", "좀비 아포칼립스", "천사 시대", "해저 탐험가", "타임머신"
+    ]
+    pool_styles = [
+        "빈센트 반 고흐 풍", "지브리 애니메이션 풍", "다크 판타지", "레트로 신스웨이브", "피카소 큐비즘", "르네상스 명화",
+        "모네의 인상주의", "클림트 풍", "사이버펑크 코믹스", "아르누보 무하 풍", "팝아트 앤디워홀 풍", "동양 수묵화", "디즈니 3D 풍"
+    ]
+    pool_expressions = [
+        "팝아트", "수채화", "거친 유화", "3D 언리얼 엔진", "픽셀 아트", "스테인드글라스", "연필 스케치",
+        "시네마틱 라이팅", "크레파스 질감", "볼류메트릭 3D", "수채화 펜화 믹스", "네온 사인 효과", "글리치 왜곡 효과", "미니어처 디오라마"
+    ]
 
-    selected_subjects = random.sample(pool_subjects, 4)
-    selected_styles = random.sample(pool_styles, 3)
-    selected_expressions = random.sample(pool_expressions, 3)
+    # 고정 풀에서 7개 픽
+    selected_subjects = random.sample(pool_subjects, 7)
+    selected_styles = random.sample(pool_styles, 7)
+    selected_expressions = random.sample(pool_expressions, 7)
 
+    # 💡 2. AI에게 최신 트렌드 3개씩(총 9개) 물어오기
     try:
-        res = requests.get(f"{AI_AGENT_URL}/api/agent/trends-keywords", timeout=5)
-        if res.status_code == 200 and res.json().get("keywords"):
-            selected_subjects.append(f"✨{res.json()['keywords'][0]}")
+        # AI 에이전트에게 트렌드 키워드 요청
+        res = requests.get(f"{AI_AGENT_URL}/api/agent/trends-keywords", timeout=20)
+        ai_data = res.json()
+        
+        # 받아온 AI 키워드에 반짝이(✨)를 붙여서 3개씩 추가
+        if "subjects" in ai_data:
+            selected_subjects.extend([f"✨{w}" for w in ai_data["subjects"][:3]])
+        if "styles" in ai_data:
+            selected_styles.extend([f"✨{w}" for w in ai_data["styles"][:3]])
+        if "expressions" in ai_data:
+            selected_expressions.extend([f"✨{w}" for w in ai_data["expressions"][:3]])
+            
     except Exception as e:
-        print(f"AI 트렌드 연동 패스 (안전 풀 가동): {e}")
+        print(f"🔥 AI 트렌드 연동 실패 (안전 풀 가동): {e}")
+        # AI 통신 실패 시, 아까 안 뽑힌 고정 풀에서 3개씩 더 채워서 무조건 10개를 맞춤
+        selected_subjects.extend(random.sample([x for x in pool_subjects if x not in selected_subjects], 3))
+        selected_styles.extend(random.sample([x for x in pool_styles if x not in selected_styles], 3))
+        selected_expressions.extend(random.sample([x for x in pool_expressions if x not in selected_expressions], 3))
 
+    # 💡 3. 순서를 무작위로 한 번 더 섞어주기 (✨AI 키워드가 항상 맨 뒤에 있지 않도록!)
+    random.shuffle(selected_subjects)
+    random.shuffle(selected_styles)
+    random.shuffle(selected_expressions)
+
+    # 4. 최종 10개씩 DB 저장
     for word in selected_subjects:
-        db.add(models.Keyword(round_id=new_round.id, word=word, type="subject"))
+        db.add(models.Keyword(round_id=new_round.id, word=word.replace("#", ""), type="subject"))
     for word in selected_styles:
-        db.add(models.Keyword(round_id=new_round.id, word=word, type="style"))
+        db.add(models.Keyword(round_id=new_round.id, word=word.replace("#", ""), type="style"))
     for word in selected_expressions:
-        db.add(models.Keyword(round_id=new_round.id, word=word, type="expression"))
+        db.add(models.Keyword(round_id=new_round.id, word=word.replace("#", ""), type="expression"))
 
     db.commit()
-    return {"message": "Phase 1: 3단 카테고리 구성 완료!", "round_id": new_round.id}
+    return {"message": "Phase 1: 10개씩(고정7+AI3) 3단 카테고리 구성 완료!", "round_id": new_round.id}
 
 # 🟢 [Step 1.5] 프론트에서 유저가 선택한 키워드 서버로 저장
 class KeywordVoteReq(BaseModel):
@@ -717,72 +750,6 @@ def finalize_round_to_chain(req: FinalizeReq, db: Session = Depends(get_db)):
                 with open(filepath, "rb") as f:
                     image_bytes = f.read()
                 from app.ipfs import upload_bytes_to_ipfs # 혹시 몰라 import 추가
-                uploaded_cid = upload_bytes_to_ipfs(image_bytes, filename=f"winner_round{req.round_id}.png")
-                if uploaded_cid:
-                    winner.ipfs_hash = f"ipfs://{uploaded_cid}"
-                    winner.image_url = f"https://gateway.pinata.cloud/ipfs/{uploaded_cid}"
-        except Exception as e: print(f"IPFS 업로드 실패: {e}")
-    
-    # 🌟 드디어 원래 자리를 찾은 명예의 전당 등록 코드!
-    db.add(models.GalleryItem(
-        title=winner.title, 
-        artist_address="ArtDAO Core AI", 
-        image_url=winner.image_url, 
-        description=winner.description
-    ))
-    db.commit()
-
-    # =========================================================
-    # 🚨 6. [핵심] 스마트 컨트랙트 마감 (블록체인 등록)
-    # =========================================================
-    try:
-        if ADMIN_ACCOUNT:
-            dao_contract = get_dao_contract()
-            if dao_contract:
-                nonce = w3.eth.get_transaction_count(ADMIN_ACCOUNT.address)
-                auction_price_wei = w3.to_wei(winner.auction_price, 'ether')
-                ipfs_uri = winner.ipfs_hash if winner.ipfs_hash != "PENDING" else winner.image_url
-
-                tx = dao_contract.functions.finalizeRound(auction_price_wei, ipfs_uri).build_transaction({
-                    'chainId': 31337, 'gas': 3000000, 'gasPrice': w3.to_wei('1', 'gwei'), 'nonce': nonce,
-                })
-                signed_tx = w3.eth.account.sign_transaction(tx, private_key=ADMIN_PRIVATE_KEY)
-                w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-    except Exception as e: print(f"온체인 라운드 마감 실패: {e}")
-
-    return {"message": "최종 결산 및 스마트 컨트랙트 등록 완료!"}
-
-
-# 🟢 [Step 4] 유저 결산 (IPFS 영구 박제 및 스마트 컨트랙트 등록)
-class FinalizeReq(BaseModel):
-    round_id: int
-    price_tuk: int
-    duration_days: int
-
-@app.post("/api/admin/finalize")
-def finalize_round_to_chain(req: FinalizeReq, db: Session = Depends(get_db)):
-    from app.models import RoundPhase
-    target_round = db.query(models.Round).filter(models.Round.id == req.round_id).first()
-    winner = db.query(models.Candidate).filter(models.Candidate.round_id == req.round_id, models.Candidate.is_winner == True).first()
-
-    winner.auction_price = req.price_tuk
-    target_round.duration_days = req.duration_days
-    target_round.status = RoundPhase.ENDED
-    db.commit()
-   
-    # =========================================================
-    # 🚨 5. [핵심] 우승작 단 1개만 IPFS에 업로드하여 NFT 박제 준비!
-    # =========================================================
-    if winner.ipfs_hash == "PENDING" and "/static/images/" in winner.image_url:
-        try:
-            import urllib.parse
-            import os
-            parsed_url = urllib.parse.urlparse(winner.image_url)
-            filepath = parsed_url.path.lstrip("/") 
-            if os.path.exists(filepath):
-                with open(filepath, "rb") as f:
-                    image_bytes = f.read()
-                from app.ipfs import upload_bytes_to_ipfs
                 uploaded_cid = upload_bytes_to_ipfs(image_bytes, filename=f"winner_round{req.round_id}.png")
                 if uploaded_cid:
                     winner.ipfs_hash = f"ipfs://{uploaded_cid}"
