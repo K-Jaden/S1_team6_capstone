@@ -719,6 +719,121 @@ def finalize_round_to_chain(req: FinalizeReq, db: Session = Depends(get_db)):
     target_round.status = RoundPhase.ENDED
     db.commit()
    
+    # =========================================================
+    # 🚨 5. [핵심] 우승작 단 1개만 IPFS에 업로드하여 NFT 박제 준비!
+    # =========================================================
+    if winner.ipfs_hash == "PENDING" and "/static/images/" in winner.image_url:
+        try:
+            import urllib.parse
+            parsed_url = urllib.parse.urlparse(winner.image_url)
+            filepath = parsed_url.path.lstrip("/") 
+            if os.path.exists(filepath):
+                with open(filepath, "rb") as f:
+                    image_bytes = f.read()
+                from app.ipfs import upload_bytes_to_ipfs # 혹시 몰라 import 추가
+                uploaded_cid = upload_bytes_to_ipfs(image_bytes, filename=f"winner_round{req.round_id}.png")
+                if uploaded_cid:
+                    winner.ipfs_hash = f"ipfs://{uploaded_cid}"
+                    winner.image_url = f"https://gateway.pinata.cloud/ipfs/{uploaded_cid}"
+        except Exception as e: print(f"IPFS 업로드 실패: {e}")
+    
+    # 🌟 드디어 원래 자리를 찾은 명예의 전당 등록 코드!
+    db.add(models.GalleryItem(
+        title=winner.title, 
+        artist_address="ArtDAO Core AI", 
+        image_url=winner.image_url, 
+        description=winner.description
+    ))
+    db.commit()
+
+    # =========================================================
+    # 🚨 6. [핵심] 스마트 컨트랙트 마감 (블록체인 등록)
+    # =========================================================
+    try:
+        if ADMIN_ACCOUNT:
+            dao_contract = get_dao_contract()
+            if dao_contract:
+                nonce = w3.eth.get_transaction_count(ADMIN_ACCOUNT.address)
+                auction_price_wei = w3.to_wei(winner.auction_price, 'ether')
+                ipfs_uri = winner.ipfs_hash if winner.ipfs_hash != "PENDING" else winner.image_url
+
+                tx = dao_contract.functions.finalizeRound(auction_price_wei, ipfs_uri).build_transaction({
+                    'chainId': 31337, 'gas': 3000000, 'gasPrice': w3.to_wei('1', 'gwei'), 'nonce': nonce,
+                })
+                signed_tx = w3.eth.account.sign_transaction(tx, private_key=ADMIN_PRIVATE_KEY)
+                w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+    except Exception as e: print(f"온체인 라운드 마감 실패: {e}")
+
+    return {"message": "최종 결산 및 스마트 컨트랙트 등록 완료!"}
+
+
+# 🟢 [Step 4] 유저 결산 (IPFS 영구 박제 및 스마트 컨트랙트 등록)
+class FinalizeReq(BaseModel):
+    round_id: int
+    price_tuk: int
+    duration_days: int
+
+@app.post("/api/admin/finalize")
+def finalize_round_to_chain(req: FinalizeReq, db: Session = Depends(get_db)):
+    from app.models import RoundPhase
+    target_round = db.query(models.Round).filter(models.Round.id == req.round_id).first()
+    winner = db.query(models.Candidate).filter(models.Candidate.round_id == req.round_id, models.Candidate.is_winner == True).first()
+
+    winner.auction_price = req.price_tuk
+    target_round.duration_days = req.duration_days
+    target_round.status = RoundPhase.ENDED
+    db.commit()
+   
+    # =========================================================
+    # 🚨 5. [핵심] 우승작 단 1개만 IPFS에 업로드하여 NFT 박제 준비!
+    # =========================================================
+    if winner.ipfs_hash == "PENDING" and "/static/images/" in winner.image_url:
+        try:
+            import urllib.parse
+            import os
+            parsed_url = urllib.parse.urlparse(winner.image_url)
+            filepath = parsed_url.path.lstrip("/") 
+            if os.path.exists(filepath):
+                with open(filepath, "rb") as f:
+                    image_bytes = f.read()
+                from app.ipfs import upload_bytes_to_ipfs
+                uploaded_cid = upload_bytes_to_ipfs(image_bytes, filename=f"winner_round{req.round_id}.png")
+                if uploaded_cid:
+                    winner.ipfs_hash = f"ipfs://{uploaded_cid}"
+                    winner.image_url = f"https://gateway.pinata.cloud/ipfs/{uploaded_cid}"
+        except Exception as e: print(f"IPFS 업로드 실패: {e}")
+    
+    # 🌟 드디어 원래 자리를 찾은 명예의 전당 등록 코드!
+    db.add(models.GalleryItem(
+        title=winner.title, 
+        artist_address="ArtDAO Core AI", 
+        image_url=winner.image_url, 
+        description=winner.description
+    ))
+    db.commit()
+
+    # =========================================================
+    # 🚨 6. [핵심] 스마트 컨트랙트 마감 (블록체인 등록)
+    # =========================================================
+    try:
+        if ADMIN_ACCOUNT:
+            dao_contract = get_dao_contract()
+            if dao_contract:
+                nonce = w3.eth.get_transaction_count(ADMIN_ACCOUNT.address)
+                auction_price_wei = w3.to_wei(winner.auction_price, 'ether')
+                ipfs_uri = winner.ipfs_hash if winner.ipfs_hash != "PENDING" else winner.image_url
+
+                tx = dao_contract.functions.finalizeRound(auction_price_wei, ipfs_uri).build_transaction({
+                    'chainId': 31337, 'gas': 3000000, 'gasPrice': w3.to_wei('1', 'gwei'), 'nonce': nonce,
+                })
+                signed_tx = w3.eth.account.sign_transaction(tx, private_key=ADMIN_PRIVATE_KEY)
+                w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+    except Exception as e: print(f"온체인 라운드 마감 실패: {e}")
+
+    return {"message": "최종 결산 및 스마트 컨트랙트 등록 완료!"}
+
+
+# 🟢 [가상 판매 (배당금 수령)]
 class VirtualSellReq(BaseModel):
     item_id: int
     wallet_address: str
@@ -747,44 +862,3 @@ def virtual_sell_item(req: VirtualSellReq, db: Session = Depends(get_db)):
     db.commit()
 
     return {"status": "success", "stake_ratio": stake_ratio * 100, "profit": my_profit, "total_price": auction_price}
-
-    # =========================================================
-    # 🚨 5. [핵심] 우승작 단 1개만 IPFS에 업로드하여 NFT 박제 준비!
-    # =========================================================
-    if winner.ipfs_hash == "PENDING" and "/static/images/" in winner.image_url:
-        try:
-            import urllib.parse
-            parsed_url = urllib.parse.urlparse(winner.image_url)
-            filepath = parsed_url.path.lstrip("/") 
-            if os.path.exists(filepath):
-                with open(filepath, "rb") as f:
-                    image_bytes = f.read()
-                uploaded_cid = upload_bytes_to_ipfs(image_bytes, filename=f"winner_round{req.round_id}.png")
-                if uploaded_cid:
-                    winner.ipfs_hash = f"ipfs://{uploaded_cid}"
-                    winner.image_url = f"https://gateway.pinata.cloud/ipfs/{uploaded_cid}"
-        except Exception as e: print(f"IPFS 업로드 실패: {e}")
-    
-    # 명예의 전당 등록
-    db.add(models.GalleryItem(title=winner.title, artist_address="ArtDAO Core AI", image_url=winner.image_url, description=winner.description))
-    db.commit()
-
-    # =========================================================
-    # 🚨 6. [핵심] 스마트 컨트랙트 마감 (블록체인 등록)
-    # =========================================================
-    try:
-        if ADMIN_ACCOUNT:
-            dao_contract = get_dao_contract()
-            if dao_contract:
-                nonce = w3.eth.get_transaction_count(ADMIN_ACCOUNT.address)
-                auction_price_wei = w3.to_wei(winner.auction_price, 'ether')
-                ipfs_uri = winner.ipfs_hash if winner.ipfs_hash != "PENDING" else winner.image_url
-
-                tx = dao_contract.functions.finalizeRound(auction_price_wei, ipfs_uri).build_transaction({
-                    'chainId': 31337, 'gas': 3000000, 'gasPrice': w3.to_wei('1', 'gwei'), 'nonce': nonce,
-                })
-                signed_tx = w3.eth.account.sign_transaction(tx, private_key=ADMIN_PRIVATE_KEY)
-                w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-    except Exception as e: print(f"온체인 라운드 마감 실패: {e}")
-
-    return {"message": "최종 결산 및 스마트 컨트랙트 등록 완료!"}
