@@ -61,7 +61,8 @@ function App() {
   // Step 1: 키워드 투표 상태
   const [selectedKeywords, setSelectedKeywords] = useState([]);
   const [selectedStyle, setSelectedStyle] = useState("");
-  
+  const [selectedExpression, setSelectedExpression] = useState("");
+
   // Step 2: 결산 및 가치 책정 상태
   const [valuationPrice, setValuationPrice] = useState("");
   const [valuationDuration, setValuationDuration] = useState("7");
@@ -420,7 +421,8 @@ function App() {
       await axios.post(`${API_URL}/api/rounds/vote-keyword`, {
         round_id: currentRound.id,
         selected_words: selectedKeywords,
-        selected_style: selectedStyle  
+        selected_style: selectedStyle,
+	selected_expression: selectedExpression
       });
       alert(`[${selectedKeywords.join(', ')}] 투표 완료! \n\n상단의 'Step 2' 버튼을 눌러 그림을 렌더링하세요.`);
     } catch (err) {
@@ -767,23 +769,20 @@ function App() {
             {/* ========================================== */}
             {/* 🟢 PHASE 1: 키워드 투표 화면 */}
             {/* ========================================== */}
-            {roundPhase === "KEYWORD" && (
+		{roundPhase === "KEYWORD" && (
                 <div className="co-creation-panel fade-in">
-                    <h3 style={{ color: '#38BDF8', marginBottom: '10px', fontSize: '1.4rem' }}>🔥 1. 예술의 방향성을 결정해주세요</h3>
-                    <p style={{ color: '#9CA3AF', marginBottom: '20px' }}>AI 트렌드 수집가가 가져온 키워드입니다. 이번 라운드에 반영할 키워드를 최대 3개 선택하세요.</p>
+                    <h3 style={{ color: '#38BDF8', marginBottom: '10px' }}>🔥 Autonomous Art Co-Creation</h3>
+                    <p style={{ color: '#9CA3AF', marginBottom: '25px' }}>투자할 작품의 기획 요소를 3개 카테고리에서 각각 조율해 주세요.</p>
                     
+                    <h4 style={{color: '#38BDF8', margin: '20px 0 10px 0'}}>🎯 1. 기획 대상 및 테마 (최대 3개)</h4>
                     <div className="keyword-tag-container">
-                        {/* 🔥 백엔드가 넘겨준 '진짜 AI 키워드'가 있을 때만 화면에 그리기! */}
-                        {currentRound && currentRound.keywords && currentRound.keywords.map((word) => (
+                        {currentRound && currentRound.subjects && currentRound.subjects.map((word) => (
                         <button
                             key={word}
                             className={`keyword-tag ${selectedKeywords.includes(word) ? 'active' : ''}`}
                             onClick={() => {
-                                if (selectedKeywords.includes(word)) {
-                                    setSelectedKeywords(selectedKeywords.filter(k => k !== word));
-                                } else if (selectedKeywords.length < 3) {
-                                    setSelectedKeywords([...selectedKeywords, word]);
-                                }
+                                if (selectedKeywords.includes(word)) setSelectedKeywords(selectedKeywords.filter(k => k !== word));
+                                else if (selectedKeywords.length < 3) setSelectedKeywords([...selectedKeywords, word]);
                             }}
                         >
                             #{word}
@@ -791,10 +790,7 @@ function App() {
                         ))}
                     </div>
                     
-                    {/* ⭕ 수정 후: 진짜로 유저 투표 DB에 전송 */}
-                    <h4 style={{color: '#A78BFA', marginTop: '30px', marginBottom: '10px'}}>
-                        🎨 화풍을 1개 선택하세요
-                    </h4>
+                    <h4 style={{color: '#A78BFA', margin: '30px 0 10px 0'}}>🎨 2. 작가 사조 및 화풍 기조 (1개 선택)</h4>
                     <div className="keyword-tag-container">
                         {currentRound && currentRound.styles && currentRound.styles.map((style) => (
                             <button
@@ -808,17 +804,30 @@ function App() {
                         ))}
                     </div>
 
+                    <h4 style={{color: '#10B981', margin: '30px 0 10px 0'}}>✨ 3. 표현 매체 및 마감 재질 (1개 선택)</h4>
+                    <div className="keyword-tag-container">
+                        {currentRound && currentRound.expressions && currentRound.expressions.map((exp) => (
+                            <button
+                                key={exp}
+                                className={`keyword-tag ${selectedExpression === exp ? 'active' : ''}`}
+                                onClick={() => setSelectedExpression(exp)}
+                                style={{borderColor: '#10B981'}}
+                            >
+                                🛠️ {exp}
+                            </button>
+                        ))}
+                    </div>
+
                     <button 
                         className="glow-btn" 
-                        disabled={selectedKeywords.length === 0}
+                        disabled={selectedKeywords.length === 0 || !selectedStyle || !selectedExpression}
                         onClick={submitKeywordVote}
-                        style={{ marginTop: '20px', width: 'auto', padding: '12px 30px' }}
+                        style={{ marginTop: '35px', width: 'auto', padding: '12px 35px' }}
                     >
-                        선택한 키워드로 투표 완료하기
+                        조합 설계 투표 확정하기
                     </button>
                 </div>
             )}
-
             {/* ========================================== */}
             {/* 🟢 PHASE 2: 기존 후보작 투표 화면 */}
             {/* ========================================== */}
