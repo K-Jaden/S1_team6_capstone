@@ -62,6 +62,7 @@ class Keyword(Base):
     id = Column(Integer, primary_key=True, index=True)
     round_id = Column(Integer, ForeignKey("rounds.id"))
     word = Column(String(50), nullable=False)
+    type = Column(String(20), default="theme")
     vote_count = Column(Integer, default=0)
 
     round = relationship("Round", back_populates="keywords")

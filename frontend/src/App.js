@@ -60,6 +60,7 @@ function App() {
   
   // Step 1: 키워드 투표 상태
   const [selectedKeywords, setSelectedKeywords] = useState([]);
+  const [selectedStyle, setSelectedStyle] = useState("");
   
   // Step 2: 결산 및 가치 책정 상태
   const [valuationPrice, setValuationPrice] = useState("");
@@ -418,7 +419,8 @@ function App() {
     try {
       await axios.post(`${API_URL}/api/rounds/vote-keyword`, {
         round_id: currentRound.id,
-        selected_words: selectedKeywords
+        selected_words: selectedKeywords,
+        selected_style: selectedStyle  
       });
       alert(`[${selectedKeywords.join(', ')}] 투표 완료! \n\n상단의 'Step 2' 버튼을 눌러 그림을 렌더링하세요.`);
     } catch (err) {
@@ -790,6 +792,22 @@ function App() {
                     </div>
                     
                     {/* ⭕ 수정 후: 진짜로 유저 투표 DB에 전송 */}
+                    <h4 style={{color: '#A78BFA', marginTop: '30px', marginBottom: '10px'}}>
+                        🎨 화풍을 1개 선택하세요
+                    </h4>
+                    <div className="keyword-tag-container">
+                        {currentRound && currentRound.styles && currentRound.styles.map((style) => (
+                            <button
+                                key={style}
+                                className={`keyword-tag ${selectedStyle === style ? 'active' : ''}`}
+                                onClick={() => setSelectedStyle(style)}
+                                style={{borderColor: '#A78BFA'}}
+                            >
+                                🖌️ {style}
+                            </button>
+                        ))}
+                    </div>
+
                     <button 
                         className="glow-btn" 
                         disabled={selectedKeywords.length === 0}

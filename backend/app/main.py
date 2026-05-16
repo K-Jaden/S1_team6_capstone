@@ -490,7 +490,8 @@ def get_current_round(db: Session = Depends(get_db)):
         "round_number": active.round_number,
         "status": active.status,
         "candidates": active.candidates,
-        "keywords": [k.word for k in keywords] # 프론트엔드가 쓸 수 있게 리스트로 전달
+        "keywords": [k.word for k in keywords if k.type == "theme"],
+        "styles": [k.word for k in keywords if k.type == "style"]  
     }
 
 @app.get("/api/rounds/ended")
@@ -551,25 +552,46 @@ def start_phase1_keywords(session_id: str = "", db: Session = Depends(get_db)):
 
     try:
         res = requests.get(f"{AI_AGENT_URL}/api/agent/trends-keywords", timeout=30)
-        keywords = res.json().get("keywords", ["Cyberpunk", "Neon"])
+        ai_data = res.json()
     except:
-        keywords = ["Cyberpunk", "Neon", "Seoul", "Cubism", "Space"]
+        ai_data = {
+            "keywords": ["Cyberpunk", "Neon", "Seoul", "Cubism", "Space"],
+            "styles": ["Van Gogh style", "Watercolor style", "Cyberpunk art style"]
+        }
 
-    for word in keywords[:10]:
-        db.add(models.Keyword(round_id=new_round.id, word=word.replace("#", "")))
+    for word in ai_data.get("keywords", [])[:10]:
+        db.add(models.Keyword(round_id=new_round.id, word=word.replace("#", ""), type="theme"))
+
+    for word in ai_data.get("styles", []):
+        db.add(models.Keyword(round_id=new_round.id, word=word, type="style"))
+
     db.commit()
-    return {"message": "Phase 1: 키워드 추출 완료", "round_id": new_round.id, "keywords": keywords}
+    return {"message": "Phase 1: 키워드 추출 완료", "round_id": new_round.id, "keywords": ai_data.get("keywords", [])}
 
 # 🟢 [Step 1.5] 프론트에서 유저가 선택한 키워드 서버로 저장
 class KeywordVoteReq(BaseModel):
     round_id: int
     selected_words: list[str]
+    selected_style: str = ""  # ← 추가
 
 @app.post("/api/rounds/vote-keyword")
 def vote_keywords(req: KeywordVoteReq, db: Session = Depends(get_db)):
     for word in req.selected_words:
-        kw = db.query(models.Keyword).filter(models.Keyword.round_id == req.round_id, models.Keyword.word == word).first()
+        kw = db.query(models.Keyword).filter(
+            models.Keyword.round_id == req.round_id,
+            models.Keyword.word == word,
+            models.Keyword.type == "theme"
+        ).first()
         if kw: kw.vote_count += 1
+
+    if req.selected_style:
+        sk = db.query(models.Keyword).filter(
+            models.Keyword.round_id == req.round_id,
+            models.Keyword.word == req.selected_style,
+            models.Keyword.type == "style"
+        ).first()
+        if sk: sk.vote_count += 1
+
     db.commit()
     return {"status": "success"}
 
@@ -601,8 +623,15 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
     if len(keyword_distribution) == 1:
         keyword_distribution[top_kws[0].word] = 1.0
 
+    style_kw = db.query(models.Keyword).filter(
+        models.Keyword.round_id == round_id,
+        models.Keyword.type == "style"
+    ).order_by(desc(models.Keyword.vote_count)).first()
+    selected_style = style_kw.word if style_kw else "digital art style"
+
     try:
-        res = requests.post(f"{AI_AGENT_URL}/api/agent/generate-weighted-candidates", json={"weights": keyword_distribution, "session_id": session_id}, timeout=300)
+        res = requests.post(f"{AI_AGENT_URL}/api/agent/generate-weighted-candidates",
+            json={"weights": keyword_distribution, "style": selected_style, "session_id": session_id}, timeout=300)
         ai_data = res.json().get("candidates", [])
     except:
         ai_data = [{"title": f"임시 아트 {i}", "description": "임시", "image_prompt": "digital art"} for i in range(1, 6)]

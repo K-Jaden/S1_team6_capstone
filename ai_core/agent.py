@@ -219,6 +219,15 @@ ai_curator = Agent(
     backstory='ArtDAO의 유일한 안내자입니다. 도슨트가 사라졌으므로 당신이 모든 해설과 안내를 책임집니다.',
     tools=[], llm=llm_chat, allow_delegation=False, max_iter=3, verbose=True
 )
+
+style_agent = Agent(
+    role="화풍 큐레이터",
+    goal="FLUX 이미지 생성 모델에 최적화된 화풍 키워드 3개를 추천한다",
+    backstory="미술사와 AI 이미지 생성 모델 전문가로, 어떤 화풍이 FLUX에서 잘 표현되는지 정확히 안다.",
+    llm=llm_factual,
+    verbose=True
+)
+
 # ==================================================================
 # 4. Pydantic 모델 (기존 그대로 + session_id 추가)
 # ==================================================================
@@ -406,22 +415,60 @@ def combined_chat(request: DocentRequest):
 
 # 🟢 [Phase 1] 트렌드 키워드 리스트 추출
 @app.get("/api/agent/trends-keywords")
+@app.get("/api/agent/trends-keywords")
 def get_trends_keywords():
     try:
-        task_trend = Task(
+        task_keywords = Task(
             description="현재 가장 뜨거운 디지털 아트, 기술 트렌드 키워드 15개를 1차원 JSON 배열로 추출하세요. (예: [\"사이버펑크\", \"입체파\"])",
             expected_output='["키워드1", "키워드2", ...]',
-            agent=trends_agent # 🔥 트렌드 수집가 에이전트 투입!
+            agent=trends_agent
         )
-        crew = Crew(agents=[trends_agent], tasks=[task_trend])
-        res = str(crew.kickoff()).replace("```json", "").replace("```", "").strip()
-        return {"keywords": json.loads(res)}
+        task_style = Task(
+            description="""FLUX 이미지 생성 모델에서 잘 표현되는 화풍 3개를 추천하세요.
+            반드시 아래 목록에서만 선택하세요:
+            - Van Gogh style
+            - Watercolor style
+            - Renaissance style
+            - Cyberpunk art style
+            - Pixel art style
+            - Impressionism style
+            - Surrealism style
+            - Ink wash painting style
+
+            출력은 무조건 순수 JSON 배열:
+            ["Van Gogh style", "Watercolor style", "Renaissance style"]
+            """,
+            expected_output="화풍 키워드 3개 JSON 배열",
+            agent=style_agent
+        )
+        crew = Crew(
+            agents=[trends_agent, style_agent],
+            tasks=[task_keywords, task_style],
+            process=Process.sequential
+        )
+        result = crew.kickoff()
+
+        keyword_text = str(result.tasks_output[0])
+        start_idx = keyword_text.find('[')
+        end_idx = keyword_text.rfind(']') + 1
+        keywords = json.loads(keyword_text[start_idx:end_idx])
+
+        style_text = str(result.tasks_output[1])
+        start_idx = style_text.find('[')
+        end_idx = style_text.rfind(']') + 1
+        styles = json.loads(style_text[start_idx:end_idx])
+
+        return {"keywords": keywords, "styles": styles}
     except:
-        return {"keywords": ["Cyberpunk", "Minimalism", "Neon", "Space", "AI", "Dystopia", "Retro", "Surrealism"]}
+        return {
+            "keywords": ["Cyberpunk", "Minimalism", "Neon", "Space", "AI", "Dystopia", "Retro", "Surrealism"],
+            "styles": ["Van Gogh style", "Watercolor style", "Cyberpunk art style"]
+        }
 
 # 🟢 [Phase 2] 가중치 기반 후보작 5개 생성 (1등 40%, 2등 30%, 3등 20%, 4등 7%, 5등 3% 비율 반영)
 class WeightedCandidateRequest(BaseModel):
     weights: dict  # { "Cyberpunk": 0.4, "Neon": 0.3, "Space": 0.2, ... } 형태의 비율로 들어옴
+    style: str = "digital art style"
     session_id: str = ""
 
 @app.post("/api/agent/generate-weighted-candidates")
@@ -451,6 +498,7 @@ def generate_weighted_candidates(req: WeightedCandidateRequest):
     task_format = Task(
     description=f"""기획안을 바탕으로 총 5개의 고해상도 영문 이미지 프롬프트를 작성하세요.
     키워드와 가중치: {dist_str}
+    화풍: 모든 작품에 반드시 '{req.style}'을 반영하세요.
     
     작품 1~3: 가중치 높은 키워드를 강하게 반영
     예시) "cyberpunk city::4, neon lights::3, surrealism::2, masterpiece, ultra detailed"
