@@ -145,9 +145,21 @@ def update_user_badge(wallet_address: str, db: Session = Depends(get_db)):
 # =========================================================
 # 2. 🖼️ 온라인 전시관 & 관람평
 # =========================================================
-@app.get("/api/gallery/items", response_model=List[schemas.GalleryItemResponse])
+@app.get("/api/gallery/items")
 def get_gallery_items(db: Session = Depends(get_db)):
-    return db.query(models.GalleryItem).all()
+    items = db.query(models.GalleryItem).all()
+    # Pydantic 스키마가 is_sold를 잘라먹지 못하도록 직접 딕셔너리로 조립해서 보냅니다!
+    return [
+        {
+            "id": item.id,
+            "title": item.title,
+            "artist_address": item.artist_address,
+            "image_url": item.image_url,
+            "description": item.description,
+            "is_sold": item.is_sold
+        }
+        for item in items
+    ]
 
 @app.post("/api/gallery/feedback")
 def create_feedback(item_id: int, content: str, wallet_address: str, db: Session = Depends(get_db)):
@@ -436,38 +448,6 @@ def update_delegation_db(req: schemas.DelegateRequest, db: Session = Depends(get
     user.delegated_to = req.to_address
     db.commit()
     return {"status": "success", "message": f"Delegated to {req.to_address}"}
-# =========================================================
-# [NEW] Market Insights (시장 트렌드 분석 API)
-# =========================================================
-# 💡 서버가 켜져있는 동안 한 번 분석한 데이터를 기억해두는 캐시 변수
-cached_insights = None
-
-@app.get("/api/insights/trends", summary="실시간 마켓 인사이트 조회")
-def get_market_insights():
-    global cached_insights
-    
-    # 1. 이미 분석해둔 데이터가 있으면 0.1초 만에 바로 반환!
-    if cached_insights:
-        return cached_insights
-        
-    # 2. 없으면 AI 서버에 최초 1회 분석 요청
-    try:
-        res = requests.get(f"{AI_AGENT_URL}/api/agent/insights", timeout=60)
-        if res.status_code == 200:
-            cached_insights = res.json()
-            return cached_insights
-    except Exception as e:
-        print(f"🔥 통신 에러 또는 타임아웃: {e}")
-        
-    # 3. 🚨 만약 AI 서버가 터졌을 경우 시연을 살리기 위한 비상용 예비 데이터
-    return {
-        "keywords": ["#Generative_AI", "#Neo_Cyberpunk", "#Eco_Activism", "#Hyper_Realism", "#Web3_Art", "#Algorithmic", "#Surrealism"],
-        "styles": [
-            {"name": "Unreal Engine 5 Render", "percent": 50},
-            {"name": "Oil Painting Texture", "percent": 30},
-            {"name": "Retro 8-bit Pixel", "percent": 20}
-        ]
-    }
 # =========================================================
 # 🌟 [복구] 프론트엔드 화면 표시 및 투표용 필수 API
 # =========================================================
