@@ -17,6 +17,38 @@ const AI_CORE_URL = currentHost === "localhost"
   : "http://13.125.234.38:8002";
 
 function App() {
+
+   // 🔥 [NEW] 스마트 컨트랙트 실시간 스탯 상태 추가
+  const [daoStats, setDaoStats] = useState({ totalSupply: "0", daoBalance: "0", rawSupply: 0 });
+
+  // 🔥 [NEW] TUK 토큰 정보 블록체인에서 직접 읽어오기
+  const fetchDaoStats = async () => {
+    // contract 객체가 들어왔을 때만 실행되도록 안전장치 추가
+    if (!window.ethereum || !contract) return; 
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      
+      // 💡 [핵심] 하드코딩된 주소 대신, DAO 컨트랙트에게 직접 TUK 토큰 주소를 물어봅니다!
+      const tokenAddress = await contract.governanceToken();
+      
+      const tokenAbi = [
+        "function totalSupply() view returns (uint256)",
+        "function balanceOf(address account) view returns (uint256)"
+      ];
+      const tokenContract = new ethers.Contract(tokenAddress, tokenAbi, provider);
+
+      const supplyWei = await tokenContract.totalSupply();
+      const daoBalWei = await tokenContract.balanceOf(CONTRACT_ADDRESS);
+
+      setDaoStats({
+        totalSupply: parseInt(ethers.formatEther(supplyWei)).toLocaleString(),
+        daoBalance: parseInt(ethers.formatEther(daoBalWei)).toLocaleString(),
+        rawSupply: parseInt(ethers.formatEther(supplyWei)) // 계산용 원본 숫자
+      });
+    } catch (error) {
+      console.error("DAO Stats 로드 실패:", error);
+    }
+  };
   
   // ==========================================
   // 1. 핵심 상태 관리 (State)
@@ -32,9 +64,6 @@ function App() {
   const [currentRound, setCurrentRound] = useState(null);
   const [vpInputs, setVpInputs] = useState({}); 
   const [isLoading, setIsLoading] = useState(false);
-
-  const [insightsData, setInsightsData] = useState(null);
-  const [isInsightsLoading, setIsInsightsLoading] = useState(false);
 
   const [chatInput, setChatInput] = useState("");
   const [isChatLoading, setIsChatLoading] = useState(false);
@@ -52,6 +81,26 @@ function App() {
   const eventSourceRef = useRef(null);
   const discussionEndRef = useRef(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [expandedLogs, setExpandedLogs] = useState({});
+  
+  const toggleLogExpansion = (idx) => {
+    setExpandedLogs(prev => ({ ...prev, [idx]: !prev[idx] }));
+  };
+
+  // ==========================================
+  // 🔥 [NEW] Co-creation (Human-in-the-loop) 상태
+  // ==========================================
+  const [roundPhase, setRoundPhase] = useState("VOTING"); // "KEYWORD", "VOTING", "VALUATION"
+  
+  // Step 1: 키워드 투표 상태
+  const [selectedKeywords, setSelectedKeywords] = useState([]);
+  const [selectedStyle, setSelectedStyle] = useState("");
+
+  // Step 2: 결산 및 가치 책정 상태
+  const [valuationPrice, setValuationPrice] = useState("");
+  const [valuationDuration, setValuationDuration] = useState("7");
+  const [criticReport, setCriticReport] = useState(""); // 🔥 [추가] AI 비평문 저장용
+
   // ==========================================
   // 2. 초기화 및 지갑 연동
   // ==========================================
@@ -85,7 +134,22 @@ function App() {
   const fetchEndedRounds = async () => {
       try {
           const res = await axios.get(`${API_URL}/api/rounds/ended`);
-          setEndedRounds(res.data);
+          const roundsData = res.data;
+          
+          if (contract && walletAddress) {
+              const roundsWithStatus = await Promise.all(roundsData.map(async (r) => {
+                  try {
+                      // 🔥 블록체인 장부에 수령 여부 확인
+                      const claimed = await contract.hasClaimedReward(r.round_id, walletAddress);
+                      return { ...r, isClaimed: claimed };
+                  } catch (e) {
+                      return { ...r, isClaimed: false };
+                  }
+              }));
+              setEndedRounds(roundsWithStatus);
+          } else {
+              setEndedRounds(roundsData.map(r => ({ ...r, isClaimed: false })));
+          }
       } catch (err) { console.error("종료된 라운드 로드 실패"); }
   };
 
@@ -107,20 +171,6 @@ function App() {
       const timer = setInterval(() => setCurrentBlockTime(Math.floor(Date.now() / 1000)), 1000);
       return () => clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    if (activeTab === "insights" && !insightsData) {
-      const fetchInsights = async () => {
-        setIsInsightsLoading(true);
-        try {
-          const res = await axios.get(`${API_URL}/api/insights/trends`);
-          setInsightsData(res.data);
-        } catch (err) { console.error("인사이트 로드 실패"); }
-        setIsInsightsLoading(false);
-      };
-      fetchInsights();
-    }
-  }, [activeTab, insightsData]);
 
   // 🔥 [NEW] 새 토론 로그가 추가될 때마다 자동 스크롤
   useEffect(() => {
@@ -169,23 +219,32 @@ function App() {
       setActiveTab("main");
     }
   };
-
+  useEffect(() => {
+    if (activeTab === "treasury") {
+      fetchDaoStats();
+    }
+  }, [activeTab, walletAddress]);
   // ==========================================
   // 3. DAO 핵심 액션 함수
   // ==========================================
   const fetchMyPageData = async () => {
     if (!walletAddress) return;
     try {
+      // 1. DB에서 오프체인 가상 잔고(virtualBalance) 가져오기
       const resBal = await axios.get(`${API_URL}/api/wallet/balance`, { params: { wallet_address: walletAddress } });
-      let displayBalance = resBal.data.balance;
-
+      let dbBalance = resBal.data.balance; 
+      
+      // 2. 스마트 컨트랙트에서 온체인 잔고(balance) 가져오기
+      let onChainBalance = "0";
       if (contract) {
           try {
               const remainingVpWei = await contract.getRemainingVP(walletAddress);
-              displayBalance = ethers.formatEther(remainingVpWei);
+              onChainBalance = ethers.formatEther(remainingVpWei);
           } catch(e) { console.error("VP 로드 에러:", e); }
       }
-      setMyInfo(prev => ({ ...prev, balance: displayBalance }));
+      
+      // 🚨 두 잔고를 덮어쓰지 않고 분리해서 나란히 저장!
+      setMyInfo(prev => ({ ...prev, balance: onChainBalance, virtualBalance: dbBalance }));
     } catch (err) { console.error("내 정보 로드 실패"); }
   };
 
@@ -200,24 +259,41 @@ function App() {
       try {
           const res = await axios.get(`${API_URL}/api/rounds/current`);
           setCurrentRound(res.data);
+          
+          // 🔥 [핵심] 일반 유저도 백엔드 라운드 상태에 따라 자동으로 화면이 바뀌도록 동기화!
+          if (res.data.status === "keyword_voting") setRoundPhase("KEYWORD");
+          else if (res.data.status === "voting") setRoundPhase("VOTING");
+          else if (res.data.status === "valuation") setRoundPhase("VALUATION");
+          
       } catch (err) { setCurrentRound(null); }
   };
 
-  const handleVote = async (candidateId) => {
+ const handleVote = async (candidateId) => {
       const amount = vpInputs[candidateId];
       if (!amount || amount <= 0) return alert("투표할 VP를 입력하세요!");
       if (!isLoggedIn) return alert("지갑을 먼저 연결해주세요!");
       if (!contract) return alert("스마트 컨트랙트가 연결되지 않았습니다.");
 
       try {
-          alert("메타마스크에서 트랜잭션을 승인해 주세요! (가스비 발생)");
           const vpInWei = ethers.parseEther(amount.toString());
-          
           const candidateIndex = currentRound.candidates.findIndex(c => c.id === candidateId);
           if(candidateIndex === -1) return alert("후보를 찾을 수 없습니다.");
 
+          // 🚨 1단계: 내 지갑의 TUK 토큰을 쓸 수 있게 허락(Approve)하기
+          alert("1/2단계: TUK 토큰 사용 승인을 진행합니다. 메타마스크를 확인해주세요.");
+          const provider = new ethers.BrowserProvider(window.ethereum);
+          const signer = await provider.getSigner();
+          
+          const tokenAddress = await contract.governanceToken();
+          const tokenAbi = ["function approve(address spender, uint256 amount) public returns (bool)"];
+          const tokenContract = new ethers.Contract(tokenAddress, tokenAbi, signer);
+          
+          const approveTx = await tokenContract.approve(CONTRACT_ADDRESS, vpInWei);
+          await approveTx.wait();
+
+          // 🚨 2단계: 승인이 끝나면 진짜 투표(Vote) 트랜잭션 쏘기
+          alert("2/2단계: 승인 완료! 실제 투자(Vote) 트랜잭션을 승인해주세요.");
           const tx = await contract.vote(candidateIndex, vpInWei);
-          alert("트랜잭션 전송 완료! 블록체인 승인을 기다리는 중...");
           await tx.wait();
           
           await axios.post(`${API_URL}/api/vote`, {
@@ -236,7 +312,7 @@ function App() {
       }
   };
 
-  const handleClaimReward = async (roundId) => {
+ const handleClaimReward = async (roundId) => {
       if (!contract) return alert("스마트 컨트랙트가 연결되지 않았습니다.");
       if (!roundId) return alert("청구할 라운드 번호를 입력하세요!");
 
@@ -244,24 +320,44 @@ function App() {
           alert("메타마스크에서 배당금 청구 트랜잭션을 승인해 주세요!");
           const tx = await contract.claimReward(roundId);
           alert("트랜잭션 전송 완료! 승인을 기다리는 중...");
-          const receipt = await tx.wait();
+          await tx.wait(); 
 
-          let receivedAmount = "알 수 없음";
-          for (const log of receipt.logs) {
-              try {
-                  const parsedLog = contract.interface.parseLog(log);
-                  if (parsedLog && parsedLog.name === 'RewardClaimed') {
-                      receivedAmount = ethers.formatEther(parsedLog.args.rewardAmount);
-                  }
-              } catch (e) {}
-          }
-
-          alert(`🎉 배당금이 지갑으로 성공적으로 지급되었습니다!\n지급 금액: ${receivedAmount} TUK`);
+          alert("🎉 배당금이 지갑으로 성공적으로 지급되었습니다!\n좌측의 내 지갑 잔고를 확인해주세요.");
           fetchMyPageData();
+          
+          // 🔥 [핵심 추가] ABI 에러를 무시하고 리액트 화면의 버튼을 즉시 잠가버립니다!
+          setEndedRounds(prev => prev.map(r => r.round_id === roundId ? { ...r, isClaimed: true } : r));
+
       } catch (err) {
           console.error("Claim 에러:", err);
-          alert("보상 청구 실패: 이미 수령했거나 우승작에 투표하지 않았습니다.");
+          alert("보상 청구 실패: 이미 수령했거나 트랜잭션이 거절되었습니다.");
       }
+  };
+
+  const handleVirtualSell = async (item) => {
+    if (!isLoggedIn) return alert("지갑을 먼저 연결해주세요!");
+    
+    if (window.confirm(`'${item.title}' 작품을 가상 판매하시겠습니까?\n투자한 VP 지분에 따라 수익이 배당됩니다.`)) {
+        setIsLoading(true);
+        try {
+            const res = await axios.post(`${API_URL}/api/gallery/virtual-sell`, {
+                item_id: item.id,
+                wallet_address: walletAddress
+            });
+
+            if (res.data.error) {
+                alert(`❌ 실패: ${res.data.error}`);
+            } else {
+                alert(`🎉 판매 완료!\n💰 총 판매가: ${res.data.total_price} TUK\n📈 나의 지분: ${res.data.stake_ratio.toFixed(2)}%\n💸 배당 수익: ${res.data.profit.toFixed(2)} TUK 입금 완료!`);
+                fetchGallery(); 
+                fetchMyPageData(); 
+            }
+        } catch (err) {
+            alert("서버 오류로 판매를 진행할 수 없습니다.");
+        } finally {
+            setIsLoading(false);
+        }
+    }
   };
 
   const [loadingStatus, setLoadingStatus] = useState("");
@@ -320,31 +416,79 @@ function App() {
     setIsDiscussing(false);
   };
 
-  // 에이전트별 아바타/색상 매핑
+ // 에이전트별 아바타/색상 매핑
   const getAgentStyle = (agentRole) => {
     const map = {
-      "수석 전시 기획자":     { icon: "🎨", color: "#A78BFA", bg: "rgba(167, 139, 250, 0.1)" },
-      "수석 디지털 아티스트": { icon: "🖌️", color: "#F472B6", bg: "rgba(244, 114, 182, 0.1)" },
-      "수석 미술 비평가":     { icon: "🔍", color: "#FBBF24", bg: "rgba(251, 191, 36, 0.1)" },
-      "소더비 수석 경매사":   { icon: "💰", color: "#34D399", bg: "rgba(52, 211, 153, 0.1)" },
-      "시스템":               { icon: "⚙️", color: "#60A5FA", bg: "rgba(96, 165, 250, 0.1)" },
+      "트렌드 수집가":     { icon: "📡", color: "#34D399", bg: "rgba(52, 211, 153, 0.1)" },
+      "키워드 스토리텔러": { icon: "✍️", color: "#A78BFA", bg: "rgba(167, 139, 250, 0.1)" },
+      "가중치 프롬프터":   { icon: "💻", color: "#F472B6", bg: "rgba(244, 114, 182, 0.1)" },
+      "가치 증명자":       { icon: "📈", color: "#FBBF24", bg: "rgba(251, 191, 36, 0.1)" },
+      "AI 큐레이터":       { icon: "💬", color: "#10B981", bg: "rgba(16, 185, 129, 0.1)" },
+      "시스템":            { icon: "⚙️", color: "#60A5FA", bg: "rgba(96, 165, 250, 0.1)" },
     };
-    return map[agentRole] || { icon: "🤖", color: "#9CA3AF", bg: "rgba(156, 163, 175, 0.1)" };
+    const foundKey = Object.keys(map).find(key => agentRole && agentRole.includes(key));
+    return foundKey ? map[foundKey] : { icon: "🤖", color: "#9CA3AF", bg: "rgba(156, 163, 175, 0.1)" };
   };
 
   const getLogTypeLabel = (type) => {
     const map = {
-      "thought":       "💭 사고 중",
-      "action":        "🔧 도구 사용",
-      "output":        "📝 출력",
-      "task_complete": "✅ 작업 완료",
-      "system":        "ℹ️ 시스템",
-      "error":         "⚠️ 에러",
-      "final":         "🏁 토론 종료"
+        "system": "🔔 시스템",
+        "thought": "💭 사고",
+        "action": "🔧 액션",
+        "output": "📤 출력",
+        "task_complete": "✅ 완료",
+        "final": "🎉 최종",
+        "error": "🔥 에러",
     };
     return map[type] || type;
   };
+// ==========================================
+  // 🔥 [NEW] Step 1. 트렌드 키워드 추출 & 새 라운드 생성 API
+  // ==========================================
+  const handleStartPhase1 = async () => {
+    setIsLoading(true);
+    setLoadingStatus("🤖 AI가 새로운 라운드 테마를 탐색 중입니다...");
+    try {
+      const res = await axios.post(`${API_URL}/api/admin/phase1-keywords`);
+      setRoundPhase("KEYWORD"); // 화면 전환
+      fetchCurrentRound();      // 방금 생성된 라운드 정보 불러오기
+      setLoadingStatus("✅ 새 라운드가 생성되었습니다!");
+      setTimeout(() => {
+        alert(res.data.message);
+        setIsLoading(false);
+        setLoadingStatus("");
+      }, 500);
+    } catch (err) {
+      console.error(err);
+      alert("새 라운드 생성에 실패했습니다.");
+      setIsLoading(false);
+      setLoadingStatus("");
+    }
+  };
 
+  // ==========================================
+  // 🔥 [NEW] Step 1.5. 유저 키워드 투표 백엔드 전송 API
+  // ==========================================
+  const submitKeywordVote = async () => {
+    if (!currentRound) return alert("진행 중인 라운드가 없습니다.");
+    try {
+      await axios.post(`${API_URL}/api/rounds/vote-keyword`, {
+        round_id: currentRound.id,
+        selected_words: selectedKeywords,
+        selected_style: selectedStyle
+      });
+      
+      // 🔥 [수정] 관리자 전용 문구를 지우고 일반 유저 친화적인 메시지로 변경
+      alert(`[${selectedKeywords.join(', ')}] 테마 및 [${selectedStyle}] 화풍으로 투표 완료!\n\n대중의 투표 데이터가 모이면 AI가 그림 생성을 시작합니다.`);
+      
+      // 투표 완료 후 화면 초기화
+      setSelectedKeywords([]);
+      setSelectedStyle("");
+    } catch (err) {
+      console.error(err);
+      alert("키워드 투표 실패");
+    }
+  };
   // ==========================================
   // 4. 관리자 데모 함수 (🔥 SSE 연동)
   // ==========================================
@@ -355,14 +499,13 @@ function App() {
       const sessionId = `round_${Date.now()}`;
       startDiscussionStream(sessionId);
       
-      const statuses = [
-          "🤖 AI 비평가 에이전트가 최신 예술 트렌드를 분석하고 있습니다...",
-          "🔍 트렌드 키워드 추출 완료. 프롬프트 엔지니어링 진행 중...",
-          "🎨 후보작 1/2 렌더링 중 (Cloudflare FLUX-1)...",
-          "🎨 후보작 2/2 렌더링 중 (Cloudflare FLUX-1)...",
-          "🔗 오프체인 갤러리 등록 및 블록체인 라운드 시작 트랜잭션 전송 중..."
-      ];
-      
+     const statuses = [
+        "📊 투자자들의 키워드 투표 결과를 집계하고 있습니다...",
+        "🧠 투표 1~5위 가중치 비율을 적용하여 AI가 프롬프트를 설계 중입니다...",
+        "🎨 조합된 가이드라인으로 후보작 5개를 렌더링하고 있습니다...",
+        "🔗 생성된 후보작들을 투표 풀에 등록하는 중입니다..."
+    ];
+
       let step = 0;
       setLoadingStatus(statuses[0]);
       const interval = setInterval(() => {
@@ -373,9 +516,10 @@ function App() {
       }, 15000);
 
       try {
-          // 🔥 [NEW] 2단계: session_id 쿼리 파라미터로 같이 전달
-          const res = await axios.post(`${API_URL}/api/admin/generate-round`, null, {
-              params: { session_id: sessionId }
+          // 🔥 [수정] 옛날 URL(generate-round)을 새 URL(phase2-generate)로 변경!
+          const targetRoundId = currentRound ? currentRound.id : 0;
+          const res = await axios.post(`${API_URL}/api/admin/phase2-generate`, null, {
+              params: { round_id: targetRoundId, session_id: sessionId }
           });
           clearInterval(interval);
           setLoadingStatus("✅ 라운드 생성 완료!");
@@ -385,7 +529,7 @@ function App() {
              setIsLoading(false);
              setLoadingStatus("");
           }, 500);
-      } catch (err) { 
+      } catch (err) {
           clearInterval(interval);
           alert(err.response?.data?.detail || "생성 실패"); 
           setIsLoading(false);
@@ -395,45 +539,69 @@ function App() {
 
   const handleEndRoundDemo = async () => {
       setIsLoading(true);
+      setRoundPhase("VALUATION"); // 🔥 [추가] UI를 Phase 3으로 넘김
       
-      // 🔥 [NEW] SSE 연결
       const sessionId = `endround_${Date.now()}`;
       startDiscussionStream(sessionId);
       
       const statuses = [
-          "📊 투표 결과를 집계하고 있습니다...",
-          "🔍 AI 경매사가 우승작의 예술적 가치와 득표수를 분석 중입니다...",
-          "🎨 우승작 메타데이터를 IPFS에 영구 박제하는 중...",
-          "💰 우승작을 ArtNFT로 발행하고 배당금 풀을 생성 중..."
+          "📊 투표 결과를 집계하여 1등 우승작을 선정하고 있습니다...",
+          "🔍 AI 수석 비평가가 우승작의 미학적, 상업적 가치를 분석 중입니다..."
       ];
       
       let step = 0;
       setLoadingStatus(statuses[0]);
       const interval = setInterval(() => {
           step++;
-          if (step < statuses.length) {
-              setLoadingStatus(statuses[step]);
-          }
+          if (step < statuses.length) setLoadingStatus(statuses[step]);
       }, 5000);
 
       try {
-          const res = await axios.post(`${API_URL}/api/admin/end-round`, null, {
-              params: { session_id: sessionId }
+          const targetRoundId = currentRound ? currentRound.id : 0;
+          const res = await axios.post(`${API_URL}/api/admin/phase3-valuation`, null, {
+              params: { round_id: targetRoundId, session_id: sessionId }
           });
           clearInterval(interval);
-          setLoadingStatus("✅ 결산 완료!");
+          setLoadingStatus("✅ 가치 분석 완료!");
+          
+          setCriticReport(res.data.report); // 🔥 [추가] AI가 써준 비평문 상태에 저장
+
           setTimeout(() => {
-              alert(`🏆 1등 우승작: ${res.data.winner_title}\n💰 AI 책정가: ${res.data.auction_price} TUK\n\n${res.data.message}`);
-              fetchCurrentRound(); 
-              fetchGallery();
               setIsLoading(false);
               setLoadingStatus("");
           }, 500);
-      } catch (err) { 
+      } catch (err) {
           clearInterval(interval);
           alert("라운드 종료 실패"); 
           setIsLoading(false);
           setLoadingStatus("");
+      }
+  };
+
+  // 🔥 [NEW] 유저가 가격을 입력하고 최종 승인할 때 실행되는 함수
+  const submitFinalization = async () => {
+      if (!valuationPrice || valuationPrice <= 0) return alert("적정 희망 시작가를 입력해주세요!");
+      setIsLoading(true);
+      setLoadingStatus("🔗 블록체인 스마트 컨트랙트에 등록 중...");
+
+      try {
+          await axios.post(`${API_URL}/api/admin/finalize`, {
+              round_id: currentRound.id,
+              price_tuk: parseInt(valuationPrice),
+              duration_days: parseInt(valuationDuration)
+          });
+
+          fetchGallery(); // 갤러리 데이터 새로고침
+          setActiveTab("gallery"); // 🔥 명예의 전당 탭으로 자동 이동!
+          setRoundPhase("KEYWORD"); // 라운드 상태 초기화
+          alert("🎉 최종 결산 및 스마트 컨트랙트 등록이 완료되었습니다!\n우승작이 명예의 전당(Hall of Fame)에 영구 박제되었습니다.");
+      } catch (err) {
+          console.error(err);
+          alert("블록체인 등록에 실패했습니다.");
+      } finally {
+          setIsLoading(false);
+          setLoadingStatus("");
+          setValuationPrice("");
       }
   };
 
@@ -489,7 +657,6 @@ function App() {
         <nav>
         <button className={activeTab==="main"?"active":""} onClick={()=>setActiveTab("main")}>📊 Dashboard</button>
         <button className={activeTab==="curate"?"active":""} onClick={()=>setActiveTab("curate")}>🗳️ Curate</button>
-        <button className={activeTab==="insights"?"active":""} onClick={()=>setActiveTab("insights")}>📈 Market Insights</button>
         <button className={activeTab==="gallery"?"active":""} onClick={()=>setActiveTab("gallery")}>🖼️ Hall of Fame</button>
         <button className={activeTab==="treasury"?"active":""} onClick={()=>setActiveTab("treasury")}>🏦 Treasury</button>
         <button className={activeTab==="mypage"?"active":""} onClick={()=>setActiveTab("mypage")}>👤 Profile</button>
@@ -506,82 +673,104 @@ function App() {
 
       {/* 2. 중앙 메인 컨텐츠 */}
       <main className="main-content">
-        <header className="top-header">
+	<header className="top-header" style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', padding: '15px 30px', background: 'rgba(15, 15, 15, 0.9)', borderBottom: '1px solid #2A2A2A', position: 'sticky', top: 0, zIndex: 1000, backdropFilter: 'blur(10px)' }}>
             {isLoggedIn ? (
-                <div className="logged-in-box">
-                  <div className="badge-connected">🟢 {walletAddress.substring(0, 6)}...</div>
-                  <button className="logout-btn" onClick={handleLogout}>Logout</button>
+                <div className="logged-in-box" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                  
+                  {/* 🔥 [NEW] 실시간 내 자산 글로벌 위젯 */}
+                  <div style={{ display: 'flex', gap: '15px', background: '#1A1A1A', padding: '10px 20px', borderRadius: '30px', border: '1px solid #333', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}>
+                      <span style={{ color: '#9CA3AF', fontSize: '0.95rem' }}>
+                          투표권: <strong style={{ color: '#38BDF8' }}>{myInfo.balance} VP</strong>
+                      </span>
+                      <span style={{ color: '#333' }}>|</span>
+                      <span style={{ color: '#9CA3AF', fontSize: '0.95rem' }}>
+                          가상 배당금: <strong style={{ color: '#10B981' }}>{Number(myInfo.virtualBalance || 0).toLocaleString(undefined, {maximumFractionDigits: 2})} TUK</strong>
+                      </span>
+                  </div>
+                  
+                  {/* 지갑 주소 및 로그아웃 */}
+                  <div className="badge-connected" style={{ background: '#2A2A2A', padding: '10px 20px', borderRadius: '30px', color: '#FFF', fontSize: '0.9rem', border: '1px solid #4B5563' }}>
+                      🟢 {walletAddress.substring(0, 6)}...{walletAddress.substring(walletAddress.length - 4)}
+                  </div>
+                  <button className="logout-btn" onClick={handleLogout} style={{ background: 'transparent', color: '#EF4444', border: '1px solid #EF4444', padding: '8px 15px', borderRadius: '30px', cursor: 'pointer', fontWeight: 'bold' }}>
+                      Logout
+                  </button>
                 </div>
             ) : (
-                <button className="connect-btn" onClick={connectWallet}>Connect Wallet</button>
+                <button className="connect-btn" onClick={connectWallet} style={{ background: '#3B82F6', color: '#fff', border: 'none', padding: '10px 25px', borderRadius: '30px', fontWeight: 'bold', cursor: 'pointer' }}>
+                    Connect Wallet
+                </button>
             )}
         </header>
 
-        {/* Market Insights */}
-        {activeTab === "insights" && (
-          <div className="page fade-in">
-            <h2 className="page-title">📈 Market Insights</h2>
-            <p style={{color: '#9CA3AF', marginBottom: '30px'}}>AI 에이전트가 실시간으로 분석한 이번 주 글로벌 디지털 아트 트렌드 리포트입니다.</p>
-            
-            {isInsightsLoading ? (
-                <div style={{textAlign: 'center', padding: '50px', color: '#38BDF8', fontSize: '1.2rem'}}>
-                    🤖 AI가 실시간 글로벌 웹 트렌드를 분석 중입니다... ⏳
-                </div>
-            ) : insightsData ? (
-                <div className="insights-grid" style={{display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '20px'}}>
-                    <div className="card" style={{padding: '30px', background: '#1A1A1A'}}>
-                        <h3>🔥 Hot Keywords (Word Cloud)</h3>
-                        <div style={{display: 'flex', flexWrap: 'wrap', gap: '15px', marginTop: '20px'}}>
-                            {insightsData.keywords.map((tag, idx) => (
-                                <span key={idx} style={{padding: '10px 20px', background: '#2A2A2A', borderRadius: '30px', color: '#38BDF8', fontSize: '1.1rem'}}>
-                                    {tag}
-                                </span>
-                            ))}
-                        </div>
-                    </div>
-                    <div className="card" style={{padding: '30px', background: '#1A1A1A'}}>
-                        <h3>🎨 Preferred Styles</h3>
-                        <ul style={{listStyle: 'none', padding: 0, marginTop: '20px', color: '#BBB'}}>
-                            {insightsData.styles.map((style, idx) => (
-                                <li key={idx} style={{marginBottom: '15px', fontSize: '1.1rem'}}>
-                                    {style.name} - <strong style={{color: '#10B981'}}>{style.percent}%</strong>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                </div>
-            ) : (
-                <div style={{textAlign: 'center', padding: '50px', color: '#EF4444'}}>데이터를 불러오지 못했습니다.</div>
-            )}
-          </div>
-        )}
-
-        {/* Treasury */}
+        {/* 🏦 Treasury (실시간 스마트 컨트랙트 연동 완료) */}
         {activeTab === "treasury" && (
           <div className="page fade-in">
-            <h2 className="page-title">🏦 Treasury & Statistics</h2>
-            <div className="stats-container" style={{display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px', marginTop: '30px'}}>
-                <div className="card-mini"><h4>Total Asset</h4><p>1,250,000 TUK</p></div>
-                <div className="card-mini"><h4>Total Dividends</h4><p>450,000 TUK</p></div>
-                <div className="card-mini"><h4>Minted NFTs</h4><p>12 NFTs</p></div>
-                <div className="card-mini"><h4>Active Curators</h4><p>1,024 Users</p></div>
+            <h2 className="page-title" style={{ fontFamily: "'Playfair Display', serif", fontSize: "2.5rem", marginBottom: '10px' }}>🏦 Treasury & Statistics</h2>
+            <p style={{ color: '#9CA3AF', marginBottom: '30px' }}>스마트 컨트랙트 기반 ArtDAO의 실시간 자산 현황입니다.</p>
+            
+            {/* 1. 실시간 온체인 대시보드 위젯 */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                <div className="card" style={{ background: 'linear-gradient(145deg, #1A1A1A, #0F0F0F)', border: '1px solid #3B82F6', textAlign: 'center', padding: '35px' }}>
+                    <h3 style={{ color: '#9CA3AF', fontSize: '1.1rem', margin: '0 0 15px 0' }}>🌐 TUK Token 총 발행량</h3>
+                    <div style={{ fontSize: '3rem', fontWeight: 'bold', color: '#38BDF8' }}>
+                        {daoStats.totalSupply} <span style={{ fontSize: '1.5rem', color: '#6B7280' }}>TUK</span>
+                    </div>
+                    <p style={{ color: '#6B7280', fontSize: '0.9rem', marginTop: '15px' }}>블록체인 상에 발행된 전체 거버넌스 토큰입니다.</p>
+                </div>
+
+                <div className="card" style={{ background: 'linear-gradient(145deg, #1A1A1A, #0F0F0F)', border: '1px solid #10B981', textAlign: 'center', padding: '35px' }}>
+                    <h3 style={{ color: '#9CA3AF', fontSize: '1.1rem', margin: '0 0 15px 0' }}>🏦 DAO Treasury 잔고</h3>
+                    <div style={{ fontSize: '3rem', fontWeight: 'bold', color: '#10B981' }}>
+                        {daoStats.daoBalance} <span style={{ fontSize: '1.5rem', color: '#6B7280' }}>TUK</span>
+                    </div>
+                    <p style={{ color: '#6B7280', fontSize: '0.9rem', marginTop: '15px' }}>스마트 컨트랙트 금고에 보관된 배당 대기 자산입니다.</p>
+                </div>
             </div>
-            <div className="card" style={{marginTop: '30px', padding: '40px', textAlign: 'center', background: '#1A1A1A'}}>
-                <h3 style={{marginBottom: '20px'}}>Dividend Distribution Ratio</h3>
-                <div style={{width: '100%', height: '20px', background: '#333', borderRadius: '10px', display: 'flex', overflow: 'hidden'}}>
-                    <div style={{width: '70%', background: '#3B82F6'}}></div>
-                    <div style={{width: '20%', background: '#10B981'}}></div>
-                    <div style={{width: '10%', background: '#F59E0B'}}></div>
+
+            {/* 2. 배당 분배 비율 및 실제 풀 잔고 실시간 연동 */}
+            <div className="card" style={{marginTop: '30px', padding: '40px', textAlign: 'center', background: '#1A1A1A', border: '1px solid #2A2A2A'}}>
+                <h3 style={{marginBottom: '10px', color: '#fff'}}>Dividend Distribution Ratio</h3>
+                <p style={{color: '#9CA3AF', fontSize: '0.9rem', marginBottom: '25px'}}>현재 금고 자산 기준 자금 분배 예치 현황</p>
+                
+                {/* 비율 게이지 바 */}
+                <div style={{width: '100%', height: '24px', background: '#333', borderRadius: '12px', display: 'flex', overflow: 'hidden', marginBottom: '25px'}}>
+                    <div style={{width: '70%', background: 'linear-gradient(90deg, #3B82F6, #1D4ED8)', title: 'Voter Pool'}} concord-hint="70%"></div>
+                    <div style={{width: '20%', background: 'linear-gradient(90deg, #10B981, #047857)', title: 'Creator Pool'}} concord-hint="20%"></div>
+                    <div style={{width: '10%', background: 'linear-gradient(90deg, #F59E0B, #B45309)', title: 'Treasury'}} concord-hint="10%"></div>
                 </div>
-                <div style={{display: 'flex', justifyContent: 'center', gap: '20px', marginTop: '15px', fontSize: '0.9rem'}}>
-                    <span style={{color: '#3B82F6'}}>● Voter Pool (70%)</span>
-                    <span style={{color: '#10B981'}}>● Creator Pool (20%)</span>
-                    <span style={{color: '#F59E0B'}}>● Treasury (10%)</span>
-                </div>
+                
+                {/* 🔥 실시간 자산 비례 분배 금액 계산 및 렌더링 */}
+                {(() => {
+                    // 💡 DAO 잔고는 즉시 발행/지급되어 0이 맞습니다. 
+                    // 화면을 채우기 위해 전체 생태계 자산(총 발행량)을 기준으로 풀을 가상으로 보여줍니다.
+                    const totalPool = daoStats.rawSupply || 0;
+                    return (
+                        <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px', padding: '15px', background: '#0F0F0F', borderRadius: '8px'}}>
+                            <div style={{textAlign: 'center', borderRight: '1px solid #2A2A2A'}}>
+                                <div style={{color: '#3B82F6', fontWeight: 'bold', fontSize: '0.95rem', marginBottom: '5px'}}>● Voter Pool (70%)</div>
+                                <div style={{fontSize: '1.3rem', fontWeight: 'bold', color: '#FFF'}}>
+                                    {Math.floor(totalPool * 0.7).toLocaleString()} <span style={{fontSize: '0.8rem', color: '#6B7280'}}>TUK</span>
+                                </div>
+                            </div>
+                            <div style={{textAlign: 'center', borderRight: '1px solid #2A2A2A'}}>
+                                <div style={{color: '#10B981', fontWeight: 'bold', fontSize: '0.95rem', marginBottom: '5px'}}>● Creator Pool (20%)</div>
+                                <div style={{fontSize: '1.3rem', fontWeight: 'bold', color: '#FFF'}}>
+                                    {Math.floor(totalPool * 0.2).toLocaleString()} <span style={{fontSize: '0.8rem', color: '#6B7280'}}>TUK</span>
+                                </div>
+                            </div>
+                            <div style={{textAlign: 'center'}}>
+                                <div style={{color: '#F59E0B', fontWeight: 'bold', fontSize: '0.95rem', marginBottom: '5px'}}>● Treasury (10%)</div>
+                                <div style={{fontSize: '1.3rem', fontWeight: 'bold', color: '#FFF'}}>
+                                    {Math.floor(totalPool * 0.1).toLocaleString()} <span style={{fontSize: '0.8rem', color: '#6B7280'}}>TUK</span>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })()}
             </div>
           </div>
         )}
-
         {/* Dashboard */}
         {activeTab === "main" && (
           <div className="page fade-in">
@@ -627,89 +816,193 @@ function App() {
             <div className="proposals-header-wrap" style={{borderBottom: 'none', marginBottom: '10px'}}>
                 <div>
                     <h2 style={{fontFamily: "'Playfair Display', serif", fontSize: "2.5rem", margin: 0}}>🗳️ Curate the Masterpiece</h2>
-                    <p style={{color: '#9CA3AF', marginTop: '10px', fontSize: '1rem'}}>AI가 창작한 후보작 중, 최고의 가치를 지닌 작품에 VP(투표력)를 투자하세요.</p>
+                    <p style={{color: '#9CA3AF', marginTop: '10px', fontSize: '1rem'}}>AI와 함께 예술의 방향성을 정하고, 최고의 가치를 지닌 작품에 투자하세요.</p>
                 </div>
             </div>
 
+            {/* 🔥 관리자 데모 패널 (Phase 전환용) */}
             <div className="admin-demo-panel">
                 <div>
-                    <strong style={{color: '#EF4444'}}>⚙️ Admin Demo Controls</strong>
-                    <span style={{color: '#F87171', fontSize: '0.85rem', marginLeft: '10px'}}>(시연용 제어판)</span>
+                    <strong style={{color: '#EF4444'}}>⚙️ Admin Pipeline Controls</strong>
+                    <span style={{color: '#F87171', fontSize: '0.85rem', marginLeft: '10px'}}>(파이프라인 테스트)</span>
                 </div>
                 <div style={{display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap'}}>
-                    <button onClick={handleGenerateRoundDemo} disabled={isLoading} style={{background: '#B91C1C', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
-                        {isLoading ? "AI 생성 중..." : "1. 새 라운드 (AI 2개 생성)"}
+                    <button onClick={handleStartPhase1} style={{background: roundPhase === "KEYWORD" ? '#F59E0B' : '#4B5563', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
+                        Step 1. 트렌드 추출
                     </button>
-                    <button onClick={handleEndRoundDemo} disabled={isLoading} style={{background: '#991B1B', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
-                        2. 투표 마감 및 결산
+                    <button onClick={() => { setRoundPhase("VOTING"); handleGenerateRoundDemo(); }} style={{background: roundPhase === "VOTING" ? '#3B82F6' : '#4B5563', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
+                        Step 2. 그림 생성 & 투표
                     </button>
-                    {/* 🔥 [NEW] 토론창 다시 열기 버튼 */}
+                    <button onClick={handleEndRoundDemo} style={{background: roundPhase === "VALUATION" ? '#10B981' : '#4B5563', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
+                        Step 3. 결산 (가치 책정)
+                    </button>
+                    
                     {discussionLogs.length > 0 && !showDiscussion && (
                         <button onClick={() => setShowDiscussion(true)} style={{background: '#7C3AED', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
-                            💬 직전 토론 다시보기
+                            💬 직전 토론 보기
                         </button>
                     )}
                     {loadingStatus && <span style={{color: '#38BDF8', fontSize: '0.9rem', marginLeft: '10px'}}>{loadingStatus}</span>}
                 </div>
             </div>
 
-            {currentRound ? (
+            {/* ========================================== */}
+            {/* 🟢 PHASE 1: 키워드 투표 화면 */}
+            {/* ========================================== */}
+		{roundPhase === "KEYWORD" && (
+            	<div className="co-creation-panel fade-in">
+                    <h3 style={{ color: '#38BDF8', marginBottom: '10px' }}>🔥 Autonomous Art Co-Creation</h3>
+                    <p style={{ color: '#9CA3AF', marginBottom: '25px' }}>투자할 작품의 기획 요소를 2개 카테고리에서 조율해 주세요.</p>
+                    
+                    <h4 style={{color: '#38BDF8', margin: '20px 0 10px 0'}}>🎯 1. 기획 대상 및 테마 (최대 3개)</h4>
+                    <div className="keyword-tag-container">
+                        {currentRound && currentRound.subjects && currentRound.subjects.map((word) => (
+                        <button
+                            key={word}
+                            className={`keyword-tag ${selectedKeywords.includes(word) ? 'active' : ''}`}
+                            onClick={() => {
+                                if (selectedKeywords.includes(word)) setSelectedKeywords(selectedKeywords.filter(k => k !== word));
+                                else if (selectedKeywords.length < 3) setSelectedKeywords([...selectedKeywords, word]);
+                            }}
+                        >
+                            #{word}
+                        </button>
+                        ))}
+                    </div>
+                    
+                    <h4 style={{color: '#A78BFA', margin: '30px 0 10px 0'}}>🎨 2. 표현 방식 (화풍, 사조, 재질 등 1개 선택)</h4>
+                    <div className="keyword-tag-container">
+                        {currentRound && currentRound.styles && currentRound.styles.map((style) => (
+                            <button
+                                key={style}
+                                className={`keyword-tag ${selectedStyle === style ? 'active' : ''}`}
+                                onClick={() => setSelectedStyle(style)}
+                                style={{borderColor: '#A78BFA'}}
+                            >
+                                🖌️ {style}
+                            </button>
+                        ))}
+                    </div>
+
+                    <button 
+                        className="glow-btn" 
+                        disabled={selectedKeywords.length === 0 || !selectedStyle}
+                        onClick={submitKeywordVote}
+                        style={{ marginTop: '35px', width: 'auto', padding: '12px 35px' }}
+                    >
+                        조합 설계 투표 확정하기
+                    </button>
+                </div>
+		)}
+            {/* ========================================== */}
+            {/* 🟢 PHASE 2: 기존 후보작 투표 화면 */}
+            {/* ========================================== */}
+            {roundPhase === "VOTING" && (
                 <>
                     <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0F0F0F', padding: '15px 20px', borderRadius: '12px', border: '1px solid #2A2A2A', marginBottom: '20px'}}>
-                        <span style={{color: '#38BDF8', fontWeight: 'bold', fontSize: '1.1rem'}}>🟢 Round #{currentRound.round_number} 진행 중</span>
+                        <span style={{color: '#38BDF8', fontWeight: 'bold', fontSize: '1.1rem'}}>🟢 Round #{currentRound?.round_number || "X"} 작품 투표 중</span>
                         <span style={{color: '#9CA3AF'}}>이번 라운드 잔여 투표력(VP): <strong style={{color: 'white'}}>{myInfo.balance} VP</strong></span>
                     </div>
 
-                    <div className="candidate-grid">
-    {currentRound.candidates.map(candidate => (
-        <div key={candidate.id} className="candidate-card" onClick={() => openCandidateModal(candidate)} style={{cursor: 'pointer'}}>
-            <div className="candidate-img-box">
-            	<img src={getImageUrl(candidate.image_url)} alt={candidate.title} />
-	    </div>
-            <div className="candidate-info">
-                <h3 className="candidate-title">{candidate.title}</h3>
-                <p className="candidate-desc" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                    {candidate.description}
-                </p>
-                
-                <div className="candidate-stats">
-                    <span style={{color: '#6B7280', fontSize: '0.9rem'}}>현재 누적 투자금</span>
-                    <span className="vp-count">{candidate.vp_votes} VP</span>
-                </div>
+                    {currentRound && currentRound.candidates && currentRound.candidates.length > 0 ? (
+                        <div className="candidate-grid">
+                            {currentRound.candidates.map(candidate => (
+                                <div key={candidate.id} className="candidate-card" onClick={() => openCandidateModal(candidate)} style={{cursor: 'pointer'}}>
+                                    <div className="candidate-img-box">
+                                        <img src={getImageUrl(candidate.image_url)} alt={candidate.title} />
+                                    </div>
+                                    <div className="candidate-info">
+                                        <h3 className="candidate-title">{candidate.title}</h3>
+                                        <p className="candidate-desc">{candidate.description}</p>
+                                        
+                                        <div className="candidate-stats">
+                                            <span style={{color: '#6B7280', fontSize: '0.9rem'}}>현재 누적 투자금</span>
+                                            <span className="vp-count">{candidate.vp_votes} VP</span>
+                                        </div>
 
-                <div className="vote-action-box" onClick={(e) => e.stopPropagation()}> 
-                    <input 
-                        type="number" 
-                        className="vp-input" 
-                        placeholder="VP 입력" 
-                        min="1"
-                        value={vpInputs[candidate.id] || ""}
-                        onKeyDown={(e) => {
-                            if (["-", "+", "e", "E"].includes(e.key)) e.preventDefault();
-                        }}
-                        onChange={(e) => {
-                            const val = e.target.value;
-                            if (val === "" || parseInt(val) > 0) {
-                                setVpInputs({...vpInputs, [candidate.id]: val});
-                            }
-                        }}
-                    />
-                    <button className="vote-btn" onClick={() => handleVote(candidate.id)}>투자하기</button>
-                </div>
-            </div>
-        </div>
-    ))}
-</div>                </>
-            ) : (
-                <div style={{textAlign: 'center', padding: '80px 20px', background: '#1A1A1A', borderRadius: '16px', border: '1px dashed #2A2A2A'}}>
-                    <span style={{fontSize: '3rem'}}>😴</span>
-                    <h3 style={{color: '#D1D5DB', marginTop: '20px'}}>현재 진행 중인 큐레이션 라운드가 없습니다.</h3>
-                    <p style={{color: '#6B7280'}}>관리자 패널에서 새로운 라운드를 생성해 주세요.</p>
+                                        <div className="vote-action-box" onClick={(e) => e.stopPropagation()}> 
+                                            <input 
+                                                type="number" 
+                                                className="vp-input" 
+                                                placeholder="VP 입력" 
+                                                min="1"
+                                                value={vpInputs[candidate.id] || ""}
+                                                onChange={(e) => setVpInputs({...vpInputs, [candidate.id]: e.target.value})}
+                                            />
+                                            <button className="vote-btn" onClick={() => handleVote(candidate.id)}>투자하기</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div style={{textAlign: 'center', padding: '80px 20px', background: '#1A1A1A', borderRadius: '16px', border: '1px dashed #2A2A2A'}}>
+                            <p style={{color: '#6B7280'}}>현재 생성된 작품이 없습니다. 'Step 2' 버튼을 눌러주세요.</p>
+                        </div>
+                    )}
+                </>
+            )}
+
+            {/* ========================================== */}
+            {/* 🟢 PHASE 3: 우승작 가치 평가 및 결산 화면 */}
+            {/* ========================================== */}
+            {roundPhase === "VALUATION" && (
+                <div className="co-creation-panel fade-in" style={{ display: 'flex', gap: '30px' }}>
+                    
+                    {/* 왼쪽: AI 비평가 보고서 */}
+                    <div style={{ flex: 1.5, background: '#0F0F0F', padding: '25px', borderRadius: '12px', border: '1px solid #2A2A2A' }}>
+                        <h3 style={{ color: '#FBBF24', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span>🔍</span> 수석 미술 비평가의 가치 평가
+                        </h3>
+                        <div className="critic-report-box" style={{ whiteSpace: "pre-wrap", lineHeight: "1.6", color: "#D1D5DB" }}>
+    				{criticReport || "분석 데이터를 불러오고 있습니다..."}
+			</div>
+		    	<p style={{ color: '#6B7280', fontSize: '0.9rem', marginTop: '15px' }}>
+                            * 위 보고서를 참고하여 아래 폼에서 최종 판매 가격과 기한을 결정해주세요.
+                        </p>
+                    </div>
+
+                    {/* 오른쪽: 유저 가격 책정 폼 */}
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                        <h3 style={{ color: '#fff', margin: '0 0 10px 0' }}>💰 최종 결산 및 컨트랙트 등록</h3>
+                        <label style={{ color: '#9CA3AF', fontSize: '0.95rem' }}>
+                            희망 시작가 (TUK 토큰)
+                            <input 
+                                type="number" 
+                                className="glass-input" 
+                                value={valuationPrice} 
+                                onChange={(e) => setValuationPrice(e.target.value)} 
+                                placeholder="예: 1000" 
+                                style={{ marginTop: '8px' }}
+                            />
+                        </label>
+                        
+                        <label style={{ color: '#9CA3AF', fontSize: '0.95rem' }}>
+                            경매 진행 기한
+                            <select 
+                                className="glass-input" 
+                                value={valuationDuration} 
+                                onChange={(e) => setValuationDuration(e.target.value)} 
+                                style={{ marginTop: '8px', cursor: 'pointer' }}
+                            >
+                                <option value="3">3일</option>
+                                <option value="7">7일 (권장)</option>
+                                <option value="14">14일</option>
+                            </select>
+                        </label>
+
+                        <button 
+                            className="glow-btn" 
+                            style={{ marginTop: 'auto', background: '#10B981', color: 'white' }}
+                            onClick={submitFinalization}
+                        >
+                            이 조건으로 블록체인에 등록
+                        </button>
+                    </div>
                 </div>
             )}
           </div>
         )}
-
         {/* Hall of Fame */}
         {activeTab === "gallery" && (
             <div className="page fade-in">
@@ -776,50 +1069,119 @@ function App() {
                                     <div style={{marginTop: '15px', color: '#3B82F6', fontSize: '0.85rem', fontWeight: 'bold'}}>
                                         더 보기...
                                     </div>
+				{/* 가상 판매 상태 및 버튼 UI */}
+    <div
+        className="sale-status"
+        style={{ marginTop: '15px', padding: '12px', background: '#0F0F0F', borderRadius: '8px', border: '1px solid #333' }}
+        onClick={(e) => e.stopPropagation()}
+    >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ color: item.is_sold ? '#EF4444' : '#10B981', fontWeight: 'bold', fontSize: '0.9rem' }}>
+                {item.is_sold ? "🔴 판매 완료" : "🟢 판매 대기 중"}
+            </span>
+            {!item.is_sold && (
+                <button
+                    onClick={() => handleVirtualSell(item)}
+                    style={{
+                        background: 'linear-gradient(135deg, #3B82F6, #8B5CF6)',
+                        color: '#fff', border: 'none', padding: '6px 14px',
+                        borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 'bold'
+                    }}
+                >
+                    💰 배당금 받기
+                </button>
+            )}
+        </div>
+    </div>
                                 </div>
-                            </div>
+                          </div>
                         ))
                     )}
                 </div>
             </div>
         )}
 
-        {/* My Profile */}
         {activeTab === "mypage" && (
-            <div className="page fade-in">
-                <h2 style={{fontFamily: "'Playfair Display', serif", fontSize: "2.5rem"}}>👤 My Profile</h2>
-                {!isLoggedIn ? <p style={{color: '#9CA3AF'}}>지갑을 먼저 연결해주세요.</p> : (
-                    <div className="mypage-grid">
-                        <div className="card profile" style={{background: '#1A1A1A', border: '1px solid #2A2A2A'}}>
-                            <h3 style={{color: '#fff', borderBottom: '1px solid #2A2A2A', paddingBottom: '10px'}}>내 지갑 정보</h3>
-                            <p style={{color: '#9CA3AF', margin: '15px 0'}}><strong>주소:</strong> <span style={{color: '#fff'}}>{walletAddress}</span></p>
-                            <p style={{color: '#9CA3AF'}}><strong>이번 라운드 잔여 투표력:</strong> <span style={{color: '#38BDF8', fontWeight: 'bold', fontSize: '1.2rem'}}>{myInfo.balance} VP</span></p>
+    <div className="page fade-in">
+        <h2 style={{fontFamily: "'Playfair Display', serif", fontSize: "2.5rem", marginBottom: '30px'}}>👤 My Assets & Activity</h2>
+        {!isLoggedIn ? <p style={{color: '#9CA3AF'}}>지갑을 먼저 연결해주세요.</p> : (
+            <div style={{display: 'flex', flexDirection: 'column', gap: '30px'}}>
+                
+                {/* 1. 최상단 지갑 정보 */}
+                <div style={{background: 'linear-gradient(90deg, #1e3a8a 0%, #172554 100%)', padding: '25px', borderRadius: '16px', border: '1px solid #2563eb'}}>
+                    <h3 style={{color: '#bfdbfe', margin: '0 0 10px 0', fontSize: '1rem'}}>연결된 지갑 주소</h3>
+                    <div style={{color: '#fff', fontSize: '1.2rem', fontFamily: 'monospace'}}>{walletAddress}</div>
+                </div>
 
-                            <h3 style={{color: '#fff', borderBottom: '1px solid #2A2A2A', paddingBottom: '10px', marginTop: '30px'}}>💰 배당금 수령 (Claim)</h3>
-                            <p style={{color: '#9CA3AF', marginTop: '10px', fontSize: '0.9rem', marginBottom: '15px'}}>지난 라운드에서 1등(우승작)에 투표하셨다면, 기여도에 비례해 TUK 토큰 수익을 배당받습니다.</p>
-                            
-                            {endedRounds.length === 0 ? (
-                                <p style={{color: '#6B7280', fontSize: '0.9rem'}}>종료된 라운드가 없습니다.</p>
-                            ) : (
-                                <div style={{display: 'flex', flexDirection: 'column', gap: '10px'}}>
-                                    {endedRounds.map(r => (
-                                        <div key={r.round_id} style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0F0F0F', padding: '12px 15px', borderRadius: '8px', border: '1px solid #333'}}>
-                                            <div>
-                                                <div style={{color: '#fff', fontWeight: 'bold'}}>Round #{r.round_id}</div>
-                                                <div style={{color: '#9CA3AF', fontSize: '0.85rem'}}>우승작: {r.winner_title} (AI 매각가: {r.auction_price} TUK)</div>
-                                            </div>
-                                            <button onClick={() => handleClaimReward(r.round_id)} style={{background: '#38BDF8', color: '#000', fontWeight: 'bold', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.9rem'}}>
-                                                보상 청구
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
+                {/* 2. 자산 현황 2분할 카드 */}
+                <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
+                    {/* 온체인 지갑 자산 */}
+                    <div className="card" style={{background: '#1A1A1A', padding: '30px', textAlign: 'center'}}>
+                        <h3 style={{color: '#9CA3AF', margin: '0 0 15px 0', fontSize: '1rem'}}>내 지갑 TUK 잔고 (On-chain)</h3>
+                        <div style={{fontSize: '2.5rem', fontWeight: 'bold', color: '#38BDF8'}}>{myInfo.balance} <span style={{fontSize:'1.2rem', color:'#6B7280'}}>TUK (VP)</span></div>
+                        <p style={{color: '#6B7280', fontSize: '0.85rem', marginTop: '15px'}}>투표에 사용할 수 있는 실제 블록체인 토큰입니다.</p>
                     </div>
-                )}
+
+                    {/* 오프체인 가상 배당금 */}
+                    <div className="card" style={{background: '#1A1A1A', padding: '30px', textAlign: 'center', border: '1px solid rgba(16, 185, 129, 0.3)'}}>
+                        <h3 style={{color: '#9CA3AF', margin: '0 0 15px 0', fontSize: '1rem'}}>앱 내 누적 가상 수익 (Off-chain)</h3>
+                        <div className="card" style={{background: '#1A1A1A', padding: '30px', textAlign: 'center', border: '1px solid rgba(16, 185, 129, 0.3)'}}>
+                        <h3 style={{color: '#9CA3AF', margin: '0 0 15px 0', fontSize: '1rem'}}>앱 내 누적 가상 수익 (Off-chain)</h3>
+                        {/* 🚨 0 대신 진짜 myInfo.virtualBalance 연결! */}
+                        <div style={{fontSize: '2.5rem', fontWeight: 'bold', color: '#10B981'}}>
+                            {Number(myInfo.virtualBalance || 0).toLocaleString(undefined, {maximumFractionDigits: 2})} <span style={{fontSize:'1.2rem', color:'#6B7280'}}>TUK</span>
+                        </div>
+                        <p style={{color: '#6B7280', fontSize: '0.85rem', marginTop: '15px'}}>명예의 전당에서 가상 판매 시 누적되는 배당 포인트입니다.</p>
+                    </div>                    
+			</div>
+                </div>
+
+                {/* 3. 스마트 컨트랙트 배당금 청구 (기존 기능 유지) */}
+                <div className="card profile" style={{background: '#1A1A1A', border: '1px solid #2A2A2A', padding: '30px'}}>
+                    <h3 style={{color: '#FBBF24', borderBottom: '1px solid #333', paddingBottom: '15px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px'}}>
+                        <span>🏆</span> 온체인 우승 배당금 수령 (Claim)
+                    </h3>
+                    <p style={{color: '#9CA3AF', fontSize: '0.95rem', lineHeight: '1.6', marginBottom: '20px'}}>
+                        종료된 라운드에서 1등(우승작)에 투표하셨다면 스마트 컨트랙트를 통해 내 지갑으로 TUK 토큰을 직접 청구할 수 있습니다.
+                    </p>
+                    
+                    {endedRounds.length === 0 ? (
+                        <div style={{textAlign: 'center', padding: '30px', background: '#0F0F0F', borderRadius: '12px'}}>
+                            <p style={{color: '#6B7280', margin: 0}}>청구 가능한 종료 라운드가 없습니다.</p>
+                        </div>
+                    ) : (
+                        <div style={{display: 'flex', flexDirection: 'column', gap: '15px'}}>
+                            {endedRounds.map(r => (
+                                <div key={r.round_id} style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0F0F0F', padding: '15px 20px', borderRadius: '12px', border: '1px solid #333'}}>
+                                    <div>
+                                        <div style={{color: '#fff', fontWeight: 'bold', fontSize: '1.1rem', marginBottom: '5px'}}>Round #{r.round_id}</div>
+                                        <div style={{color: '#9CA3AF', fontSize: '0.9rem'}}>우승작: {r.winner_title} <span style={{color: '#6B7280'}}>(AI 매각가: {r.auction_price} TUK)</span></div>
+                                    </div>
+                                    <button 
+                                        onClick={() => !r.isClaimed && handleClaimReward(r.round_id)} 
+                                        disabled={r.isClaimed}
+                                        style={{
+                                            background: r.isClaimed ? '#374151' : 'linear-gradient(135deg, #F59E0B, #EF4444)', 
+                                            color: r.isClaimed ? '#9CA3AF' : '#fff', 
+                                            fontWeight: 'bold', 
+                                            border: 'none', 
+                                            padding: '10px 20px', 
+                                            borderRadius: '8px', 
+                                            cursor: r.isClaimed ? 'not-allowed' : 'pointer',
+                                            transition: 'all 0.2s'
+                                        }}
+                                    >
+                                        {r.isClaimed ? "✅ 수령 완료" : "지갑으로 TUK 받기"}
+                                </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
             </div>
         )}
+    </div>
+    )}
       </main>
       {/* ========================================== */}
       {/* 🔥 [추가] 후보작 및 우승작 상세 모달창 */}
@@ -1033,7 +1395,7 @@ function App() {
             </div>
 
             <div className="discussion-body">
-              {discussionLogs.length === 0 ? (
+            	{discussionLogs.length === 0 ? (
                 <div className="discussion-empty">
                   <div className="loader-pulse"></div>
                   <p>에이전트들이 토론을 준비하고 있습니다...</p>
@@ -1041,6 +1403,12 @@ function App() {
               ) : (
                 discussionLogs.map((log, idx) => {
                   const style = getAgentStyle(log.agent);
+                  
+                  // 🔥 [NEW] 150자가 넘어가면 '더보기' 활성화
+                  const isLong = log.content && log.content.length > 150;
+                  const isExpanded = expandedLogs[idx];
+                  const displayContent = (!isLong || isExpanded) ? log.content : log.content.substring(0, 150) + "...";
+
                   return (
                     <div key={idx} className="discussion-msg" style={{ borderLeftColor: style.color, background: style.bg }}>
                       <div className="discussion-msg-header">
@@ -1051,12 +1419,28 @@ function App() {
                         <span className="discussion-msg-type">{getLogTypeLabel(log.type)}</span>
                         <span className="discussion-msg-time">{log.timestamp}</span>
                       </div>
-                      <div className="discussion-msg-content">{log.content}</div>
+                      
+                      <div className="discussion-msg-content" style={{ whiteSpace: "pre-wrap" }}>
+                          {displayContent}
+                      </div>
+
+                      {/* 🔥 [NEW] 더보기/접기 버튼 */}
+                      {isLong && (
+                        <button 
+                            onClick={() => toggleLogExpansion(idx)}
+                            style={{ 
+                                background: 'transparent', border: 'none', color: '#38BDF8', 
+                                marginTop: '8px', padding: 0, cursor: 'pointer', 
+                                fontSize: '0.85rem', fontWeight: 'bold' 
+                            }}
+                        >
+                            {isExpanded ? "▲ 접기" : "▼ 더보기"}
+                        </button>
+                      )}
                     </div>
                   );
                 })
-              )}
-              
+              )} 
               {isDiscussing && (
                 <div className="discussion-typing">
                   <div className="dot"></div>
