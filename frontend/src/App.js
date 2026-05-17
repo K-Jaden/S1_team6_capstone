@@ -268,21 +268,32 @@ function App() {
       } catch (err) { setCurrentRound(null); }
   };
 
-  const handleVote = async (candidateId) => {
+ const handleVote = async (candidateId) => {
       const amount = vpInputs[candidateId];
       if (!amount || amount <= 0) return alert("투표할 VP를 입력하세요!");
       if (!isLoggedIn) return alert("지갑을 먼저 연결해주세요!");
       if (!contract) return alert("스마트 컨트랙트가 연결되지 않았습니다.");
 
       try {
-          alert("메타마스크에서 트랜잭션을 승인해 주세요! (가스비 발생)");
           const vpInWei = ethers.parseEther(amount.toString());
-          
           const candidateIndex = currentRound.candidates.findIndex(c => c.id === candidateId);
           if(candidateIndex === -1) return alert("후보를 찾을 수 없습니다.");
 
+          // 🚨 1단계: 내 지갑의 TUK 토큰을 쓸 수 있게 허락(Approve)하기
+          alert("1/2단계: TUK 토큰 사용 승인을 진행합니다. 메타마스크를 확인해주세요.");
+          const provider = new ethers.BrowserProvider(window.ethereum);
+          const signer = await provider.getSigner();
+          
+          const tokenAddress = await contract.governanceToken();
+          const tokenAbi = ["function approve(address spender, uint256 amount) public returns (bool)"];
+          const tokenContract = new ethers.Contract(tokenAddress, tokenAbi, signer);
+          
+          const approveTx = await tokenContract.approve(CONTRACT_ADDRESS, vpInWei);
+          await approveTx.wait();
+
+          // 🚨 2단계: 승인이 끝나면 진짜 투표(Vote) 트랜잭션 쏘기
+          alert("2/2단계: 승인 완료! 실제 투자(Vote) 트랜잭션을 승인해주세요.");
           const tx = await contract.vote(candidateIndex, vpInWei);
-          alert("트랜잭션 전송 완료! 블록체인 승인을 기다리는 중...");
           await tx.wait();
           
           await axios.post(`${API_URL}/api/vote`, {
