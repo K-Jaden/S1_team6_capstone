@@ -657,18 +657,33 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
         image_url = "" 
         
         try:
+            print(f"🚀 [{idx}번 그림] CF API 요청 시작...")
             time.sleep(6) 
             img_res = requests.post(cf_url, headers=headers, json={"prompt": prompt}, timeout=60)
+            print(f"📥 [{idx}번 그림] CF API 응답 상태코드: {img_res.status_code}")
+            
             if img_res.status_code == 200:
-                b64 = img_res.json()["result"]["image"]
-                img_bytes = base64.b64decode(b64)
-                filename = f"round{round_id}_c{idx}.png"
-                with open(f"static/images/{filename}", "wb") as f: f.write(img_bytes)
-                image_url = f"http://13.125.234.38:8000/static/images/{filename}"
+                res_json = img_res.json()
+                if "result" in res_json and "image" in res_json["result"]:
+                    b64 = res_json["result"]["image"]
+                    img_bytes = base64.b64decode(b64)
+                    
+                    os.makedirs("static/images", exist_ok=True)
+                    filename = f"round{round_id}_c{idx}.png"
+                    
+                    with open(f"static/images/{filename}", "wb") as f: 
+                        f.write(img_bytes)
+                    
+                    image_url = f"http://13.125.234.38:8000/static/images/{filename}"
+                    print(f"✅ [{idx}번 그림] 저장 완벽 성공!")
+                else:
+                    print(f"🔥 [데이터 에러] CF가 그림을 안 줬습니다: {res_json}")
             else:
-                print(f"🔥 CF API 오류: {img_res.status_code}")
+                print(f"🔥 [CF API 거절] 상태코드: {img_res.status_code} / 내용: {img_res.text}")
+                
         except Exception as e: 
-            print(f"🔥 이미지 통신 실패: {e}")
+            import traceback
+            print(f"🔥 [치명적 파이썬 에러 발생]\n{traceback.format_exc()}")
 
         if not image_url:
             image_url = f"https://dummyimage.com/600x400/1A1A1A/38BDF8&text=Artwork+{idx}+Delayed"
