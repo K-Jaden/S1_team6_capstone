@@ -226,16 +226,21 @@ function App() {
   const fetchMyPageData = async () => {
     if (!walletAddress) return;
     try {
+      // 1. DB에서 오프체인 가상 잔고(virtualBalance) 가져오기
       const resBal = await axios.get(`${API_URL}/api/wallet/balance`, { params: { wallet_address: walletAddress } });
-      let displayBalance = resBal.data.balance;
-
+      let dbBalance = resBal.data.balance; 
+      
+      // 2. 스마트 컨트랙트에서 온체인 잔고(balance) 가져오기
+      let onChainBalance = "0";
       if (contract) {
           try {
               const remainingVpWei = await contract.getRemainingVP(walletAddress);
-              displayBalance = ethers.formatEther(remainingVpWei);
+              onChainBalance = ethers.formatEther(remainingVpWei);
           } catch(e) { console.error("VP 로드 에러:", e); }
       }
-      setMyInfo(prev => ({ ...prev, balance: displayBalance }));
+      
+      // 🚨 두 잔고를 덮어쓰지 않고 분리해서 나란히 저장!
+      setMyInfo(prev => ({ ...prev, balance: onChainBalance, virtualBalance: dbBalance }));
     } catch (err) { console.error("내 정보 로드 실패"); }
   };
 
@@ -642,17 +647,35 @@ function App() {
 
       {/* 2. 중앙 메인 컨텐츠 */}
       <main className="main-content">
-        <header className="top-header">
+	<header className="top-header" style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', padding: '15px 30px', background: 'rgba(15, 15, 15, 0.9)', borderBottom: '1px solid #2A2A2A', position: 'sticky', top: 0, zIndex: 1000, backdropFilter: 'blur(10px)' }}>
             {isLoggedIn ? (
-                <div className="logged-in-box">
-                  <div className="badge-connected">🟢 {walletAddress.substring(0, 6)}...</div>
-                  <button className="logout-btn" onClick={handleLogout}>Logout</button>
+                <div className="logged-in-box" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                  
+                  {/* 🔥 [NEW] 실시간 내 자산 글로벌 위젯 */}
+                  <div style={{ display: 'flex', gap: '15px', background: '#1A1A1A', padding: '10px 20px', borderRadius: '30px', border: '1px solid #333', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}>
+                      <span style={{ color: '#9CA3AF', fontSize: '0.95rem' }}>
+                          투표권: <strong style={{ color: '#38BDF8' }}>{myInfo.balance} VP</strong>
+                      </span>
+                      <span style={{ color: '#333' }}>|</span>
+                      <span style={{ color: '#9CA3AF', fontSize: '0.95rem' }}>
+                          가상 배당금: <strong style={{ color: '#10B981' }}>{Number(myInfo.virtualBalance || 0).toLocaleString(undefined, {maximumFractionDigits: 2})} TUK</strong>
+                      </span>
+                  </div>
+                  
+                  {/* 지갑 주소 및 로그아웃 */}
+                  <div className="badge-connected" style={{ background: '#2A2A2A', padding: '10px 20px', borderRadius: '30px', color: '#FFF', fontSize: '0.9rem', border: '1px solid #4B5563' }}>
+                      🟢 {walletAddress.substring(0, 6)}...{walletAddress.substring(walletAddress.length - 4)}
+                  </div>
+                  <button className="logout-btn" onClick={handleLogout} style={{ background: 'transparent', color: '#EF4444', border: '1px solid #EF4444', padding: '8px 15px', borderRadius: '30px', cursor: 'pointer', fontWeight: 'bold' }}>
+                      Logout
+                  </button>
                 </div>
             ) : (
-                <button className="connect-btn" onClick={connectWallet}>Connect Wallet</button>
+                <button className="connect-btn" onClick={connectWallet} style={{ background: '#3B82F6', color: '#fff', border: 'none', padding: '10px 25px', borderRadius: '30px', fontWeight: 'bold', cursor: 'pointer' }}>
+                    Connect Wallet
+                </button>
             )}
         </header>
-
 
         {/* 🏦 Treasury (실시간 스마트 컨트랙트 연동 완료) */}
         {activeTab === "treasury" && (
@@ -1090,10 +1113,15 @@ function App() {
                     {/* 오프체인 가상 배당금 */}
                     <div className="card" style={{background: '#1A1A1A', padding: '30px', textAlign: 'center', border: '1px solid rgba(16, 185, 129, 0.3)'}}>
                         <h3 style={{color: '#9CA3AF', margin: '0 0 15px 0', fontSize: '1rem'}}>앱 내 누적 가상 수익 (Off-chain)</h3>
-                        {/* 백엔드 API에서 myInfo.virtualBalance 같은 것을 추가로 받아와야 합니다. (지금은 예시로 0 처리) */}
-                        <div style={{fontSize: '2.5rem', fontWeight: 'bold', color: '#10B981'}}>0 <span style={{fontSize:'1.2rem', color:'#6B7280'}}>TUK</span></div>
+                        <div className="card" style={{background: '#1A1A1A', padding: '30px', textAlign: 'center', border: '1px solid rgba(16, 185, 129, 0.3)'}}>
+                        <h3 style={{color: '#9CA3AF', margin: '0 0 15px 0', fontSize: '1rem'}}>앱 내 누적 가상 수익 (Off-chain)</h3>
+                        {/* 🚨 0 대신 진짜 myInfo.virtualBalance 연결! */}
+                        <div style={{fontSize: '2.5rem', fontWeight: 'bold', color: '#10B981'}}>
+                            {Number(myInfo.virtualBalance || 0).toLocaleString(undefined, {maximumFractionDigits: 2})} <span style={{fontSize:'1.2rem', color:'#6B7280'}}>TUK</span>
+                        </div>
                         <p style={{color: '#6B7280', fontSize: '0.85rem', marginTop: '15px'}}>명예의 전당에서 가상 판매 시 누적되는 배당 포인트입니다.</p>
-                    </div>
+                    </div>                    
+			</div>
                 </div>
 
                 {/* 3. 스마트 컨트랙트 배당금 청구 (기존 기능 유지) */}

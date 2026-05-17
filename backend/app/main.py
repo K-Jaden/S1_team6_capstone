@@ -661,23 +661,42 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
     headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
 
     candidate_uris = []
+    import time 
+
     for idx, c_data in enumerate(ai_data, 1):
-        prompt = c_data.get("image_prompt", "digital art") + ", masterpiece"
+        # 🚨 [추가 방어막] AI가 말이 너무 길면 클라우드플레어가 거절하므로 900자로 컷!
+        raw_prompt = str(c_data.get("image_prompt", "digital art"))[:900]
+        prompt = raw_prompt + ", masterpiece, highly detailed"
+        image_url = "" 
+        
         try:
+            # 🚨 [핵심 수정] 무거운 무료 AI를 위해 1.5초 -> 3초로 휴식 시간 넉넉히 부여!
+            time.sleep(3) 
+            
             img_res = requests.post(cf_url, headers=headers, json={"prompt": prompt}, timeout=60)
             if img_res.status_code == 200:
                 b64 = img_res.json()["result"]["image"]
                 img_bytes = base64.b64decode(b64)
                 filename = f"round{round_id}_c{idx}.png"
                 with open(f"static/images/{filename}", "wb") as f: f.write(img_bytes)
-
                 image_url = f"http://13.125.234.38:8000/static/images/{filename}"
-                db.add(models.Candidate(
-                    round_id=round_id, title=c_data.get("title", f"작품 {idx}"),
-                    description=c_data.get("description", ""), image_url=image_url, ipfs_hash="PENDING"
-                ))
-                candidate_uris.append(image_url)
-        except Exception as e: print("이미지 실패", e)
+            else:
+                print(f"🔥 CF API 거절 (상태코드: {img_res.status_code})")
+        except Exception as e: 
+            print(f"🔥 이미지 생성 통신 실패: {e}")
+
+        # 🚨 실패 시 더미 이미지 장착 (서버 마비 방지)
+        if not image_url:
+            image_url = f"https://dummyimage.com/600x400/1A1A1A/38BDF8&text=Artwork+{idx}+Delayed"
+
+        db.add(models.Candidate(
+            round_id=round_id, 
+            title=c_data.get("title", f"작품 {idx}"),
+            description=c_data.get("description", "이미지 렌더링 지연으로 임시 썸네일이 표시됩니다."), 
+            image_url=image_url, 
+            ipfs_hash="PENDING"
+        ))
+        candidate_uris.append(image_url)
 
     target_round.status = RoundPhase.CANDIDATE_VOTING
     db.commit()
@@ -785,7 +804,6 @@ def finalize_round_to_chain(req: FinalizeReq, db: Session = Depends(get_db)):
 
     return {"message": "최종 결산 및 스마트 컨트랙트 등록 완료!"}
 
-
 # 🟢 [가상 판매 (배당금 수령)]
 class VirtualSellReq(BaseModel):
     item_id: int
@@ -793,25 +811,46 @@ class VirtualSellReq(BaseModel):
 
 @app.post("/api/gallery/virtual-sell")
 def virtual_sell_item(req: VirtualSellReq, db: Session = Depends(get_db)):
-    item = db.query(models.GalleryItem).filter(models.GalleryItem.id == req.item_id).first()
-    if not item or getattr(item, 'is_sold', False):
-        return {"error": "판매할 수 없는 작품입니다."}
+    try:
+        item = db.query(models.GalleryItem).filter(models.GalleryItem.id == req.item_id).first()
+        if not item or getattr(item, 'is_sold', False):
+            return {"error": "판매할 수 없는 작품입니다."}
 
-    winner = db.query(models.Candidate).filter(models.Candidate.title == item.title, models.Candidate.is_winner == True).first()
-    user_vote = db.query(models.VoteLog).filter(models.VoteLog.candidate_id == winner.id, models.VoteLog.voter_wallet == req.wallet_address).first()
+        winner = db.query(models.Candidate).filter(models.Candidate.title == item.title, models.Candidate.is_winner == True).first()
+        
+        # 🚨 [방어막 1] 원본 후보작 데이터를 찾을 수 없는 경우 (DB 초기화 등으로 꼬였을 때)
+        if not winner:
+            return {"error": "데이터가 초기화되어 원본 투표 기록을 찾을 수 없습니다."}
 
-    if not user_vote:
-        return {"error": "투자 지분이 존재하지 않습니다."}
+        from sqlalchemy import func
+        total_user_vp = db.query(func.sum(models.VoteLog.vp_used)).filter(
+            models.VoteLog.candidate_id == winner.id, 
+            models.VoteLog.voter_wallet == req.wallet_address
+        ).scalar() or 0
 
-    stake_ratio = user_vote.vp_used / winner.vp_votes
-    auction_price = getattr(winner, 'auction_price', 1000) or 1000
-    my_profit = float(auction_price) * stake_ratio
+        if total_user_vp == 0:
+            return {"error": "해당 작품에 투자한 지분(VP)이 존재하지 않습니다."}
 
-    user = db.query(models.User).filter(models.User.wallet_address == req.wallet_address).first()
-    if user:
-        user.token_balance += my_profit
+        # 🚨 [방어막 2] 전체 투표수가 0일 경우 '0 나누기 에러' 완벽 방지
+        total_votes = winner.vp_votes if winner.vp_votes > 0 else 1
+        
+        # 지분 계산 및 수익 분배
+        stake_ratio = float(total_user_vp) / float(total_votes)
+        auction_price = float(getattr(winner, 'auction_price', 1000) or 1000)
+        my_profit = auction_price * stake_ratio
 
-    item.is_sold = True
-    db.commit()
+        # DB에 오프체인 가상 수익 저장
+        user = db.query(models.User).filter(models.User.wallet_address == req.wallet_address).first()
+        if user:
+            user.token_balance += my_profit
 
-    return {"status": "success", "stake_ratio": stake_ratio * 100, "profit": my_profit, "total_price": auction_price}
+        item.is_sold = True
+        db.commit()
+
+        return {"status": "success", "stake_ratio": stake_ratio * 100, "profit": my_profit, "total_price": auction_price}
+        
+    except Exception as e:
+        # 🚨 [방어막 3] 파이썬이 뻗어도 CORS 에러 대신, 프론트엔드에 진짜 에러 이유를 텍스트로 쏴줌!
+        print(f"🔥 가상 판매 에러 발생: {str(e)}")
+        return {"error": f"서버 내부 오류: {str(e)}"}
+
