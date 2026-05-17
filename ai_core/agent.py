@@ -105,25 +105,27 @@ async def stream_discussion(session_id: str):
     )
 
 # ==================================================================
-# 2. LLM 엔진 세팅
+# 2. LLM 엔진 세팅 (안전장치 완벽 적용)
 # ==================================================================
 MY_GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 os.environ["GEMINI_API_KEY"] = MY_GOOGLE_API_KEY or ""
 
-def get_llm(temp=0.7):
-    # 🚨 구글 서버 503 에러 발생 시, 자동으로 다른 가용 서버를 찾도록 설정
+def get_safe_llm(temp=0.7):
     return LLM(
-        model="gemini/gemini-1.5-flash", # 최신 2.0 대신 안정적인 1.5 사용 권장
+        model="gemini/gemini-3.1-flash-lite", # 1순위: 최신 모델 시도
         api_key=MY_GOOGLE_API_KEY,
         temperature=temp,
-        max_retries=3 # 👈 서버가 바쁘다고 하면 3번까지 자동으로 다시 시도합니다.
+        max_retries=3, # 🚨 서버가 바쁘다고 튕겨내면 3번까지 끈질기게 다시 요청!
+        fallbacks=["gemini/gemini-1.5-flash"] # 🚨 그래도 안 되면 구형이지만 안정적인 1.5 모델로 우회!
     )
 
 try:
-    llm_creative = LLM(model="gemini/gemini-3.1-flash-lite", api_key=MY_GOOGLE_API_KEY, temperature=0.9)
-    llm_factual = LLM(model="gemini/gemini-3.1-flash-lite", api_key=MY_GOOGLE_API_KEY, temperature=0.2)
-    llm_chat = LLM(model="gemini/gemini-3.1-flash-lite", api_key=MY_GOOGLE_API_KEY, temperature=0.6)
-except Exception:
+    # 🚨 쌩으로 호출하지 않고, 위에서 만든 안전장치(get_safe_llm)를 거쳐서 세팅!
+    llm_creative = get_safe_llm(0.9)
+    llm_factual = get_safe_llm(0.2)
+    llm_chat = get_safe_llm(0.6)
+except Exception as e:
+    print(f"LLM 로드 실패: {e}")
     llm_creative = llm_factual = llm_chat = None
 
 search_tool = SerperDevTool()
