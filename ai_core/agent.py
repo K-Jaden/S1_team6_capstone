@@ -50,14 +50,14 @@ def make_step_callback(session_id: str, agent_role: str = "에이전트"):
                 content = f"🔧 도구 사용: {tool_name}({tool_input})"
             elif hasattr(step_output, 'output'):
                 log_type = "output"
-                content = str(step_output.output)[:500]
+                content = str(step_output.output)
             elif 'ToolResult' in str(type(step_output)) or str(step_output).startswith('ToolResult'):
                 return
             else:
                 content_raw = str(step_output)
                 if content_raw.startswith('ToolResult'):
                     return
-                content = content_raw[:500]
+                content = content_raw
 
             push_log(session_id, agent_role, log_type, content)
         except Exception: pass
@@ -66,7 +66,7 @@ def make_step_callback(session_id: str, agent_role: str = "에이전트"):
 def make_task_callback(session_id: str, agent_role: str = "에이전트"):
     def callback(task_output):
         try:
-            content = str(getattr(task_output, 'raw', task_output))[:800]
+            content = str(getattr(task_output, 'raw', task_output))
             push_log(session_id, agent_role, "task_complete", f"✅ 작업 완료\n{content}")
         except Exception: pass
     return callback
@@ -110,6 +110,15 @@ async def stream_discussion(session_id: str):
 MY_GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 os.environ["GEMINI_API_KEY"] = MY_GOOGLE_API_KEY or ""
 
+def get_llm(temp=0.7):
+    # 🚨 구글 서버 503 에러 발생 시, 자동으로 다른 가용 서버를 찾도록 설정
+    return LLM(
+        model="gemini/gemini-1.5-flash", # 최신 2.0 대신 안정적인 1.5 사용 권장
+        api_key=MY_GOOGLE_API_KEY,
+        temperature=temp,
+        max_retries=3 # 👈 서버가 바쁘다고 하면 3번까지 자동으로 다시 시도합니다.
+    )
+
 try:
     llm_creative = LLM(model="gemini/gemini-3.1-flash-lite", api_key=MY_GOOGLE_API_KEY, temperature=0.9)
     llm_factual = LLM(model="gemini/gemini-3.1-flash-lite", api_key=MY_GOOGLE_API_KEY, temperature=0.2)
@@ -135,13 +144,12 @@ ai_curator = Agent(role='따뜻한 감성을 지닌 AI 큐레이터', goal='도�
 def get_trends_keywords():
     try:
         task_trend = Task(
-            description="""현재 전 세계 디지털 아트 및 웹 트렌드를 분석하여, 다음 3가지 카테고리의 트렌드 키워드를 한국어로 3개씩 추출하세요.
+            description="""현재 전 세계 디지털 아트 트렌드를 분석하여, 다음 2가지 카테고리의 트렌드 키워드를 한국어로 3개씩 추출하세요.
             1. subjects (기획 대상/테마): 예) 사이버펑크 닌자, 해저 도시 등
-            2. styles (화풍/사조): 예) 베이퍼웨이브, 네오 팝아트 등
-            3. expressions (표현 매체/질감): 예) 3D 복셀, 글리치 왜곡 등
+            2. styles (표현 방식/화풍/재질): 예) 베이퍼웨이브, 3D 언리얼 엔진, 글리치 왜곡 등
             
             반드시 아래 형식의 순수 JSON으로만 출력하세요:
-            {"subjects": ["A", "B", "C"], "styles": ["D", "E", "F"], "expressions": ["G", "H", "I"]}""",
+            {"subjects": ["A", "B", "C"], "styles": ["D", "E", "F"]}""",
             expected_output='순수 JSON 객체',
             agent=trends_agent
         )
@@ -150,20 +158,17 @@ def get_trends_keywords():
         return json.loads(res)
     except Exception as e:
         print(f"🔥 트렌드 추출 실패: {e}")
-        # 실패 시 안전하게 넘겨줄 폴백 데이터
         return {
             "subjects": ["메타버스 공간", "우주 탐사선", "포스트 아포칼립스"],
-            "styles": ["베이퍼웨이브", "초현실주의", "네오 펑크"],
-            "expressions": ["홀로그램 이펙트", "클레이 애니메이션", "글리치 아트"]
+            "styles": ["베이퍼웨이브", "3D 복셀", "글리치 아트"]
         }
 
 # ==================================================================
-# 4. Phase 2: 그림 생성 및 프롬프트 조립 (🔥 버그 수정 핵심 구간)
+# 4. Phase 2: 그림 생성 및 프롬프트 조립
 # ==================================================================
 class WeightedCandidateRequest(BaseModel):
     weights: dict  
     style: str = "digital art style"
-    expression: str = "high quality"
     session_id: str = ""
 
 @app.post("/api/agent/generate-weighted-candidates")
@@ -172,7 +177,6 @@ def generate_weighted_candidates(req: WeightedCandidateRequest):
     if session_id and session_id not in discussion_queues:
         discussion_queues[session_id] = Queue()
     
-    # 🚨 소수점(0.5개) 때문에 AI가 뻗는 문제 해결! % 비중으로 자연스럽게 번역
     dist_str = ", ".join([f"'{k}' ({int(v*100)}% 비중)" for k, v in req.weights.items()])
     push_log(session_id, "시스템", "system", f"🎨 유저 투표 반영 기획 시작: {dist_str}")
     
@@ -186,11 +190,10 @@ def generate_weighted_candidates(req: WeightedCandidateRequest):
         description=f"""기획안을 바탕으로 총 5개의 고해상도 영문 이미지 프롬프트를 작성하세요.
         [필수 반영 요소]
         1. 핵심 테마와 비중: {dist_str}
-        2. 고정 화풍: 무조건 '{req.style}' 반영
-        3. 표현 방식/재질: 무조건 '{req.expression}' 반영
+        2. 고정 표현 방식(화풍 및 재질): 무조건 '{req.style}' 반영
         
         [프롬프트 작성 황금 공식]
-        '[가중치가 반영된 테마들], in the style of [고정 화풍], [표현 방식/재질], masterpiece, highly detailed, 8k resolution'
+        '[가중치가 반영된 테마들], in the style of [고정 표현 방식], masterpiece, highly detailed, 8k resolution'
         
         출력은 무조건 순수 JSON 배열만 작성하세요:
         [
@@ -201,12 +204,9 @@ def generate_weighted_candidates(req: WeightedCandidateRequest):
         agent=painter, context=[task_plan], callback=make_task_callback(session_id, "가중치 프롬프터")
     )
 
-    # 🚨 잃어버렸던 step_callback(중계 카메라) 완벽 장착 완료!
     crew = Crew(
-        agents=[planner, painter], 
-        tasks=[task_plan, task_format], 
-        process=Process.sequential,
-        verbose=True,
+        agents=[planner, painter], tasks=[task_plan, task_format], 
+        process=Process.sequential, verbose=True,
         step_callback=make_step_callback(session_id, "AI 창작팀")
     )
     
@@ -218,10 +218,10 @@ def generate_weighted_candidates(req: WeightedCandidateRequest):
         push_log(session_id, "시스템", "final", f"🎉 토론 완료! 후보작 {len(candidates)}개 생성 완료.")
         return {"candidates": candidates[:5]}
     except Exception as e:
-        # 🚨 파이썬 소수점 계산 에러 방지 (무조건 안전하게 5개 생성)
         push_log(session_id, "시스템", "error", f"⚠️ AI 사고 회로 지연: {str(e)}")
-        push_log(session_id, "시스템", "final", "⚠️ 안전 모드로 전환하여 렌더링을 강제 진행합니다.")
-        return {"candidates": [{"title": f"안전 렌더링 {i}", "description": "시스템 복구 처리됨", "image_prompt": f"masterpiece, {req.style}, {req.expression}"} for i in range(1, 6)]}
+        push_log(session_id, "시스템", "final", "⚠️ 안전 모드로 전환하여 렌더링을 진행합니다.")
+        return {"candidates": [{"title": f"안전 렌더링 {i}", "description": "복구 처리됨", "image_prompt": f"masterpiece, {req.style}"} for i in range(1, 6)]}
+
 
 # ==================================================================
 # 5. Phase 3: 우승작 가치 평가

@@ -81,6 +81,11 @@ function App() {
   const eventSourceRef = useRef(null);
   const discussionEndRef = useRef(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [expandedLogs, setExpandedLogs] = useState({});
+  
+  const toggleLogExpansion = (idx) => {
+    setExpandedLogs(prev => ({ ...prev, [idx]: !prev[idx] }));
+  };
 
   // ==========================================
   // 🔥 [NEW] Co-creation (Human-in-the-loop) 상태
@@ -90,7 +95,6 @@ function App() {
   // Step 1: 키워드 투표 상태
   const [selectedKeywords, setSelectedKeywords] = useState([]);
   const [selectedStyle, setSelectedStyle] = useState("");
-  const [selectedExpression, setSelectedExpression] = useState("");
 
   // Step 2: 결산 및 가치 책정 상태
   const [valuationPrice, setValuationPrice] = useState("");
@@ -454,8 +458,7 @@ function App() {
       await axios.post(`${API_URL}/api/rounds/vote-keyword`, {
         round_id: currentRound.id,
         selected_words: selectedKeywords,
-        selected_style: selectedStyle,
-	selected_expression: selectedExpression
+        selected_style: selectedStyle
       });
       alert(`[${selectedKeywords.join(', ')}] 투표 완료! \n\n상단의 'Step 2' 버튼을 눌러 그림을 렌더링하세요.`);
     } catch (err) {
@@ -824,9 +827,9 @@ function App() {
             {/* 🟢 PHASE 1: 키워드 투표 화면 */}
             {/* ========================================== */}
 		{roundPhase === "KEYWORD" && (
-                <div className="co-creation-panel fade-in">
+            	<div className="co-creation-panel fade-in">
                     <h3 style={{ color: '#38BDF8', marginBottom: '10px' }}>🔥 Autonomous Art Co-Creation</h3>
-                    <p style={{ color: '#9CA3AF', marginBottom: '25px' }}>투자할 작품의 기획 요소를 3개 카테고리에서 각각 조율해 주세요.</p>
+                    <p style={{ color: '#9CA3AF', marginBottom: '25px' }}>투자할 작품의 기획 요소를 2개 카테고리에서 조율해 주세요.</p>
                     
                     <h4 style={{color: '#38BDF8', margin: '20px 0 10px 0'}}>🎯 1. 기획 대상 및 테마 (최대 3개)</h4>
                     <div className="keyword-tag-container">
@@ -844,7 +847,7 @@ function App() {
                         ))}
                     </div>
                     
-                    <h4 style={{color: '#A78BFA', margin: '30px 0 10px 0'}}>🎨 2. 작가 사조 및 화풍 기조 (1개 선택)</h4>
+                    <h4 style={{color: '#A78BFA', margin: '30px 0 10px 0'}}>🎨 2. 표현 방식 (화풍, 사조, 재질 등 1개 선택)</h4>
                     <div className="keyword-tag-container">
                         {currentRound && currentRound.styles && currentRound.styles.map((style) => (
                             <button
@@ -858,30 +861,16 @@ function App() {
                         ))}
                     </div>
 
-                    <h4 style={{color: '#10B981', margin: '30px 0 10px 0'}}>✨ 3. 표현 매체 및 마감 재질 (1개 선택)</h4>
-                    <div className="keyword-tag-container">
-                        {currentRound && currentRound.expressions && currentRound.expressions.map((exp) => (
-                            <button
-                                key={exp}
-                                className={`keyword-tag ${selectedExpression === exp ? 'active' : ''}`}
-                                onClick={() => setSelectedExpression(exp)}
-                                style={{borderColor: '#10B981'}}
-                            >
-                                🛠️ {exp}
-                            </button>
-                        ))}
-                    </div>
-
                     <button 
                         className="glow-btn" 
-                        disabled={selectedKeywords.length === 0 || !selectedStyle || !selectedExpression}
+                        disabled={selectedKeywords.length === 0 || !selectedStyle}
                         onClick={submitKeywordVote}
                         style={{ marginTop: '35px', width: 'auto', padding: '12px 35px' }}
                     >
                         조합 설계 투표 확정하기
                     </button>
                 </div>
-            )}
+		)}
             {/* ========================================== */}
             {/* 🟢 PHASE 2: 기존 후보작 투표 화면 */}
             {/* ========================================== */}
@@ -1383,7 +1372,7 @@ function App() {
             </div>
 
             <div className="discussion-body">
-              {discussionLogs.length === 0 ? (
+            	{discussionLogs.length === 0 ? (
                 <div className="discussion-empty">
                   <div className="loader-pulse"></div>
                   <p>에이전트들이 토론을 준비하고 있습니다...</p>
@@ -1391,6 +1380,12 @@ function App() {
               ) : (
                 discussionLogs.map((log, idx) => {
                   const style = getAgentStyle(log.agent);
+                  
+                  // 🔥 [NEW] 150자가 넘어가면 '더보기' 활성화
+                  const isLong = log.content && log.content.length > 150;
+                  const isExpanded = expandedLogs[idx];
+                  const displayContent = (!isLong || isExpanded) ? log.content : log.content.substring(0, 150) + "...";
+
                   return (
                     <div key={idx} className="discussion-msg" style={{ borderLeftColor: style.color, background: style.bg }}>
                       <div className="discussion-msg-header">
@@ -1401,12 +1396,28 @@ function App() {
                         <span className="discussion-msg-type">{getLogTypeLabel(log.type)}</span>
                         <span className="discussion-msg-time">{log.timestamp}</span>
                       </div>
-                      <div className="discussion-msg-content">{log.content}</div>
+                      
+                      <div className="discussion-msg-content" style={{ whiteSpace: "pre-wrap" }}>
+                          {displayContent}
+                      </div>
+
+                      {/* 🔥 [NEW] 더보기/접기 버튼 */}
+                      {isLong && (
+                        <button 
+                            onClick={() => toggleLogExpansion(idx)}
+                            style={{ 
+                                background: 'transparent', border: 'none', color: '#38BDF8', 
+                                marginTop: '8px', padding: 0, cursor: 'pointer', 
+                                fontSize: '0.85rem', fontWeight: 'bold' 
+                            }}
+                        >
+                            {isExpanded ? "▲ 접기" : "▼ 더보기"}
+                        </button>
+                      )}
                     </div>
                   );
                 })
-              )}
-              
+              )} 
               {isDiscussing && (
                 <div className="discussion-typing">
                   <div className="dot"></div>

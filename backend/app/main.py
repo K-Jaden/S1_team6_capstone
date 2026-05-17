@@ -449,20 +449,15 @@ def update_delegation_db(req: schemas.DelegateRequest, db: Session = Depends(get
     db.commit()
     return {"status": "success", "message": f"Delegated to {req.to_address}"}
 # =========================================================
-# 🌟 [복구] 프론트엔드 화면 표시 및 투표용 필수 API
-# =========================================================
-# =========================================================
 # 🌟 [복구/수정] 프론트엔드 화면 표시 및 투표용 필수 API
 # =========================================================
 @app.get("/api/rounds/current")
 def get_current_round(db: Session = Depends(get_db)):
     from app.models import RoundPhase
-    # 상태가 ENDED가 아닌 가장 최근 라운드를 찾음
     active = db.query(models.Round).filter(models.Round.status != RoundPhase.ENDED).order_by(desc(models.Round.id)).first()
     if not active: 
         raise HTTPException(status_code=404, detail="진행 중인 라운드가 없습니다.")
     
-    # 🔥 [NEW] DB에 저장된 이번 라운드의 '진짜 키워드'들 찾아서 같이 묶어주기! 
     keywords = db.query(models.Keyword).filter(models.Keyword.round_id == active.id).all()
     return {
         "id": active.id,
@@ -470,14 +465,12 @@ def get_current_round(db: Session = Depends(get_db)):
         "status": active.status,
         "candidates": active.candidates,
         "subjects": [k.word for k in keywords if k.type == "subject"],
-        "styles": [k.word for k in keywords if k.type == "style"],
-        "expressions": [k.word for k in keywords if k.type == "expression"]
+        "styles": [k.word for k in keywords if k.type == "style"] # 🚨 표현방식 통합으로 expressions 삭제
     }
 
 @app.get("/api/rounds/ended")
 def get_ended_rounds(db: Session = Depends(get_db)):
     from app.models import RoundPhase
-    # 마이페이지 배당금 수령을 위해 종료된 라운드 목록 반환
     ended_rounds = db.query(models.Round).filter(models.Round.status == RoundPhase.ENDED).order_by(desc(models.Round.id)).all()
     
     result = []
@@ -498,7 +491,6 @@ class VoteReq(BaseModel):
 
 @app.post("/api/vote")
 def cast_vote(req: VoteReq, db: Session = Depends(get_db)):
-    # 유저의 VP 투표(Step 2)를 DB에 기록
     candidate = db.query(models.Candidate).filter(models.Candidate.id == req.candidate_id).first()
     if not candidate:
         raise HTTPException(status_code=404, detail="후보작을 찾을 수 없습니다.")
@@ -513,8 +505,9 @@ def cast_vote(req: VoteReq, db: Session = Depends(get_db)):
     candidate.vp_votes += req.vp_amount
     db.commit()
     return {"status": "success"}
+
 # =========================================================
-# 🔥 [NEW] 차세대 ArtDAO Co-creation 3단계 API 파이프라인
+# 🔥 [NEW] 차세대 ArtDAO Co-creation 2단 카테고리 파이프라인
 # =========================================================
 
 # 🟢 [Step 1] 트렌드 추출 & 키워드 투표 시작
@@ -531,68 +524,48 @@ def start_phase1_keywords(session_id: str = "", db: Session = Depends(get_db)):
     db.add(new_round)
     db.commit()
 
-    # 💡 1. 고정 키워드 창고를 15개 이상으로 대폭 확장 (이 중에서 무작위 7개를 뽑습니다)
+    # 💡 1. 2개의 대분류 풀로 합침 (화풍 + 재질 통합)
     pool_subjects = [
         "사이버 로봇", "버려진 놀이공원", "심해 도시", "홀로그램 소녀", "고대 신전", "거대 고양이", "드래곤", "우주 비행사",
         "스팀펑크 비행선", "마법의 숲", "미래형 서울", "외계 행성", "좀비 아포칼립스", "천사 시대", "해저 탐험가", "타임머신"
     ]
     pool_styles = [
         "빈센트 반 고흐 풍", "지브리 애니메이션 풍", "다크 판타지", "레트로 신스웨이브", "피카소 큐비즘", "르네상스 명화",
-        "모네의 인상주의", "클림트 풍", "사이버펑크 코믹스", "아르누보 무하 풍", "팝아트 앤디워홀 풍", "동양 수묵화", "디즈니 3D 풍"
-    ]
-    pool_expressions = [
-        "팝아트", "수채화", "거친 유화", "3D 언리얼 엔진", "픽셀 아트", "스테인드글라스", "연필 스케치",
-        "시네마틱 라이팅", "크레파스 질감", "볼류메트릭 3D", "수채화 펜화 믹스", "네온 사인 효과", "글리치 왜곡 효과", "미니어처 디오라마"
+        "팝아트", "수채화", "거친 유화", "3D 언리얼 엔진", "픽셀 아트", "스테인드글라스", "연필 스케치", "시네마틱 라이팅"
     ]
 
-    # 고정 풀에서 7개 픽
     selected_subjects = random.sample(pool_subjects, 7)
     selected_styles = random.sample(pool_styles, 7)
-    selected_expressions = random.sample(pool_expressions, 7)
 
-    # 💡 2. AI에게 최신 트렌드 3개씩(총 9개) 물어오기
+    # 💡 2. AI 트렌드 연동 (실패해도 ✨ 무조건 나오게 방어막 강화)
     try:
-        # AI 에이전트에게 트렌드 키워드 요청
         res = requests.get(f"{AI_AGENT_URL}/api/agent/trends-keywords", timeout=20)
         ai_data = res.json()
         
-        # 받아온 AI 키워드에 반짝이(✨)를 붙여서 3개씩 추가
-        if "subjects" in ai_data:
-            selected_subjects.extend([f"✨{w}" for w in ai_data["subjects"][:3]])
-        if "styles" in ai_data:
-            selected_styles.extend([f"✨{w}" for w in ai_data["styles"][:3]])
-        if "expressions" in ai_data:
-            selected_expressions.extend([f"✨{w}" for w in ai_data["expressions"][:3]])
-            
+        if "subjects" in ai_data: selected_subjects.extend([f"✨{w}" for w in ai_data["subjects"][:3]])
+        if "styles" in ai_data: selected_styles.extend([f"✨{w}" for w in ai_data["styles"][:3]])
     except Exception as e:
-        print(f"🔥 AI 트렌드 연동 실패 (안전 풀 가동): {e}")
-        # AI 통신 실패 시, 아까 안 뽑힌 고정 풀에서 3개씩 더 채워서 무조건 10개를 맞춤
-        selected_subjects.extend(random.sample([x for x in pool_subjects if x not in selected_subjects], 3))
-        selected_styles.extend(random.sample([x for x in pool_styles if x not in selected_styles], 3))
-        selected_expressions.extend(random.sample([x for x in pool_expressions if x not in selected_expressions], 3))
+        print(f"🔥 AI 트렌드 지연, 비상 트렌드 가동: {e}")
+        # 🚨 AI가 뻗어도 사용자는 모르게 멋진 트렌드 단어에 ✨를 붙여서 제공
+        selected_subjects.extend([f"✨메타버스 가상현실", f"✨초거대 AI", f"✨포스트 아포칼립스"])
+        selected_styles.extend([f"✨네오 베이퍼웨이브", f"✨홀로그램 글리치", f"✨점토 클레이아트"])
 
-    # 💡 3. 순서를 무작위로 한 번 더 섞어주기 (✨AI 키워드가 항상 맨 뒤에 있지 않도록!)
     random.shuffle(selected_subjects)
     random.shuffle(selected_styles)
-    random.shuffle(selected_expressions)
 
-    # 4. 최종 10개씩 DB 저장
     for word in selected_subjects:
         db.add(models.Keyword(round_id=new_round.id, word=word.replace("#", ""), type="subject"))
     for word in selected_styles:
         db.add(models.Keyword(round_id=new_round.id, word=word.replace("#", ""), type="style"))
-    for word in selected_expressions:
-        db.add(models.Keyword(round_id=new_round.id, word=word.replace("#", ""), type="expression"))
 
     db.commit()
-    return {"message": "Phase 1: 10개씩(고정7+AI3) 3단 카테고리 구성 완료!", "round_id": new_round.id}
+    return {"message": "Phase 1: 10개씩(고정7+AI3) 2단 카테고리 구성 완료!", "round_id": new_round.id}
 
 # 🟢 [Step 1.5] 프론트에서 유저가 선택한 키워드 서버로 저장
 class KeywordVoteReq(BaseModel):
     round_id: int
     selected_words: list[str]
     selected_style: str = ""
-    selected_expression: str = ""
 
 @app.post("/api/rounds/vote-keyword")
 def vote_keywords(req: KeywordVoteReq, db: Session = Depends(get_db)):
@@ -604,15 +577,10 @@ def vote_keywords(req: KeywordVoteReq, db: Session = Depends(get_db)):
         sk = db.query(models.Keyword).filter(models.Keyword.round_id == req.round_id, models.Keyword.word == req.selected_style, models.Keyword.type == "style").first()
         if sk: sk.vote_count += 1
 
-    if req.selected_expression:
-        ek = db.query(models.Keyword).filter(models.Keyword.round_id == req.round_id, models.Keyword.word == req.selected_expression, models.Keyword.type == "expression").first()
-        if ek: ek.vote_count += 1
-
     db.commit()
     return {"status": "success"}
 
 # 🟢 [Step 2] 투표 결과로 그림 생성 & VP 투표 단계 전환
-# 🟢 [Step 2] 투표 결과로 그림 생성 (1등 3개, 2등 2개 = 총 5개)
 @app.post("/api/admin/phase2-generate")
 def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session = Depends(get_db)):
     from app.models import RoundPhase
@@ -639,15 +607,12 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
     style_kw = db.query(models.Keyword).filter(models.Keyword.round_id == round_id, models.Keyword.type == "style").order_by(desc(models.Keyword.vote_count)).first()
     selected_style = style_kw.word if style_kw else "digital art style"
 
-    exp_kw = db.query(models.Keyword).filter(models.Keyword.round_id == round_id, models.Keyword.type == "expression").order_by(desc(models.Keyword.vote_count)).first()
-    selected_expression = exp_kw.word if exp_kw else "high quality"
-
     try:
+        # 🚨 표현방식 변수(expression) 제거 및 단일 style만 전달
         res = requests.post(f"{AI_AGENT_URL}/api/agent/generate-weighted-candidates",
             json={
                 "weights": keyword_distribution, 
                 "style": selected_style, 
-                "expression": selected_expression, 
                 "session_id": session_id
             }, timeout=300)
         ai_data = res.json().get("candidates", [])
@@ -661,18 +626,15 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
     headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
 
     candidate_uris = []
-    import time 
+    import time
 
     for idx, c_data in enumerate(ai_data, 1):
-        # 🚨 [추가 방어막] AI가 말이 너무 길면 클라우드플레어가 거절하므로 900자로 컷!
         raw_prompt = str(c_data.get("image_prompt", "digital art"))[:900]
         prompt = raw_prompt + ", masterpiece, highly detailed"
         image_url = "" 
         
         try:
-            # 🚨 [핵심 수정] 무거운 무료 AI를 위해 1.5초 -> 3초로 휴식 시간 넉넉히 부여!
-            time.sleep(3) 
-            
+            time.sleep(6) 
             img_res = requests.post(cf_url, headers=headers, json={"prompt": prompt}, timeout=60)
             if img_res.status_code == 200:
                 b64 = img_res.json()["result"]["image"]
@@ -681,20 +643,17 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
                 with open(f"static/images/{filename}", "wb") as f: f.write(img_bytes)
                 image_url = f"http://13.125.234.38:8000/static/images/{filename}"
             else:
-                print(f"🔥 CF API 거절 (상태코드: {img_res.status_code})")
+                print(f"🔥 CF API 오류: {img_res.status_code}")
         except Exception as e: 
-            print(f"🔥 이미지 생성 통신 실패: {e}")
+            print(f"🔥 이미지 통신 실패: {e}")
 
-        # 🚨 실패 시 더미 이미지 장착 (서버 마비 방지)
         if not image_url:
             image_url = f"https://dummyimage.com/600x400/1A1A1A/38BDF8&text=Artwork+{idx}+Delayed"
 
         db.add(models.Candidate(
-            round_id=round_id, 
-            title=c_data.get("title", f"작품 {idx}"),
+            round_id=round_id, title=c_data.get("title", f"작품 {idx}"),
             description=c_data.get("description", "이미지 렌더링 지연으로 임시 썸네일이 표시됩니다."), 
-            image_url=image_url, 
-            ipfs_hash="PENDING"
+            image_url=image_url, ipfs_hash="PENDING"
         ))
         candidate_uris.append(image_url)
 
@@ -711,9 +670,10 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
                 })
                 signed_tx = w3.eth.account.sign_transaction(tx, private_key=ADMIN_PRIVATE_KEY)
                 w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-    except Exception as e: print(f"온체인 라운드 시작 에러: {e}")
+    except Exception as e: print(f"온체인 시작 에러: {e}")
 
     return {"message": f"Phase 2: 총 {len(ai_data)}개 그림 생성 및 VP 투표 시작!"}
+
 # 🟢 [Step 3] 가치 평가 (가격 책정 전, 비평문만 받기)
 @app.post("/api/admin/phase3-valuation")
 def start_phase3_valuation(round_id: int = 0, session_id: str = "", db: Session = Depends(get_db)):
