@@ -595,16 +595,39 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
     target_round.status = RoundPhase.IMAGE_GENERATING
     db.commit()
 
-    top_subjects = db.query(models.Keyword).filter(models.Keyword.round_id == round_id, models.Keyword.type == "subject").order_by(desc(models.Keyword.vote_count)).limit(3).all()
+    # 🔥 [수정 1] 투표수(vote_count)가 0보다 큰 키워드만 진짜로 가져오기!
+    top_subjects = db.query(models.Keyword).filter(
+        models.Keyword.round_id == round_id, 
+        models.Keyword.type == "subject",
+        models.Keyword.vote_count > 0  # 👈 아무도 투표 안 한 0표짜리는 확실히 걸러냅니다.
+    ).order_by(desc(models.Keyword.vote_count)).limit(3).all()
 
-    weights_map = [0.5, 0.3, 0.2]
     keyword_distribution = {}
-    for i, kw in enumerate(top_subjects):
-        keyword_distribution[kw.word] = weights_map[i]
-    if not keyword_distribution:
-        keyword_distribution["Digital Art"] = 1.0
+    if not top_subjects:
+        # 투표가 아예 없었을 경우의 기본값 (총 5개)
+        keyword_distribution["Digital Art"] = 5
+    else:
+        # 🔥 [수정 2] 총 5개의 작품을 실제 득표 비율(%)에 맞춰 수학적으로 완벽하게 분배
+        total_votes = sum(kw.vote_count for kw in top_subjects)
+        remaining_artworks = 5
+        
+        for i, kw in enumerate(top_subjects):
+            if i == len(top_subjects) - 1:
+                # 마지막 키워드는 남은 개수 전부 몰빵 (예: 1개만 골랐으면 여기에 5개가 다 들어감)
+                keyword_distribution[kw.word] = remaining_artworks
+            else:
+                # 득표 비율에 맞춰 5개 중 몇 개를 그릴지 계산 (반올림)
+                share = int(round((kw.vote_count / total_votes) * 5))
+                keyword_distribution[kw.word] = share
+                remaining_artworks -= share
 
-    style_kw = db.query(models.Keyword).filter(models.Keyword.round_id == round_id, models.Keyword.type == "style").order_by(desc(models.Keyword.vote_count)).first()
+    # 스타일(화풍)도 투표받은 것 중에 1등만 선택
+    style_kw = db.query(models.Keyword).filter(
+        models.Keyword.round_id == round_id, 
+        models.Keyword.type == "style",
+        models.Keyword.vote_count > 0
+    ).order_by(desc(models.Keyword.vote_count)).first()
+    
     selected_style = style_kw.word if style_kw else "digital art style"
 
     try:

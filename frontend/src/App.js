@@ -259,6 +259,12 @@ function App() {
       try {
           const res = await axios.get(`${API_URL}/api/rounds/current`);
           setCurrentRound(res.data);
+          
+          // 🔥 [핵심] 일반 유저도 백엔드 라운드 상태에 따라 자동으로 화면이 바뀌도록 동기화!
+          if (res.data.status === "keyword_voting") setRoundPhase("KEYWORD");
+          else if (res.data.status === "voting") setRoundPhase("VOTING");
+          else if (res.data.status === "valuation") setRoundPhase("VALUATION");
+          
       } catch (err) { setCurrentRound(null); }
   };
 
@@ -460,7 +466,13 @@ function App() {
         selected_words: selectedKeywords,
         selected_style: selectedStyle
       });
-      alert(`[${selectedKeywords.join(', ')}] 투표 완료! \n\n상단의 'Step 2' 버튼을 눌러 그림을 렌더링하세요.`);
+      
+      // 🔥 [수정] 관리자 전용 문구를 지우고 일반 유저 친화적인 메시지로 변경
+      alert(`[${selectedKeywords.join(', ')}] 테마 및 [${selectedStyle}] 화풍으로 투표 완료!\n\n대중의 투표 데이터가 모이면 AI가 그림 생성을 시작합니다.`);
+      
+      // 투표 완료 후 화면 초기화
+      setSelectedKeywords([]);
+      setSelectedStyle("");
     } catch (err) {
       console.error(err);
       alert("키워드 투표 실패");
