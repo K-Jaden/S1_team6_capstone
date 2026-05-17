@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/governance/utils/IVotes.sol";
 // [NEW] TukToken과 ArtNFT 인터페이스
 interface ITukToken is IERC20, IVotes {
     function mint(address to, uint256 amount) external;
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
 }
 
 interface IArtNFT {
@@ -96,6 +97,7 @@ contract ArtPlanningDAO {
     }
 
     // 특정 라운드의 후보작에 분산 투표
+	// 🟢 [수정 후] vote 함수 교체
     function vote(uint256 _candidateId, uint256 _vpAmount) public {
         Round storage r = rounds[currentRoundId];
         require(!r.isFinalized, "Round is already finalized");
@@ -103,16 +105,16 @@ contract ArtPlanningDAO {
         require(_candidateId < roundCandidates[currentRoundId].length, "Invalid candidate ID");
         require(_vpAmount > 0, "VP amount must be greater than 0");
 
-        uint256 totalVpAtStart = governanceToken.getPastVotes(msg.sender, r.snapshotBlock);
-        
-        require(usedVotingPower[currentRoundId][msg.sender] + _vpAmount <= totalVpAtStart, "Exceeds available Voting Power");
+        // 🚨 [핵심 해결] 1. 유저 지갑에서 DAO 금고로 '진짜' 토큰 전송!
+        require(governanceToken.transferFrom(msg.sender, address(this), _vpAmount), "Token transfer failed");
 
+        // 2. 기록 업데이트 (기존과 동일)
         usedVotingPower[currentRoundId][msg.sender] += _vpAmount;
         userVoteWeight[currentRoundId][_candidateId][msg.sender] += _vpAmount;
         roundCandidates[currentRoundId][_candidateId].totalVotes += _vpAmount;
-
+        
         emit Voted(currentRoundId, _candidateId, msg.sender, _vpAmount);
-    }
+    }    
 
     function finalizeRound(uint256 _auctionPriceWei, string memory _winnerIpfsURI) public {
         Round storage r = rounds[currentRoundId];
@@ -177,9 +179,8 @@ contract ArtPlanningDAO {
     }
 
     function getRemainingVP(address _user) public view returns (uint256) {
-        if(currentRoundId == 0) return 0;
-        Round memory r = rounds[currentRoundId];
-        uint256 totalVpAtStart = governanceToken.getPastVotes(_user, r.snapshotBlock);
-        return totalVpAtStart - usedVotingPower[currentRoundId][_user];
+        // 복잡한 메모 계산(totalVpAtStart 등) 전부 삭제하고, 
+        // 실제 지갑에 있는 토큰 잔고를 그대로 읽어옵니다.
+        return governanceToken.balanceOf(_user);
     }
 }
