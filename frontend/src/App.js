@@ -689,12 +689,7 @@ function App() {
                       <span style={{ color: '#9CA3AF', fontSize: '0.95rem' }}>
                           투표권: <strong style={{ color: '#38BDF8' }}>{myInfo.balance} VP</strong>
                       </span>
-                      <span style={{ color: '#333' }}>|</span>
-                      <span style={{ color: '#9CA3AF', fontSize: '0.95rem' }}>
-                          가상 배당금: <strong style={{ color: '#10B981' }}>{Number(myInfo.virtualBalance || 0).toLocaleString(undefined, {maximumFractionDigits: 2})} TUK</strong>
-                      </span>
-                  </div>
-                  
+                  </div> 
                   {/* 지갑 주소 및 로그아웃 */}
                   <div className="badge-connected" style={{ background: '#2A2A2A', padding: '10px 20px', borderRadius: '30px', color: '#FFF', fontSize: '0.9rem', border: '1px solid #4B5563' }}>
                       🟢 {walletAddress.substring(0, 6)}...{walletAddress.substring(walletAddress.length - 4)}
@@ -1169,29 +1164,15 @@ function App() {
                     <div style={{color: '#fff', fontSize: '1.2rem', fontFamily: 'monospace'}}>{walletAddress}</div>
                 </div>
 
-                {/* 2. 자산 현황 2분할 카드 */}
-                <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
+		{/* 2. 자산 현황 단일 카드 */}
+                <div style={{display: 'flex', flexDirection: 'column', gap: '20px'}}>
                     {/* 온체인 지갑 자산 */}
-                    <div className="card" style={{background: '#1A1A1A', padding: '30px', textAlign: 'center'}}>
-                        <h3 style={{color: '#9CA3AF', margin: '0 0 15px 0', fontSize: '1rem'}}>내 지갑 TUK 잔고 (On-chain)</h3>
-                        <div style={{fontSize: '2.5rem', fontWeight: 'bold', color: '#38BDF8'}}>{myInfo.balance} <span style={{fontSize:'1.2rem', color:'#6B7280'}}>TUK (VP)</span></div>
-                        <p style={{color: '#6B7280', fontSize: '0.85rem', marginTop: '15px'}}>투표에 사용할 수 있는 실제 블록체인 토큰입니다.</p>
+                    <div className="card" style={{background: '#1A1A1A', padding: '40px', textAlign: 'center', border: '1px solid #38BDF8', boxShadow: '0 4px 20px rgba(56, 189, 248, 0.1)'}}>
+                        <h3 style={{color: '#9CA3AF', margin: '0 0 15px 0', fontSize: '1.1rem'}}>내 지갑 TUK 잔고 (On-chain)</h3>
+                        <div style={{fontSize: '3.5rem', fontWeight: 'bold', color: '#38BDF8'}}>{myInfo.balance} <span style={{fontSize:'1.5rem', color:'#6B7280'}}>TUK (VP)</span></div>
+                        <p style={{color: '#6B7280', fontSize: '0.95rem', marginTop: '15px'}}>투표에 사용할 수 있는 실제 블록체인 거버넌스 토큰입니다.</p>
                     </div>
-
-                    {/* 오프체인 가상 배당금 */}
-                    <div className="card" style={{background: '#1A1A1A', padding: '30px', textAlign: 'center', border: '1px solid rgba(16, 185, 129, 0.3)'}}>
-                        <h3 style={{color: '#9CA3AF', margin: '0 0 15px 0', fontSize: '1rem'}}>앱 내 누적 가상 수익 (Off-chain)</h3>
-                        <div className="card" style={{background: '#1A1A1A', padding: '30px', textAlign: 'center', border: '1px solid rgba(16, 185, 129, 0.3)'}}>
-                        <h3 style={{color: '#9CA3AF', margin: '0 0 15px 0', fontSize: '1rem'}}>앱 내 누적 가상 수익 (Off-chain)</h3>
-                        {/* 🚨 0 대신 진짜 myInfo.virtualBalance 연결! */}
-                        <div style={{fontSize: '2.5rem', fontWeight: 'bold', color: '#10B981'}}>
-                            {Number(myInfo.virtualBalance || 0).toLocaleString(undefined, {maximumFractionDigits: 2})} <span style={{fontSize:'1.2rem', color:'#6B7280'}}>TUK</span>
-                        </div>
-                        <p style={{color: '#6B7280', fontSize: '0.85rem', marginTop: '15px'}}>명예의 전당에서 가상 판매 시 누적되는 배당 포인트입니다.</p>
-                    </div>                    
-			</div>
                 </div>
-
                 {/* 3. 스마트 컨트랙트 배당금 청구 (기존 기능 유지) */}
                 <div className="card profile" style={{background: '#1A1A1A', border: '1px solid #2A2A2A', padding: '30px'}}>
                     <h3 style={{color: '#FBBF24', borderBottom: '1px solid #333', paddingBottom: '15px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px'}}>
