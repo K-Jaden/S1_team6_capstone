@@ -146,20 +146,43 @@ def update_user_badge(wallet_address: str, db: Session = Depends(get_db)):
 # 2. 🖼️ 온라인 전시관 & 관람평
 # =========================================================
 @app.get("/api/gallery/items")
-def get_gallery_items(db: Session = Depends(get_db)):
+def get_gallery_items(wallet_address: Optional[str] = None, db: Session = Depends(get_db)):
     items = db.query(models.GalleryItem).all()
-    # Pydantic 스키마가 is_sold를 잘라먹지 못하도록 직접 딕셔너리로 조립해서 보냅니다!
-    return [
-        {
+    res = []
+    for item in items:
+        winner = db.query(models.Candidate).filter(models.Candidate.title == item.title, models.Candidate.is_winner == True).first()
+        auction_price = winner.auction_price if winner else 1000
+        
+        # 유저별 실시간 지분 및 배당금 계산 장치 가동
+        stake_ratio = 0.0
+        my_profit = 0.0
+        total_user_vp = 0
+        
+        if winner and wallet_address:
+            from sqlalchemy import func
+            total_user_vp = db.query(func.sum(models.VoteLog.vp_used)).filter(
+                models.VoteLog.candidate_id == winner.id, 
+                models.VoteLog.voter_wallet == wallet_address
+            ).scalar() or 0
+            
+            total_votes = winner.vp_votes if winner.vp_votes > 0 else 1
+            stake_ratio = float(total_user_vp) / float(total_votes)
+            # 🟢 유저 요청 반영: 수수료 30% 제외한 '70% 분배금' 기준 계산 공식 적용!
+            my_profit = (auction_price * 0.7) * stake_ratio
+            
+        res.append({
             "id": item.id,
             "title": item.title,
             "artist_address": item.artist_address,
             "image_url": item.image_url,
             "description": item.description,
-            "is_sold": item.is_sold
-        }
-        for item in items
-    ]
+            "is_sold": item.is_sold,
+            "auction_price": auction_price,
+            "stake_ratio": stake_ratio * 100,
+            "my_profit": my_profit,
+            "my_vp": total_user_vp
+        })
+    return res
 
 @app.post("/api/gallery/feedback")
 def create_feedback(item_id: int, content: str, wallet_address: str, db: Session = Depends(get_db)):
@@ -864,8 +887,8 @@ def virtual_sell_item(req: VirtualSellReq, db: Session = Depends(get_db)):
         # 지분 계산 및 수익 분배
         stake_ratio = float(total_user_vp) / float(total_votes)
         auction_price = float(getattr(winner, 'auction_price', 1000) or 1000)
-        my_profit = auction_price * stake_ratio
-
+        
+        my_profit = (auction_price * 0.7) * stake_ratio
         # DB에 오프체인 가상 수익 저장
         user = db.query(models.User).filter(models.User.wallet_address == req.wallet_address).first()
         if user:

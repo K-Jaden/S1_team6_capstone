@@ -250,7 +250,10 @@ function App() {
 
   const fetchGallery = async () => {
     try {
-        const res = await axios.get(`${API_URL}/api/gallery/items`);
+        // API 호출 시 현재 로그인한 유저의 지갑 주소를 매개변수로 전송합니다.
+        const res = await axios.get(`${API_URL}/api/gallery/items`, {
+            params: { wallet_address: walletAddress }
+        });
         setGalleryItems(res.data);
     } catch (err) { console.error("갤러리 로드 실패"); }
   };
@@ -348,8 +351,9 @@ function App() {
             if (res.data.error) {
                 alert(`❌ 실패: ${res.data.error}`);
             } else {
-                alert(`🎉 판매 완료!\n💰 총 판매가: ${res.data.total_price} TUK\n📈 나의 지분: ${res.data.stake_ratio.toFixed(2)}%\n💸 배당 수익: ${res.data.profit.toFixed(2)} TUK 입금 완료!`);
-                fetchGallery(); 
+                // 알림창도 30% 기준 명세서로 예쁘게 리포팅되도록 수정합니다.
+  alert(`🎉 판매 및 정산 완료!\n\n🧾 [오프체인 배당 명세서]\n💰 총 매각 금액: ${res.data.total_price.toLocaleString()} TUK\n🏛️ DAO 유지비용 (30%): ${(res.data.total_price * 0.3).toLocaleString()} TUK\n📈 나의 투자 지분율: ${res.data.stake_ratio.toFixed(2)}%\n💸 최종 실수령액 (70%): ${res.data.profit.toFixed(2)} TUK 입금 완료!`);
+		fetchGallery(); 
                 fetchMyPageData(); 
             }
         } catch (err) {
@@ -1088,30 +1092,64 @@ function App() {
                                         더 보기...
                                     </div>
 				{/* 가상 판매 상태 및 버튼 UI */}
+                               {/* 가상 판매 상태 및 영수증 영리한 전환 UI 구현 블록 */}
     <div
         className="sale-status"
-        style={{ marginTop: '15px', padding: '12px', background: '#0F0F0F', borderRadius: '8px', border: '1px solid #333' }}
+        style={{ marginTop: '15px' }}
         onClick={(e) => e.stopPropagation()}
     >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ color: item.is_sold ? '#EF4444' : '#10B981', fontWeight: 'bold', fontSize: '0.9rem' }}>
-                {item.is_sold ? "🔴 판매 완료" : "🟢 판매 대기 중"}
-            </span>
-            {!item.is_sold && (
-                <button
-                    onClick={() => handleVirtualSell(item)}
-                    style={{
-                        background: 'linear-gradient(135deg, #3B82F6, #8B5CF6)',
-                        color: '#fff', border: 'none', padding: '6px 14px',
-                        borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 'bold'
-                    }}
-                >
-                    💰 배당금 받기
-                </button>
-            )}
-        </div>
-    </div>
-                                </div>
+        {!item.is_sold ? (
+            /* 🟢 Case 1: 판매 대기 중 상태 (결정된 매각 금액 시각화 강조) */
+            <div style={{ padding: '15px', background: '#0F0F0F', borderRadius: '12px', border: '1px solid #333' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <span style={{ color: '#9CA3AF', fontSize: '0.85rem' }}>🤖 확정 가상 매각가</span>
+                    <strong style={{ color: '#FBBF24', fontSize: '1.2rem' }}>{Number(item.auction_price || 0).toLocaleString()} TUK</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: '#10B981', fontWeight: 'bold', fontSize: '0.85rem' }}>🟢 가상 배당 가능</span>
+                    <button
+                        onClick={() => handleVirtualSell(item)}
+                        style={{
+                            background: 'linear-gradient(135deg, #3B82F6, #8B5CF6)',
+                            color: '#fff', border: 'none', padding: '8px 16px',
+                            borderRadius: '8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 'bold',
+                            boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)'
+                        }}
+                    >
+                        💰 배당금 받기
+                    </button>
+                </div>
+            </div>
+        ) : (
+            /* 🔴 Case 2: 판매 완료 상태 (디테일 벼락 영수증 UI 레이아웃 출력) */
+            <div style={{ padding: '15px', background: '#111', borderRadius: '12px', border: '1px solid #EF4444', fontFamily: "'Courier New', Courier, monospace" }}>
+                <div style={{ fontSize: '0.8rem', color: '#EF4444', Jack: 'bold', borderBottom: '1px dashed #333', paddingBottom: '6px', marginBottom: '10px', textAlign: 'center', fontWeight: 'bold' }}>
+                    🧾 ART SALES RECEIPTS
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '5px', color: '#9CA3AF' }}>
+                    <span>판매금액</span>
+                    <span style={{ color: '#fff' }}>{Number(item.auction_price || 0).toLocaleString()} TUK</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '5px', color: '#F87171' }}>
+                    <span>- DAO 유지비용 (30%)</span>
+                    <span>{Number((item.auction_price || 0) * 0.3).toLocaleString()} TUK</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 'bold', borderBottom: '1px dashed #333', paddingBottom: '8px', marginBottom: '8px', color: '#34D399' }}>
+                    <span>= 투자자들의 수익 (70%)</span>
+                    <span>{Number((item.auction_price || 0) * 0.7).toLocaleString()} TUK</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#9CA3AF', marginBottom: '4px' }}>
+                    <span>내 투자 지분율</span>
+                    <span style={{ color: '#38BDF8', fontWeight: 'bold' }}>{Number(item.stake_ratio || 0).toFixed(2)} %</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', fontWeight: 'bold', color: '#FBBF24', paddingTop: '4px' }}>
+                    <span>🎁 내 지분 수익</span>
+                    <span>{Number(item.my_profit || 0).toLocaleString(undefined, {maximumFractionDigits: 2})} TUK</span>
+                </div>
+            </div>
+        )}
+    </div> 
+				</div>
                           </div>
                         ))
                     )}
