@@ -95,6 +95,47 @@ function App() {
   // Step 1: 키워드 투표 상태
   const [selectedKeywords, setSelectedKeywords] = useState([]);
   const [selectedStyle, setSelectedStyle] = useState("");
+  const [customSubject, setCustomSubject] = useState("");
+
+  const handleAddCustomSubject = async () => {
+      if (!isLoggedIn) return alert("지갑을 먼저 연결해주세요!");
+      if (!customSubject.trim()) return alert("추가할 키워드를 입력하세요.");
+      
+      try {
+          const res = await axios.post(`${API_URL}/api/rounds/custom-keyword`, {
+              round_id: currentRound.id,
+              word: customSubject,
+              type: "subject",
+              wallet_address: walletAddress
+          });
+          alert(res.data.message);
+          setCustomSubject("");
+          fetchCurrentRound();
+      } catch (err) {
+          alert(`❌ 추가 실패: ${err.response?.data?.detail || "알 수 없는 오류"}`);
+      }
+  };
+
+  const [customStyle, setCustomStyle] = useState("");
+
+  const handleAddCustomStyle = async () => {
+      if (!isLoggedIn) return alert("지갑을 먼저 연결해주세요!");
+      if (!customStyle.trim()) return alert("추가할 화풍을 입력하세요.");
+      
+      try {
+          const res = await axios.post(`${API_URL}/api/rounds/custom-keyword`, {
+              round_id: currentRound.id,
+              word: customStyle,
+              type: "style", // 👈 화풍(style) 분류로 지정하여 전송!
+              wallet_address: walletAddress
+          });
+          alert(res.data.message);
+          setCustomStyle("");
+          fetchCurrentRound();
+      } catch (err) {
+          alert(`❌ 추가 실패: ${err.response?.data?.detail || "알 수 없는 오류"}`);
+      }
+  };
 
   // Step 2: 결산 및 가치 책정 상태
   const [valuationPrice, setValuationPrice] = useState("");
@@ -354,7 +395,8 @@ function App() {
                 // 알림창도 30% 기준 명세서로 예쁘게 리포팅되도록 수정합니다.
   alert(`🎉 판매 및 정산 완료!\n\n🧾 [오프체인 배당 명세서]\n💰 총 매각 금액: ${res.data.total_price.toLocaleString()} TUK\n🏛️ DAO 유지비용 (30%): ${(res.data.total_price * 0.3).toLocaleString()} TUK\n📈 나의 투자 지분율: ${res.data.stake_ratio.toFixed(2)}%\n💸 최종 실수령액 (70%): ${res.data.profit.toFixed(2)} TUK 입금 완료!`);
 		fetchGallery(); 
-                fetchMyPageData(); 
+                fetchMyPageData();
+		fetchEndedRounds();
             }
         } catch (err) {
             alert("서버 오류로 판매를 진행할 수 없습니다.");
@@ -599,6 +641,7 @@ function App() {
           });
 
           fetchGallery(); // 갤러리 데이터 새로고침
+	  fetchEndedRounds();
           setActiveTab("gallery"); // 🔥 명예의 전당 탭으로 자동 이동!
           setRoundPhase("KEYWORD"); // 라운드 상태 초기화
           alert("🎉 최종 결산 및 스마트 컨트랙트 등록이 완료되었습니다!\n우승작이 명예의 전당(Hall of Fame)에 영구 박제되었습니다.");
@@ -887,6 +930,24 @@ function App() {
                         ))}
                     </div>
                     
+		    <div style={{ display: 'flex', gap: '10px', marginTop: '15px', marginBottom: '15px' }}>
+                        <input 
+                            type="text" 
+                            className="glass-input" 
+                            placeholder="직접 제안하고 싶은 테마 입력 (예: 해커톤)" 
+                            value={customSubject}
+                            onChange={(e) => setCustomSubject(e.target.value)}
+                            onKeyPress={(e) => e.key === 'Enter' && handleAddCustomSubject()}
+                            style={{ flex: 1, padding: '12px 15px', fontSize: '0.9rem', background: '#1A1A1A', border: '1px solid #333', color: '#fff', borderRadius: '8px' }}
+                        />
+                        <button 
+                            onClick={handleAddCustomSubject}
+                            style={{ background: '#38BDF8', color: '#fff', border: 'none', padding: '0 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}
+                        >
+                            + 직접 제안
+                        </button>
+                    </div>
+
                     <h4 style={{color: '#A78BFA', margin: '30px 0 10px 0'}}>🎨 2. 표현 방식 (화풍, 사조, 재질 등 1개 선택)</h4>
                     <div className="keyword-tag-container">
                         {currentRound && currentRound.styles && currentRound.styles.map((kw) => (
@@ -899,6 +960,24 @@ function App() {
                                 🖌️ {kw.word} <span style={{fontSize: '0.85rem', color: '#FBBF24', marginLeft: '6px', fontWeight: 'bold'}}>{kw.vote_count}표</span>
                             </button>
                         ))}
+                    </div>
+		    
+		    <div style={{ display: 'flex', gap: '10px', marginTop: '15px', marginBottom: '15px' }}>
+                        <input 
+                            type="text" 
+                            className="glass-input" 
+                            placeholder="직접 제안하고 싶은 화풍 입력 (예: 3D 미니멀리즘)" 
+                            value={customStyle}
+                            onChange={(e) => setCustomStyle(e.target.value)}
+                            onKeyPress={(e) => e.key === 'Enter' && handleAddCustomStyle()}
+                            style={{ flex: 1, padding: '12px 15px', fontSize: '0.9rem', background: '#1A1A1A', border: '1px solid #333', color: '#fff', borderRadius: '8px' }}
+                        />
+                        <button 
+                            onClick={handleAddCustomStyle}
+                            style={{ background: '#A78BFA', color: '#fff', border: 'none', padding: '0 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}
+                        >
+                            + 직접 제안
+                        </button>
                     </div>
 
                     <button 

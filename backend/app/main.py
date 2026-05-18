@@ -549,29 +549,34 @@ def start_phase1_keywords(session_id: str = "", db: Session = Depends(get_db)):
 
     # 💡 1. 2개의 대분류 풀로 합침 (화풍 + 재질 통합)
     pool_subjects = [
-        "사이버 로봇", "버려진 놀이공원", "심해 도시", "홀로그램 소녀", "고대 신전", "거대 고양이", "드래곤", "우주 비행사",
-        "스팀펑크 비행선", "마법의 숲", "미래형 서울", "외계 행성", "좀비 아포칼립스", "천사 시대", "해저 탐험가", "타임머신"
+        "공룡", "총", "로봇", "고양이", "기사", "마법사", "천사", "악마", "소나무", "네온사인", 
+        "고층빌딩", "해골", "고래", "나비", "사막", "심해", "은하수", "성곽", "오로라", "벚꽃", 
+        "가면", "사이보그", "크리스탈", "시계탑", "유령", "사람", "서울", "뉴욕", "도시", "대통령", "지구", "아니메", "소녀",
+        "소년", "중후한", "자연", "웅장한"
     ]
     pool_styles = [
-        "빈센트 반 고흐 풍", "지브리 애니메이션 풍", "다크 판타지", "레트로 신스웨이브", "피카소 큐비즘", "르네상스 명화",
-        "팝아트", "수채화", "거친 유화", "3D 언리얼 엔진", "픽셀 아트", "스테인드글라스", "연필 스케치", "시네마틱 라이팅"
+        "빈센트 반 고흐 풍", "피카소 큐비즘", "지브리 애니메이션 풍", "무채색", "하찮은 귀여운 풍", 
+        "신비로운 분위기", "키치한 색감", "레트로 신스웨이브", "픽셀 아트", "3D 언리얼 엔진 render", 
+        "사이버펑크", "포근한 파스텔톤", "전통 수묵화", "강렬한 팝아트", "다크 판타지", 
+        "디즈니 3D 애니메이션 풍", "미니멀리즘 디자인", "화려한 네온 라이팅", "빛바랜 빈티지 사진 풍", "8비트 도트", 
+        "몽환적인 수채화", "글리치 노이즈 왜곡", "말랑한 점토 클레이아트", "거친 질감의 목판화", "초현실주의"
     ]
 
-    selected_subjects = random.sample(pool_subjects, 7)
-    selected_styles = random.sample(pool_styles, 7)
+    selected_subjects = random.sample(pool_subjects, 15)
+    selected_styles = random.sample(pool_styles, 15)
 
     # 💡 2. AI 트렌드 연동 (실패해도 ✨ 무조건 나오게 방어막 강화)
     try:
         res = requests.get(f"{AI_AGENT_URL}/api/agent/trends-keywords", timeout=20)
         ai_data = res.json()
         
-        if "subjects" in ai_data: selected_subjects.extend([f"✨{w}" for w in ai_data["subjects"][:3]])
-        if "styles" in ai_data: selected_styles.extend([f"✨{w}" for w in ai_data["styles"][:3]])
+        if "subjects" in ai_data: selected_subjects.extend([f"✨{w}" for w in ai_data["subjects"][:5]])
+        if "styles" in ai_data: selected_styles.extend([f"✨{w}" for w in ai_data["styles"][:5]])
     except Exception as e:
         print(f"🔥 AI 트렌드 지연, 비상 트렌드 가동: {e}")
         # 🚨 AI가 뻗어도 사용자는 모르게 멋진 트렌드 단어에 ✨를 붙여서 제공
-        selected_subjects.extend([f"✨메타버스 가상현실", f"✨초거대 AI", f"✨포스트 아포칼립스"])
-        selected_styles.extend([f"✨네오 베이퍼웨이브", f"✨홀로그램 글리치", f"✨점토 클레이아트"])
+        selected_subjects.extend([f"✨메타버스 가상현실", f"✨초거대 AI", f"✨포스트 아포칼립스", f"✨양자 컴퓨터", f"✨스페이스 오페라"])
+        selected_styles.extend([f"✨네오 베이퍼웨이브", f"✨홀로그램 글리치", f"✨점토 클레이아트", f"✨사이버펑크 네온", f"✨미니멀리즘"])
 
     random.shuffle(selected_subjects)
     random.shuffle(selected_styles)
@@ -631,6 +636,41 @@ def vote_keywords(req: KeywordVoteReq, db: Session = Depends(get_db)):
 
     db.commit()
     return {"status": "success"}
+
+class CustomKeywordReq(BaseModel):
+    round_id: int
+    word: str
+    type: str
+    wallet_address: str
+
+@app.post("/api/rounds/custom-keyword")
+def add_custom_keyword(req: CustomKeywordReq, db: Session = Depends(get_db)):
+    if not req.wallet_address:
+        raise HTTPException(status_code=400, detail="지갑 연결이 필요합니다.")
+
+    clean_word = req.word.strip().replace("#", "")
+    if len(clean_word) < 2 or len(clean_word) > 15:
+        raise HTTPException(status_code=400, detail="키워드는 2자 이상, 15자 이하로 입력해주세요.")
+
+    exist = db.query(models.Keyword).filter(
+        models.Keyword.round_id == req.round_id,
+        models.Keyword.word == clean_word,
+        models.Keyword.type == req.type
+    ).first()
+
+    if exist:
+        raise HTTPException(status_code=400, detail="이미 목록에 있는 키워드입니다.")
+
+    new_kw = models.Keyword(
+        round_id=req.round_id,
+        word=clean_word,
+        type=req.type,
+        vote_count=0
+    )
+    db.add(new_kw)
+    db.commit()
+
+    return {"status": "success", "message": f"'{clean_word}' 키워드가 추가되었습니다!"}
 
 # 🟢 [Step 2] 투표 결과로 그림 생성 & VP 투표 단계 전환
 @app.post("/api/admin/phase2-generate")
@@ -705,7 +745,7 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
 
     for idx, c_data in enumerate(ai_data, 1):
         raw_prompt = str(c_data.get("image_prompt", "digital art"))[:900]
-        prompt = raw_prompt + ", masterpiece, highly detailed"
+        prompt = raw_prompt
         image_url = "" 
         
         try:

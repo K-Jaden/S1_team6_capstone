@@ -195,7 +195,7 @@ def generate_weighted_candidates(req: WeightedCandidateRequest):
         2. 고정 표현 방식(화풍 및 재질): 무조건 '{req.style}' 반영
         
         [프롬프트 작성 황금 공식]
-        '[가중치가 반영된 테마들], in the style of [고정 표현 방식], masterpiece, highly detailed, 8k resolution'
+        '[가중치가 반영된 테마들], in the style of [고정 표현 방식]'
         
         출력은 무조건 순수 JSON 배열만 작성하세요:
         [
