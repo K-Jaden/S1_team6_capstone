@@ -843,8 +843,8 @@ function App() {
                 </div>
                 <div className="card" style={{ background: '#1A1A1A', padding: '25px', borderRadius: '12px', border: '1px solid #2A2A2A' }}>
                     <div style={{ fontSize: '2.5rem', marginBottom: '15px' }}>🗳️</div>
-                    <h3 style={{ color: '#fff', fontSize: '1.1rem', marginBottom: '10px' }}>2. 가스리스(Gasless) 투표</h3>
-                    <p style={{ color: '#9CA3AF', fontSize: '0.9rem', lineHeight: '1.5' }}>유저는 지갑의 TUK 토큰을 소모하지 않고, 토큰 보유량에 비례하는 VP로 가장 가치 있는 작품에 분산 투자합니다.</p>
+                    <h3 style={{ color: '#fff', fontSize: '1.1rem', marginBottom: '10px' }}>2. 집단지성 투자</h3>
+                    <p style={{ color: '#9CA3AF', fontSize: '0.9rem', lineHeight: '1.5' }}>유저는 보유한 TUK(VP)를 직접 지불하여 가장 가치 있는 작품에 투자합니다. 우승작에 투자한 경우 배당을 얻지만, 탈락 시 투자금은 DAO에 귀속되어 소각됩니다.</p>
                 </div>
                 <div className="card" style={{ background: '#1A1A1A', padding: '25px', borderRadius: '12px', border: '1px solid #2A2A2A' }}>
                     <div style={{ fontSize: '2.5rem', marginBottom: '15px' }}>💰</div>
