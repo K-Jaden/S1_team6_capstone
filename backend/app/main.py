@@ -464,10 +464,10 @@ def get_current_round(db: Session = Depends(get_db)):
         "round_number": active.round_number,
         "status": active.status,
         "candidates": active.candidates,
-        "subjects": [k.word for k in keywords if k.type == "subject"],
-        "styles": [k.word for k in keywords if k.type == "style"] # 🚨 표현방식 통합으로 expressions 삭제
+        # 🔥 [수정] 단순 문자열 리스트에서 '단어'와 '투표수'를 포함한 딕셔너리로 변경!
+        "subjects": [{"word": k.word, "vote_count": k.vote_count} for k in keywords if k.type == "subject"],
+        "styles": [{"word": k.word, "vote_count": k.vote_count} for k in keywords if k.type == "style"]
     }
-
 @app.get("/api/rounds/ended")
 def get_ended_rounds(db: Session = Depends(get_db)):
     from app.models import RoundPhase
@@ -559,16 +559,41 @@ def start_phase1_keywords(session_id: str = "", db: Session = Depends(get_db)):
         db.add(models.Keyword(round_id=new_round.id, word=word.replace("#", ""), type="style"))
 
     db.commit()
-    return {"message": "Phase 1: 10개씩(고정7+AI3) 2단 카테고리 구성 완료!", "round_id": new_round.id}
+    return {
+        "message": "✅ AI가 최신 웹 트렌드 분석을 완료했습니다!\n새로운 예술 창작을 위한 키워드 투표가 시작됩니다.", 
+        "round_id": new_round.id
+    }
 
 # 🟢 [Step 1.5] 프론트에서 유저가 선택한 키워드 서버로 저장
+from sqlalchemy import Column, Integer, String
+
+# 🔥 키워드 중복 투표 방지용 로그 테이블 정의
+class KeywordVoteLog(models.Base):
+    __tablename__ = "keyword_vote_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    round_id = Column(Integer, index=True)
+    wallet_address = Column(String(255), index=True)
+
+# 테이블 동적 생성 보장
+KeywordVoteLog.__table__.create(bind=database.engine, checkfirst=True)
+
 class KeywordVoteReq(BaseModel):
     round_id: int
     selected_words: list[str]
     selected_style: str = ""
+    wallet_address: str = "" # 🔥 중복 검증을 위한 지갑 주소 필드 추가
 
 @app.post("/api/rounds/vote-keyword")
 def vote_keywords(req: KeywordVoteReq, db: Session = Depends(get_db)):
+    # 🔥 [핵심] 1인 1회 제한: 이미 해당 라운드에 투표한 지갑인지 검증
+    if req.wallet_address:
+        already_voted = db.query(KeywordVoteLog).filter(
+            KeywordVoteLog.round_id == req.round_id,
+            KeywordVoteLog.wallet_address == req.wallet_address
+        ).first()
+        if already_voted:
+            raise HTTPException(status_code=400, detail="이미 이 라운드의 키워드 설계 투표에 참여하셨습니다.")
+
     for word in req.selected_words:
         kw = db.query(models.Keyword).filter(models.Keyword.round_id == req.round_id, models.Keyword.word == word, models.Keyword.type == "subject").first()
         if kw: kw.vote_count += 1
@@ -576,6 +601,10 @@ def vote_keywords(req: KeywordVoteReq, db: Session = Depends(get_db)):
     if req.selected_style:
         sk = db.query(models.Keyword).filter(models.Keyword.round_id == req.round_id, models.Keyword.word == req.selected_style, models.Keyword.type == "style").first()
         if sk: sk.vote_count += 1
+
+    # 🔥 투표 기록 확정 저장
+    if req.wallet_address:
+        db.add(KeywordVoteLog(round_id=req.round_id, wallet_address=req.wallet_address))
 
     db.commit()
     return {"status": "success"}
