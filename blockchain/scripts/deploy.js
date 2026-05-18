@@ -5,7 +5,7 @@ const fs = require("fs");
 const path = require("path");
 
 async function main() {
-  const [owner, voter1, voter2, voter3] = await hre.ethers.getSigners();
+const [owner, voter1, voter2, voter3, voter4] = await hre.ethers.getSigners();
 
   console.log("🚀 배포 및 자동 주소/ABI 동기화를 시작합니다...");
 
@@ -29,6 +29,8 @@ async function main() {
   await tukToken.transfer(voter3.address, amount);
   await tukToken.connect(voter3).delegate(voter3.address);
 
+  await tukToken.transfer(voter4.address, amount);
+  await tukToken.connect(voter4).delegate(voter4.address);
   console.log(`🪙 TukToken 배포 완료: ${tukAddress}`);
 
   // 3. ArtPlanningDAO 배포 (TUK 토큰 주소 주입)
