@@ -458,24 +458,27 @@ function App() {
   // ==========================================
   // 🔥 [NEW] Step 1.5. 유저 키워드 투표 백엔드 전송 API
   // ==========================================
-  const submitKeywordVote = async () => {
+ const submitKeywordVote = async () => {
     if (!currentRound) return alert("진행 중인 라운드가 없습니다.");
+    if (!walletAddress) return alert("지갑을 먼저 연결해주세요!");
     try {
       await axios.post(`${API_URL}/api/rounds/vote-keyword`, {
         round_id: currentRound.id,
         selected_words: selectedKeywords,
-        selected_style: selectedStyle
+        selected_style: selectedStyle,
+        wallet_address: walletAddress // 🔥 지갑 주소 필증 전송
       });
       
-      // 🔥 [수정] 관리자 전용 문구를 지우고 일반 유저 친화적인 메시지로 변경
-      alert(`[${selectedKeywords.join(', ')}] 테마 및 [${selectedStyle}] 화풍으로 투표 완료!\n\n대중의 투표 데이터가 모이면 AI가 그림 생성을 시작합니다.`);
+      fetchCurrentRound();
+      alert(`🎉 [${selectedKeywords.join(', ')}] 테마 및 [${selectedStyle}] 화풍으로 투표가 확정되었습니다!`);
       
-      // 투표 완료 후 화면 초기화
       setSelectedKeywords([]);
       setSelectedStyle("");
     } catch (err) {
       console.error(err);
-      alert("키워드 투표 실패");
+      // 🔥 백엔드가 뱉은 "이미 투표에 참여하셨습니다" 문구를 동적으로 출력
+      const errMsg = err.response?.data?.detail || "키워드 투표 실패";
+      alert(`❌ 투표 실패: ${errMsg}`);
     }
   };
   // ==========================================
@@ -802,28 +805,44 @@ function App() {
         {/* Curate */}
         {activeTab === "curate" && (
           <div className="page fade-in">
-            <div className="proposals-header-wrap" style={{borderBottom: 'none', marginBottom: '10px'}}>
+            <div className="proposals-header-wrap" style={{borderBottom: 'none', marginBottom: '20px'}}>
                 <div>
                     <h2 style={{fontFamily: "'Playfair Display', serif", fontSize: "2.5rem", margin: 0}}>🗳️ Curate the Masterpiece</h2>
                     <p style={{color: '#9CA3AF', marginTop: '10px', fontSize: '1rem'}}>AI와 함께 예술의 방향성을 정하고, 최고의 가치를 지닌 작품에 투자하세요.</p>
                 </div>
             </div>
 
-            {/* 🔥 관리자 데모 패널 (Phase 전환용) */}
-            <div className="admin-demo-panel">
+            {/* 🔥 [NEW] ArtDAO 주간 자동화 스케줄 타임라인 */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', background: '#0F0F0F', padding: '20px', borderRadius: '12px', border: '1px solid #2A2A2A', marginBottom: '30px' }}>
+                <div style={{ flex: 1, textAlign: 'center', padding: '10px', borderRight: '1px solid #2A2A2A', opacity: roundPhase === "KEYWORD" ? 1 : 0.4 }}>
+                    <div style={{ color: roundPhase === "KEYWORD" ? '#F59E0B' : '#9CA3AF', fontWeight: 'bold', fontSize: '1.1rem', marginBottom: '5px' }}>월 ~ 화</div>
+                    <div style={{ color: '#fff' }}>1. 테마/화풍 기획</div>
+                </div>
+                <div style={{ flex: 1, textAlign: 'center', padding: '10px', borderRight: '1px solid #2A2A2A', opacity: roundPhase === "VOTING" ? 1 : 0.4 }}>
+                    <div style={{ color: roundPhase === "VOTING" ? '#3B82F6' : '#9CA3AF', fontWeight: 'bold', fontSize: '1.1rem', marginBottom: '5px' }}>수 ~ 금</div>
+                    <div style={{ color: '#fff' }}>2. AI 작품 생성 & 투자</div>
+                </div>
+                <div style={{ flex: 1, textAlign: 'center', padding: '10px', opacity: roundPhase === "VALUATION" ? 1 : 0.4 }}>
+                    <div style={{ color: roundPhase === "VALUATION" ? '#10B981' : '#9CA3AF', fontWeight: 'bold', fontSize: '1.1rem', marginBottom: '5px' }}>토 ~ 일</div>
+                    <div style={{ color: '#fff' }}>3. 결산 및 배당 시작</div>
+                </div>
+            </div>
+
+            {/* 🔥 관리자 데모 패널 (시연용 타임머신) */}
+            <div className="admin-demo-panel" style={{ background: 'rgba(239, 68, 68, 0.05)', border: '1px dashed #EF4444' }}>
                 <div>
-                    <strong style={{color: '#EF4444'}}>⚙️ Admin Pipeline Controls</strong>
-                    <span style={{color: '#F87171', fontSize: '0.85rem', marginLeft: '10px'}}>(파이프라인 테스트)</span>
+                    <strong style={{color: '#EF4444'}}>⚙️ 시연용 타임머신 스위치</strong>
+                    <span style={{color: '#F87171', fontSize: '0.85rem', marginLeft: '10px'}}>(발표 시 요일 강제 전환용)</span>
                 </div>
                 <div style={{display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap'}}>
                     <button onClick={handleStartPhase1} style={{background: roundPhase === "KEYWORD" ? '#F59E0B' : '#4B5563', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
-                        Step 1. 트렌드 추출
+                        월요일로 점프 (기획 시작)
                     </button>
                     <button onClick={() => { setRoundPhase("VOTING"); handleGenerateRoundDemo(); }} style={{background: roundPhase === "VOTING" ? '#3B82F6' : '#4B5563', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
-                        Step 2. 그림 생성 & 투표
+                        수요일로 점프 (투표 시작)
                     </button>
                     <button onClick={handleEndRoundDemo} style={{background: roundPhase === "VALUATION" ? '#10B981' : '#4B5563', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
-                        Step 3. 결산 (가치 책정)
+                        토요일로 점프 (결산 시작)
                     </button>
                     
                     {discussionLogs.length > 0 && !showDiscussion && (
@@ -836,39 +855,38 @@ function App() {
             </div>
 
             {/* ========================================== */}
-            {/* 🟢 PHASE 1: 키워드 투표 화면 */}
+            {/* 🟢 PHASE 1: 키워드 투표 화면 (실시간 집계) */}
             {/* ========================================== */}
-		{roundPhase === "KEYWORD" && (
-            	<div className="co-creation-panel fade-in">
+            {roundPhase === "KEYWORD" && (
+                <div className="co-creation-panel fade-in">
                     <h3 style={{ color: '#38BDF8', marginBottom: '10px' }}>🔥 Autonomous Art Co-Creation</h3>
-                    <p style={{ color: '#9CA3AF', marginBottom: '25px' }}>투자할 작품의 기획 요소를 2개 카테고리에서 조율해 주세요.</p>
-                    
-                    <h4 style={{color: '#38BDF8', margin: '20px 0 10px 0'}}>🎯 1. 기획 대상 및 테마 (최대 3개)</h4>
+                    <p style={{ color: '#9CA3AF', marginBottom: '25px' }}>투자할 작품의 기획 요소를 2개 카테고리에서 조율해 주세요.</p>                    
+                    <h4 style={{color: '#38BDF8', margin: '20px 0 10px 0'}}>🎯 1. 기획 대상 및 테마 (최대 3개 선택)</h4>
                     <div className="keyword-tag-container">
-                        {currentRound && currentRound.subjects && currentRound.subjects.map((word) => (
+                        {currentRound && currentRound.subjects && currentRound.subjects.map((kw) => (
                         <button
-                            key={word}
-                            className={`keyword-tag ${selectedKeywords.includes(word) ? 'active' : ''}`}
+                            key={kw.word}
+                            className={`keyword-tag ${selectedKeywords.includes(kw.word) ? 'active' : ''}`}
                             onClick={() => {
-                                if (selectedKeywords.includes(word)) setSelectedKeywords(selectedKeywords.filter(k => k !== word));
-                                else if (selectedKeywords.length < 3) setSelectedKeywords([...selectedKeywords, word]);
+                                if (selectedKeywords.includes(kw.word)) setSelectedKeywords(selectedKeywords.filter(k => k !== kw.word));
+                                else if (selectedKeywords.length < 3) setSelectedKeywords([...selectedKeywords, kw.word]);
                             }}
                         >
-                            #{word}
+                            #{kw.word} <span style={{fontSize: '0.85rem', color: '#FBBF24', marginLeft: '6px', fontWeight: 'bold'}}>{kw.vote_count}표</span>
                         </button>
                         ))}
                     </div>
                     
                     <h4 style={{color: '#A78BFA', margin: '30px 0 10px 0'}}>🎨 2. 표현 방식 (화풍, 사조, 재질 등 1개 선택)</h4>
                     <div className="keyword-tag-container">
-                        {currentRound && currentRound.styles && currentRound.styles.map((style) => (
+                        {currentRound && currentRound.styles && currentRound.styles.map((kw) => (
                             <button
-                                key={style}
-                                className={`keyword-tag ${selectedStyle === style ? 'active' : ''}`}
-                                onClick={() => setSelectedStyle(style)}
+                                key={kw.word}
+                                className={`keyword-tag ${selectedStyle === kw.word ? 'active' : ''}`}
+                                onClick={() => setSelectedStyle(kw.word)}
                                 style={{borderColor: '#A78BFA'}}
                             >
-                                🖌️ {style}
+                                🖌️ {kw.word} <span style={{fontSize: '0.85rem', color: '#FBBF24', marginLeft: '6px', fontWeight: 'bold'}}>{kw.vote_count}표</span>
                             </button>
                         ))}
                     </div>
@@ -882,7 +900,7 @@ function App() {
                         조합 설계 투표 확정하기
                     </button>
                 </div>
-		)}
+            )}
             {/* ========================================== */}
             {/* 🟢 PHASE 2: 기존 후보작 투표 화면 */}
             {/* ========================================== */}
