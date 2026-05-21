@@ -708,7 +708,6 @@ function App() {
         <button className={activeTab==="main"?"active":""} onClick={()=>setActiveTab("main")}>📊 Dashboard</button>
         <button className={activeTab==="curate"?"active":""} onClick={()=>setActiveTab("curate")}>🗳️ Curate</button>
         <button className={activeTab==="gallery"?"active":""} onClick={()=>setActiveTab("gallery")}>🖼️ Hall of Fame</button>
-        <button className={activeTab==="treasury"?"active":""} onClick={()=>setActiveTab("treasury")}>🏦 Treasury</button>
         <button className={activeTab==="mypage"?"active":""} onClick={()=>setActiveTab("mypage")}>👤 Profile</button>
         </nav>
         
@@ -730,7 +729,7 @@ function App() {
                   {/* 🔥 [NEW] 실시간 내 자산 글로벌 위젯 */}
                   <div style={{ display: 'flex', gap: '15px', background: '#1A1A1A', padding: '10px 20px', borderRadius: '30px', border: '1px solid #333', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}>
                       <span style={{ color: '#9CA3AF', fontSize: '0.95rem' }}>
-                          투표권: <strong style={{ color: '#38BDF8' }}>{myInfo.balance} VP</strong>
+                          투표권: <strong style={{ color: '#38BDF8' }}>{myInfo.balance} TUK</strong>
                       </span>
                   </div> 
                   {/* 지갑 주소 및 로그아웃 */}
@@ -844,7 +843,7 @@ function App() {
                 <div className="card" style={{ background: '#1A1A1A', padding: '25px', borderRadius: '12px', border: '1px solid #2A2A2A' }}>
                     <div style={{ fontSize: '2.5rem', marginBottom: '15px' }}>🗳️</div>
                     <h3 style={{ color: '#fff', fontSize: '1.1rem', marginBottom: '10px' }}>2. 집단지성 투자</h3>
-                    <p style={{ color: '#9CA3AF', fontSize: '0.9rem', lineHeight: '1.5' }}>유저는 보유한 TUK(VP)를 직접 지불하여 가장 가치 있는 작품에 투자합니다. 우승작에 투자한 경우 배당을 얻지만, 탈락 시 투자금은 DAO에 귀속되어 소각됩니다.</p>
+                    <p style={{ color: '#9CA3AF', fontSize: '0.9rem', lineHeight: '1.5' }}>유저는 보유한 TUK를 직접 지불하여 가장 가치 있는 작품에 투자합니다. 우승작에 투자한 경우 배당을 얻지만, 탈락 시 투자금은 DAO에 귀속되어 소각됩니다.</p>
                 </div>
                 <div className="card" style={{ background: '#1A1A1A', padding: '25px', borderRadius: '12px', border: '1px solid #2A2A2A' }}>
                     <div style={{ fontSize: '2.5rem', marginBottom: '15px' }}>💰</div>
@@ -885,7 +884,6 @@ function App() {
             <div className="admin-demo-panel" style={{ background: 'rgba(239, 68, 68, 0.05)', border: '1px dashed #EF4444' }}>
                 <div>
                     <strong style={{color: '#EF4444'}}>⚙️ 시연용 타임머신 스위치</strong>
-                    <span style={{color: '#F87171', fontSize: '0.85rem', marginLeft: '10px'}}>(발표 시 요일 강제 전환용)</span>
                 </div>
                 <div style={{display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap'}}>
                     <button onClick={handleStartPhase1} style={{background: roundPhase === "KEYWORD" ? '#F59E0B' : '#4B5563', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'}}>
@@ -997,7 +995,7 @@ function App() {
                 <>
                     <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0F0F0F', padding: '15px 20px', borderRadius: '12px', border: '1px solid #2A2A2A', marginBottom: '20px'}}>
                         <span style={{color: '#38BDF8', fontWeight: 'bold', fontSize: '1.1rem'}}>🟢 Round #{currentRound?.round_number || "X"} 작품 투표 중</span>
-                        <span style={{color: '#9CA3AF'}}>이번 라운드 잔여 투표력(VP): <strong style={{color: 'white'}}>{myInfo.balance} VP</strong></span>
+                        <span style={{color: '#9CA3AF'}}>이번 라운드 잔여 투표력: <strong style={{color: 'white'}}>{myInfo.balance} TUK</strong></span>
                     </div>
 
                     {currentRound && currentRound.candidates && currentRound.candidates.length > 0 ? (
@@ -1013,14 +1011,14 @@ function App() {
                                         
                                         <div className="candidate-stats">
                                             <span style={{color: '#6B7280', fontSize: '0.9rem'}}>현재 누적 투자금</span>
-                                            <span className="vp-count">{candidate.vp_votes} VP</span>
+                                            <span className="vp-count">{candidate.vp_votes} TUK</span>
                                         </div>
 
                                         <div className="vote-action-box" onClick={(e) => e.stopPropagation()}> 
                                             <input 
                                                 type="number" 
                                                 className="vp-input" 
-                                                placeholder="VP 입력" 
+                                                placeholder="TUK 입력" 
                                                 min="1"
                                                 value={vpInputs[candidate.id] || ""}
                                                 onChange={(e) => setVpInputs({...vpInputs, [candidate.id]: e.target.value})}
@@ -1248,7 +1246,7 @@ function App() {
                     {/* 온체인 지갑 자산 */}
                     <div className="card" style={{background: '#1A1A1A', padding: '40px', textAlign: 'center', border: '1px solid #38BDF8', boxShadow: '0 4px 20px rgba(56, 189, 248, 0.1)'}}>
                         <h3 style={{color: '#9CA3AF', margin: '0 0 15px 0', fontSize: '1.1rem'}}>내 지갑 TUK 잔고 (On-chain)</h3>
-                        <div style={{fontSize: '3.5rem', fontWeight: 'bold', color: '#38BDF8'}}>{myInfo.balance} <span style={{fontSize:'1.5rem', color:'#6B7280'}}>TUK (VP)</span></div>
+                        <div style={{fontSize: '3.5rem', fontWeight: 'bold', color: '#38BDF8'}}>{myInfo.balance} <span style={{fontSize:'1.5rem', color:'#6B7280'}}>TUK</span></div>
                         <p style={{color: '#6B7280', fontSize: '0.95rem', marginTop: '15px'}}>투표에 사용할 수 있는 실제 블록체인 거버넌스 토큰입니다.</p>
                     </div>
                 </div>
@@ -1372,7 +1370,7 @@ function App() {
                 {/* 하단 정보바: 후보작(투표수)인지 우승작인지 구분해서 표시 */}
                 <div style={{ background: '#0F0F0F', padding: '20px', borderRadius: '12px', border: '1px solid #2A2A2A' }}>
                     {selectedCandidate.vp_votes !== undefined ? (
-                        <p style={{ color: '#9CA3AF', margin: 0 }}>현재 총 투자금: <strong style={{ color: '#38BDF8', fontSize: '1.4rem' }}>{selectedCandidate.vp_votes} VP</strong></p>
+                        <p style={{ color: '#9CA3AF', margin: 0 }}>현재 총 투자금: <strong style={{ color: '#38BDF8', fontSize: '1.4rem' }}>{selectedCandidate.vp_votes} TUK</strong></p>
                     ) : (
                         <p style={{ color: '#34D399', margin: 0, fontWeight: 'bold' }}>🏆 이 작품은 ArtDAO 명예의 전당에 헌액된 우승작입니다.</p>
                     )}
@@ -1387,31 +1385,6 @@ function App() {
       {/* ========================================== */}
       
       {/* 플로팅 버튼 (화면 우측 하단 고정) */}
-      <button 
-          onClick={() => setIsChatOpen(!isChatOpen)}
-          style={{
-              position: 'fixed',
-              bottom: '40px',
-              right: '40px',
-              width: '65px',
-              height: '65px',
-              borderRadius: '50%',
-              backgroundColor: '#3B82F6',
-              color: '#fff',
-              fontSize: '30px',
-              border: 'none',
-              boxShadow: '0 4px 15px rgba(0, 0, 0, 0.4)',
-              cursor: 'pointer',
-              zIndex: 2000,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'transform 0.3s ease',
-              transform: isChatOpen ? 'rotate(90deg)' : 'rotate(0deg)'
-          }}
-      >
-          {isChatOpen ? '✖' : '💬'}
-      </button>
 
       {/* 숨겨졌다가 나오는 AI 패널 */}
       <aside 
