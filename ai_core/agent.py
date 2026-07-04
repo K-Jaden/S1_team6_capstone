@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+import logging
 from queue import Queue, Empty
 from datetime import datetime
 from fastapi import FastAPI, HTTPException
@@ -12,6 +13,9 @@ from dotenv import load_dotenv
 from crewai_tools import SerperDevTool
 
 load_dotenv()
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
+logger = logging.getLogger("ai_core")
 
 app = FastAPI(title="ArtDAO CrewAI A2A Server", version="8.0-Streaming-A2A")
 
@@ -125,7 +129,7 @@ try:
     llm_factual = get_safe_llm(0.2)
     llm_chat = get_safe_llm(0.6)
 except Exception as e:
-    print(f"LLM 로드 실패: {e}")
+    logger.error(f"LLM 로드 실패: {e}")
     llm_creative = llm_factual = llm_chat = None
 
 search_tool = SerperDevTool()
@@ -159,7 +163,7 @@ def get_trends_keywords():
         res = str(crew.kickoff()).replace("```json", "").replace("```", "").strip()
         return json.loads(res)
     except Exception as e:
-        print(f"🔥 트렌드 추출 실패: {e}")
+        logger.warning(f"🔥 트렌드 추출 실패: {e}")
         return {
             "subjects": ["메타버스 공간", "우주 탐사선", "포스트 아포칼립스"],
             "styles": ["베이퍼웨이브", "3D 복셀", "글리치 아트"]
