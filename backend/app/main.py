@@ -238,10 +238,15 @@ def a2a_chat(request: ChatRequest): # 🚨 query parameter가 아니라 body로 
             logger.error(f"🔥 AI 서버 에러 ({response.status_code}): {response.text}")
             return {"reply": "AI 팀이 응답하지 않습니다. 잠시 후 다시 시도해주세요."}
             
-    except Exception as e:
+    except Exception:
         logger.exception("🔥 AI 채팅 통신 에러")
-        return {"reply": f"🚨 진짜 에러 원인: {str(e)}"}
-    
+        return {"reply": "AI 큐레이터와 연결할 수 없습니다. 잠시 후 다시 시도해주세요."}
+
+@app.post("/api/gallery/docent")
+def gallery_docent(request: ChatRequest):
+    # 도슨트 해설도 큐레이터 채팅과 동일한 AI 엔드포인트를 사용 (요청/응답 규격 동일)
+    return a2a_chat(request)
+
 # [명세서 추가 요청 2] 사용자 맞춤 작품 매칭 (A2A Recommend)
 @app.get("/api/a2a/recommend", summary="사용자 맞춤 작품 매칭")
 def a2a_recommend(wallet_address: str):
@@ -440,9 +445,9 @@ def finalize_proposal_ipfs(req: FinalizeProposalRequest):
             "image_ipfs_url": f"https://gateway.pinata.cloud/ipfs/{image_cid}", # 브라우저 표시용
             "token_uri": image_ipfs_url # 스마트 컨트랙트에 들어갈 최종 그림 주소
         }
-    except Exception as e:
+    except Exception:
         logger.exception("🔥 IPFS 업로드 에러")
-        return {"error": str(e)}
+        return {"error": "이미지 업로드 중 오류가 발생했습니다."}
     
     
 # =======================================================================
@@ -950,8 +955,7 @@ def virtual_sell_item(req: VirtualSellReq, db: Session = Depends(get_db)):
 
         return {"status": "success", "stake_ratio": stake_ratio * 100, "profit": my_profit, "total_price": auction_price}
         
-    except Exception as e:
-        # 🚨 [방어막 3] 파이썬이 뻗어도 CORS 에러 대신, 프론트엔드에 진짜 에러 이유를 텍스트로 쏴줌!
+    except Exception:
         logger.exception("🔥 가상 판매 에러 발생")
-        return {"error": f"서버 내부 오류: {str(e)}"}
+        return {"error": "판매 처리 중 오류가 발생했습니다."}
 
