@@ -61,9 +61,12 @@ app = FastAPI()
 os.makedirs("static/images", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# 배포 환경 origin은 CORS_ORIGINS 환경변수(콤마 구분)로 추가
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://13.125.234.38:3000"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -771,7 +774,8 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
                     with open(f"static/images/{filename}", "wb") as f: 
                         f.write(img_bytes)
                     
-                    image_url = f"http://13.125.234.38:8000/static/images/{filename}"
+                    # 상대경로로 저장 - 프론트 getImageUrl()이 API_URL을 붙여줌 (서버 IP 변경에 무관)
+                    image_url = f"/static/images/{filename}"
                     print(f"✅ [{idx}번 그림] 저장 완벽 성공!")
                 else:
                     print(f"🔥 [데이터 에러] CF가 그림을 안 줬습니다: {res_json}")

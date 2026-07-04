@@ -6,15 +6,11 @@ import "./App.css";
 import { DAO_CONTRACT_ADDRESS as CONTRACT_ADDRESS, TUK_TOKEN_ADDRESS } from './contracts/address';
 import ArtPlanningDAO from './contracts/ArtPlanningDAO.json';
 
-const currentHost = window.location.hostname;
-const API_URL = currentHost === "localhost" 
-  ? "http://localhost:8000" 
-  : "http://13.125.234.38:8000";
+// 서버 주소는 env로 주입 (배포 시 REACT_APP_API_URL / REACT_APP_AI_CORE_URL 설정)
+const API_URL = process.env.REACT_APP_API_URL || "http://localhost:8000";
 
 // 🔥 [NEW] AI Core 서버 주소 (SSE 직접 연결용)
-const AI_CORE_URL = currentHost === "localhost"
-  ? "http://localhost:8002"
-  : "http://13.125.234.38:8002";
+const AI_CORE_URL = process.env.REACT_APP_AI_CORE_URL || "http://localhost:8002";
 
 function App() {
 
