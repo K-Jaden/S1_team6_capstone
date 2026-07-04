@@ -853,8 +853,19 @@ def start_phase3_valuation(round_id: int = 0, session_id: str = "", db: Session 
     winner.is_winner = True
     db.commit()
 
+    top_keywords = db.query(models.Keyword).filter(
+        models.Keyword.round_id == round_id,
+        models.Keyword.vote_count > 0
+    ).order_by(desc(models.Keyword.vote_count)).limit(3).all()
+
     try:
-        res = requests.post(f"{AI_AGENT_URL}/api/agent/evaluate-winner-only", json={"title": winner.title, "description": winner.description, "session_id": session_id}, timeout=180)
+        res = requests.post(f"{AI_AGENT_URL}/api/agent/evaluate-winner-only", json={
+            "title": winner.title,
+            "description": winner.description,
+            "session_id": session_id,
+            "round_id": round_id,
+            "keywords": [k.word for k in top_keywords],
+        }, timeout=180)
         report = res.json().get("report", "훌륭한 작품입니다.")
     except Exception as e:
         logger.error(f"비평문 생성 실패: {e}")
