@@ -24,11 +24,16 @@ from web3 import Web3
 WEB3_PROVIDER_URL = os.getenv("WEB3_PROVIDER_URL", "http://blockchain:8545")
 w3 = Web3(Web3.HTTPProvider(WEB3_PROVIDER_URL))
 
-ADMIN_PRIVATE_KEY = os.getenv("ADMIN_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
-try:
-    ADMIN_ACCOUNT = w3.eth.account.from_key(ADMIN_PRIVATE_KEY)
-except:
-    ADMIN_ACCOUNT = None
+# 관리자 키는 반드시 환경변수로 주입 (미설정 시 온체인 기능만 비활성화되고 서버는 정상 동작)
+ADMIN_PRIVATE_KEY = os.getenv("ADMIN_PRIVATE_KEY")
+ADMIN_ACCOUNT = None
+if ADMIN_PRIVATE_KEY:
+    try:
+        ADMIN_ACCOUNT = w3.eth.account.from_key(ADMIN_PRIVATE_KEY)
+    except Exception as e:
+        print(f"⚠️ ADMIN_PRIVATE_KEY 로드 실패 - 온체인 기능 비활성화: {e}")
+else:
+    print("⚠️ ADMIN_PRIVATE_KEY 미설정 - 온체인 기능 비활성화")
 
 def get_dao_contract():
     try: 
