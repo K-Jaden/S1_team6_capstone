@@ -22,8 +22,9 @@ services:
 
   # 2. Vector DB (Chroma)
   chroma:
-    image: chromadb/chroma:latest
+    image: chromadb/chroma:0.6.3
     container_name: art_chroma
+    restart: unless-stopped
     ports:
       - "8001:8000"
     volumes:
@@ -56,6 +57,7 @@ services:
     build: ./backend
     container_name: art_backend
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
     ports:
       - "8000:8000"
     volumes:
@@ -73,12 +75,19 @@ services:
     env_file:
       # 👈 이 두 줄을 추가하세요!
       - .env # 👈
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
 
   # 5. Frontend (React)
   frontend:
     build: ./frontend
     container_name: art_frontend
     working_dir: /app
+    restart: unless-stopped
     ports:
       - "3000:3000"
     volumes:
@@ -98,10 +107,11 @@ services:
       - backend
       - blockchain
 
-  # 6. AI Agent (FastAPI) 
+  # 6. AI Agent (FastAPI)
   ai_core:
     build: ./ai_core
     container_name: art_ai_agent
+    restart: unless-stopped
     ports:
       - "8002:8002"
     volumes:
@@ -112,6 +122,12 @@ services:
       - default
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
 
 volumes:
   db_data:

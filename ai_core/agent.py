@@ -32,6 +32,12 @@ app.add_middleware(
 
 discussion_queues = {}
 
+@app.get("/health")
+def health():
+    # Gemini 실호출은 쿼터 낭비라 하지 않고, 키 존재 + LLM 로드 성공 여부만 확인
+    llm_ready = bool(os.getenv("GOOGLE_API_KEY")) and llm_creative is not None
+    return {"status": "ok" if llm_ready else "degraded", "llm_ready": llm_ready, "active_sessions": len(discussion_queues)}
+
 def push_log(session_id: str, agent_role: str, log_type: str, content: str):
     if session_id and session_id in discussion_queues:
         log_entry = {

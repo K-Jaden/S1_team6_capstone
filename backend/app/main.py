@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, func
+from sqlalchemy import desc, func, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from app import models, schemas, database
 from app.models import RoundPhase
@@ -16,6 +16,7 @@ import urllib.parse
 import requests
 from datetime import datetime
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from web3 import Web3
 from .ipfs import upload_bytes_to_ipfs, upload_json_to_ipfs
@@ -76,6 +77,29 @@ app.add_middleware(
 )
 
 get_db = database.get_db
+
+@app.get("/health")
+def health():
+    db_ok = False
+    try:
+        with database.engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        db_ok = True
+    except Exception as e:
+        logger.error(f"헬스체크 DB 연결 실패: {e}")
+
+    web3_ok = False
+    try:
+        web3_ok = w3.is_connected()
+    except Exception as e:
+        logger.warning(f"헬스체크 web3 연결 확인 실패: {e}")
+
+    # DB는 필수 의존성, web3(온체인)는 없어도 오프체인 기능은 정상 동작하므로 degraded 정보로만 표시
+    status_code = 200 if db_ok else 503
+    return JSONResponse(
+        {"status": "ok" if db_ok else "degraded", "db": db_ok, "web3": web3_ok},
+        status_code=status_code,
+    )
 
 # =========================================================
 # 1. 🔑 인증 & 유저 관리 (DB 연동)
