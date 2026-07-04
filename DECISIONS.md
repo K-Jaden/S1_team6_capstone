@@ -32,3 +32,13 @@
 **해결**: `fix/stability` 브랜치에서 커밋 단위로 분리 진행 - (S1) 시크릿 제거 및 미사용 파일 삭제, (S2) 하드코딩 URL을 env로 이동, (S3) print→logging 전환·중복 import 정리·bare except 제거, (S4) KeywordVoteLog에 UniqueConstraint(round_id, wallet_address) 추가 + commit 시 IntegrityError/SQLAlchemyError를 rollback으로 처리 + DB 커넥션 풀(pool_pre_ping/pool_recycle) 설정, (S5) 내부 에러 원문 노출 차단 + `/api/gallery/docent` 404 해소(a2a_chat 재사용 alias 추가). DB 마이그레이션은 Alembic 대신 "머지 후 팀 전원 `docker compose down -v` 1회" 방식 채택.
 **결과**: 유출된 Google API 키는 재발급 필요(사용자 조치 남음). unique 제약 추가로 인해 기존 DB에 중복 투표 로그가 있으면 재기동이 실패하므로 리셋 필수.
 **참고**: backend의 `/api/studio/draft`, `/api/agent/review`, `/api/agent/promote`는 ai_core에 대응 엔드포인트가 없는 죽은 프록시(항상 에러 폴백만 반환) - 다른 팀원 소유 코드일 가능성이 있어 이번 브랜치에서는 삭제하지 않고 그대로 둠. `/api/a2a/chat` 채팅 기능도 ai_core `/chat`이 없어 현재 항상 폴백 문구만 반환 - 기능 복구는 `feature/agent-upgrade` 브랜치에서 LangGraph로 `/chat`을 부활시키며 처리할 예정.
+
+## 2026-07-05: feature/agent-upgrade 브랜치 - CrewAI → LangGraph 마이그레이션 (에이전트 고도화 → 구조화 출력·RAG 부활)
+**문제**: `ai_core`가 CrewAI로 구현돼 있었는데, (1) 후보작 JSON을 `str(crew.kickoff())`에서 `find('[')/rfind(']')`로 잘라내는 방식이라 모델이 코드블록 서식을 조금만 바꿔도 파싱이 깨질 수 있었고, (2) docker-compose에 떠 있는 ChromaDB가 코드에서 전혀 쓰이지 않았으며, (3) backend가 호출하는 `ai_core /chat`이 애초에 존재하지 않아 AI 큐레이터 채팅이 항상 폴백 문구만 반환하는 상태였음.
+**시도한 것**: `ChatGoogleGenerativeAI(...).with_fallbacks([...])`에 바로 `.with_structured_output()`을 걸려고 했으나, `with_fallbacks()`가 반환하는 `RunnableWithFallbacks`는 구조화 출력 메서드를 갖고 있지 않아 실패. → `get_structured_llm()`을 별도로 만들어 "구조화 출력 바인딩 → 그 결과에 폴백"의 순서로 재구성해 해결.
+**해결**: `ai_core`를 `config/llm/schemas/streaming/tools/rag/chat.py` + `graphs/{trends,candidates,critique}.py`로 재편. CrewAI Task/Crew를 선형 LangGraph `StateGraph`(체크포인터·조건분기 없이 add_node+add_edge만 사용)로 대체하고, JSON 파싱은 `with_structured_output(Pydantic 스키마)`으로 교체. ChromaDB는 `langchain-chroma` + `GoogleGenerativeAIEmbeddings`로 연동해 라운드 종료 시 비평문을 아카이브하고, 다음 라운드 기획 시 유사 과거 사례를 검색해 프롬프트에 주입. `/chat`은 신규 구현. 기존 SSE 로그 형식(`{agent,type,content,timestamp}`)과 프론트가 참조하는 에이전트 이름 문자열은 그대로 유지해 프론트 무수정으로 마이그레이션.
+**결과 (E2E 검증 중 실제로 잡은 버그 2건)**:
+1. `ChatGoogleGenerativeAI`의 `AIMessage.content`가 항상 `str`이 아니라 `[{"type":"text","text":...,"extras":{...}}]` 형태의 블록 리스트로 오는 경우가 있어(Gemini 3 계열 특성으로 추정), 비평문에 파이썬 리스트가 그대로 노출되는 버그 발생 → `llm.to_text()` 정규화 헬퍼로 해결.
+2. 초기 설정한 임베딩 모델 `models/text-embedding-004`가 Gemini API에서 404(제거됨) → `client.models.list()`로 실제 사용 가능한 모델을 조회해 `models/gemini-embedding-001`로 교체.
+두 실제 스택(docker compose) 기동 후 trends/candidates/critique/chat 전 구간과 RAG 아카이브→검색 왕복, SSE 스트림, GOOGLE_API_KEY 누락 시 안전 폴백까지 확인 완료.
+**참고**: `SERPER_API_KEY`가 `.env`에 애초에 설정된 적이 없어(마이그레이션과 무관한 기존 공백) 웹 검색은 항상 실패하지만, `search_node`가 실패를 흡수하고 Gemini가 자체 지식으로 트렌드를 생성하도록 설계해 문제없이 동작.
