@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from app import models, schemas, database
 from app.models import RoundPhase
 from typing import List, Optional
@@ -15,7 +16,7 @@ import urllib.parse
 import requests
 from datetime import datetime
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from web3 import Web3
 from .ipfs import upload_bytes_to_ipfs, upload_json_to_ipfs
 
@@ -88,8 +89,13 @@ def wallet_login(req: schemas.WalletLoginRequest, db: Session = Depends(get_db))
     if not user:
         user = models.User(wallet_address=req.wallet_address, token_balance=100.0)
         db.add(user)
-        db.commit()
-        db.refresh(user)
+        try:
+            db.commit()
+            db.refresh(user)
+        except IntegrityError:
+            # 동시 요청으로 이미 가입된 경우 - 기존 유저를 다시 조회
+            db.rollback()
+            user = db.query(models.User).filter(models.User.wallet_address == req.wallet_address).first()
     
     return {"status": "success", "wallet_address": user.wallet_address}
 
@@ -509,23 +515,28 @@ def get_ended_rounds(db: Session = Depends(get_db)):
 class VoteReq(BaseModel):
     wallet_address: str
     candidate_id: int
-    vp_amount: int
+    vp_amount: int = Field(gt=0)
 
 @app.post("/api/vote")
 def cast_vote(req: VoteReq, db: Session = Depends(get_db)):
     candidate = db.query(models.Candidate).filter(models.Candidate.id == req.candidate_id).first()
     if not candidate:
         raise HTTPException(status_code=404, detail="후보작을 찾을 수 없습니다.")
-    
+
     new_vote = models.VoteLog(
-        round_id=candidate.round_id, 
-        candidate_id=candidate.id, 
-        voter_wallet=req.wallet_address, 
+        round_id=candidate.round_id,
+        candidate_id=candidate.id,
+        voter_wallet=req.wallet_address,
         vp_used=req.vp_amount
     )
     db.add(new_vote)
     candidate.vp_votes += req.vp_amount
-    db.commit()
+    try:
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("🔥 투표 저장 실패")
+        raise HTTPException(status_code=500, detail="투표 저장 중 오류가 발생했습니다.")
     return {"status": "success"}
 
 # =========================================================
@@ -588,18 +599,6 @@ def start_phase1_keywords(session_id: str = "", db: Session = Depends(get_db)):
     }
 
 # 🟢 [Step 1.5] 프론트에서 유저가 선택한 키워드 서버로 저장
-from sqlalchemy import Column, Integer, String
-
-# 🔥 키워드 중복 투표 방지용 로그 테이블 정의
-class KeywordVoteLog(models.Base):
-    __tablename__ = "keyword_vote_logs"
-    id = Column(Integer, primary_key=True, index=True)
-    round_id = Column(Integer, index=True)
-    wallet_address = Column(String(255), index=True)
-
-# 테이블 동적 생성 보장
-KeywordVoteLog.__table__.create(bind=database.engine, checkfirst=True)
-
 class KeywordVoteReq(BaseModel):
     round_id: int
     selected_words: list[str]
@@ -608,14 +607,16 @@ class KeywordVoteReq(BaseModel):
 
 @app.post("/api/rounds/vote-keyword")
 def vote_keywords(req: KeywordVoteReq, db: Session = Depends(get_db)):
+    if not req.wallet_address:
+        raise HTTPException(status_code=400, detail="지갑 연결이 필요합니다.")
+
     # 🔥 [핵심] 1인 1회 제한: 이미 해당 라운드에 투표한 지갑인지 검증
-    if req.wallet_address:
-        already_voted = db.query(KeywordVoteLog).filter(
-            KeywordVoteLog.round_id == req.round_id,
-            KeywordVoteLog.wallet_address == req.wallet_address
-        ).first()
-        if already_voted:
-            raise HTTPException(status_code=400, detail="이미 이 라운드의 키워드 설계 투표에 참여하셨습니다.")
+    already_voted = db.query(models.KeywordVoteLog).filter(
+        models.KeywordVoteLog.round_id == req.round_id,
+        models.KeywordVoteLog.wallet_address == req.wallet_address
+    ).first()
+    if already_voted:
+        raise HTTPException(status_code=400, detail="이미 이 라운드의 키워드 설계 투표에 참여하셨습니다.")
 
     for word in req.selected_words:
         kw = db.query(models.Keyword).filter(models.Keyword.round_id == req.round_id, models.Keyword.word == word, models.Keyword.type == "subject").first()
@@ -625,11 +626,14 @@ def vote_keywords(req: KeywordVoteReq, db: Session = Depends(get_db)):
         sk = db.query(models.Keyword).filter(models.Keyword.round_id == req.round_id, models.Keyword.word == req.selected_style, models.Keyword.type == "style").first()
         if sk: sk.vote_count += 1
 
-    # 🔥 투표 기록 확정 저장
-    if req.wallet_address:
-        db.add(KeywordVoteLog(round_id=req.round_id, wallet_address=req.wallet_address))
+    db.add(models.KeywordVoteLog(round_id=req.round_id, wallet_address=req.wallet_address))
 
-    db.commit()
+    # 🔥 동시 요청으로 인한 중복 투표는 unique 제약(round_id, wallet_address)이 최종 방어선
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="이미 이 라운드의 키워드 설계 투표에 참여하셨습니다.")
     return {"status": "success"}
 
 class CustomKeywordReq(BaseModel):
@@ -781,7 +785,12 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
         candidate_uris.append(image_url)
 
     target_round.status = RoundPhase.CANDIDATE_VOTING
-    db.commit()
+    try:
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("🔥 후보작 저장 실패 (이미지 생성 결과 유실 위험)")
+        raise HTTPException(status_code=500, detail="후보작 저장 중 오류가 발생했습니다.")
 
     try:
         if ADMIN_ACCOUNT:
@@ -838,8 +847,13 @@ def finalize_round_to_chain(req: FinalizeReq, db: Session = Depends(get_db)):
     winner.auction_price = req.price_tuk
     target_round.duration_days = req.duration_days
     target_round.status = RoundPhase.ENDED
-    db.commit()
-   
+    try:
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("🔥 라운드 결산 저장 실패")
+        raise HTTPException(status_code=500, detail="결산 저장 중 오류가 발생했습니다.")
+
     # =========================================================
     # 🚨 5. [핵심] 우승작 단 1개만 IPFS에 업로드하여 NFT 박제 준비!
     # =========================================================
@@ -861,10 +875,15 @@ def finalize_round_to_chain(req: FinalizeReq, db: Session = Depends(get_db)):
     db.add(models.GalleryItem(
         title=winner.title, 
         artist_address="ArtDAO Core AI", 
-        image_url=winner.image_url, 
+        image_url=winner.image_url,
         description=winner.description
     ))
-    db.commit()
+    try:
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("🔥 명예의 전당 등록 실패")
+        raise HTTPException(status_code=500, detail="명예의 전당 등록 중 오류가 발생했습니다.")
 
     # =========================================================
     # 🚨 6. [핵심] 스마트 컨트랙트 마감 (블록체인 등록)

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Float, ForeignKey, Boolean, Enum
+from sqlalchemy import Column, Integer, String, Text, DateTime, Float, ForeignKey, Boolean, Enum, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from .database import Base
@@ -47,10 +47,13 @@ class Round(Base):
     status = Column(Enum(RoundPhase), default=RoundPhase.TREND_SEARCH) 
     
     top_keywords = Column(Text, nullable=True) # JSON 문자열 예: '{"Cyberpunk": 0.5}'
-    duration_days = Column(Integer, default=7) 
-    
+    duration_days = Column(Integer, default=7)
+
     start_time = Column(DateTime, default=datetime.utcnow)
     end_time = Column(DateTime, nullable=True)
+
+    # 온체인 트랜잭션 성공 여부 (DB-체인 상태 불일치 추적용)
+    onchain_status = Column(String(20), default="pending")  # pending | confirmed | failed
 
     candidates = relationship("Candidate", back_populates="round")
     votes = relationship("VoteLog", back_populates="round")
@@ -66,6 +69,19 @@ class Keyword(Base):
     vote_count = Column(Integer, default=0)
 
     round = relationship("Round", back_populates="keywords")
+
+
+class KeywordVoteLog(Base):
+    """키워드 투표 1인 1회 제한용 로그 (round_id + wallet_address 조합 유일)"""
+    __tablename__ = "keyword_vote_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    round_id = Column(Integer, index=True)
+    wallet_address = Column(String(255), index=True)
+
+    __table_args__ = (
+        UniqueConstraint("round_id", "wallet_address", name="uq_kwvote_round_wallet"),
+    )
 
 
 # ==========================================
