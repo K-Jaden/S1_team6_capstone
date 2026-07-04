@@ -2,6 +2,7 @@ import os
 import json
 import asyncio
 import logging
+import time
 from queue import Queue, Empty
 from datetime import datetime
 from fastapi import FastAPI, HTTPException
@@ -31,6 +32,15 @@ app.add_middleware(
 )
 
 discussion_queues = {}
+_queue_created_at = {}  # session_id -> 생성 시각 (클라이언트 비정상 종료로 정리 안 된 세션 TTL 청소용)
+QUEUE_TTL_SECONDS = 30 * 60
+
+def _purge_stale_queues():
+    now = time.time()
+    stale = [sid for sid, created in _queue_created_at.items() if now - created > QUEUE_TTL_SECONDS]
+    for sid in stale:
+        discussion_queues.pop(sid, None)
+        _queue_created_at.pop(sid, None)
 
 @app.get("/health")
 def health():
@@ -83,9 +93,11 @@ def make_task_callback(session_id: str, agent_role: str = "에이전트"):
 
 @app.get("/api/agent/stream/{session_id}")
 async def stream_discussion(session_id: str):
+    _purge_stale_queues()
     if session_id not in discussion_queues:
         discussion_queues[session_id] = Queue()
-    
+        _queue_created_at[session_id] = time.time()
+
     async def event_generator():
         q = discussion_queues[session_id]
         hello = {
@@ -105,8 +117,8 @@ async def stream_discussion(session_id: str):
                     yield f": keepalive\n\n"
                     await asyncio.sleep(0.1)
         finally:
-            if session_id in discussion_queues:
-                del discussion_queues[session_id]
+            discussion_queues.pop(session_id, None)
+            _queue_created_at.pop(session_id, None)
     
     return StreamingResponse(
         event_generator(),

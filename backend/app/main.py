@@ -917,6 +917,7 @@ def finalize_round_to_chain(req: FinalizeReq, db: Session = Depends(get_db)):
     # =========================================================
     # 🚨 6. [핵심] 스마트 컨트랙트 마감 (블록체인 등록)
     # =========================================================
+    onchain_ok = False
     try:
         if ADMIN_ACCOUNT:
             dao_contract = get_dao_contract()
@@ -930,10 +931,15 @@ def finalize_round_to_chain(req: FinalizeReq, db: Session = Depends(get_db)):
                 })
                 signed_tx = w3.eth.account.sign_transaction(tx, private_key=ADMIN_PRIVATE_KEY)
                 w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+                onchain_ok = True
     except Exception as e:
         logger.error(f"온체인 라운드 마감 실패: {e}")
 
-    return {"message": "최종 결산 및 스마트 컨트랙트 등록 완료!"}
+    # DB는 이미 ENDED로 확정되었으므로, 체인 tx 실패 시 상태만 기록해 불일치를 추적 가능하게 함
+    target_round.onchain_status = "confirmed" if onchain_ok else "failed"
+    db.commit()
+
+    return {"message": "최종 결산 및 스마트 컨트랙트 등록 완료!", "onchain": onchain_ok}
 
 # 🟢 [가상 판매 (배당금 수령)]
 class VirtualSellReq(BaseModel):

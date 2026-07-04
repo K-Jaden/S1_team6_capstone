@@ -2,14 +2,12 @@ fastapi
 uvicorn
 pydantic
 requests
-python-dotenv
+python-dotenv==1.0.0
 langchain
 langchain-community
 langchain-core
 langchain-google-genai
 google-generativeai==0.8.3
 web3==6.15.1
-python-dotenv==1.0.0
 crewai
-langchain-google-genai
 crewai_tools
