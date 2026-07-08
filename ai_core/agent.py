@@ -179,7 +179,7 @@ def generate_weighted_candidates(req: WeightedCandidateRequest):
     if session_id and session_id not in discussion_queues:
         discussion_queues[session_id] = Queue()
     
-    dist_str = ", ".join([f"'{k}' ({int(v*100)}% 비중)" for k, v in req.weights.items()])
+    dist_str = ", ".join([f"'{k}' (가중치: {v})" for k, v in req.weights.items()])
     push_log(session_id, "시스템", "system", f"🎨 유저 투표 반영 기획 시작: {dist_str}")
     
     task_plan = Task(
@@ -195,7 +195,8 @@ def generate_weighted_candidates(req: WeightedCandidateRequest):
         2. 고정 표현 방식(화풍 및 재질): 무조건 '{req.style}' 반영
         
         [프롬프트 작성 황금 공식]
-        '[가중치가 반영된 테마들], in the style of [고정 표현 방식]'
+        이미지 생성 AI가 키워드별 가중치를 정확히 인식할 수 있도록, 전달받은 가중치 점수를 이용해 반드시 수학적 괄호 문법 (keyword: weight)을 프롬프트 안에 삽입하세요.
+        예시 포맷: '(주요 키워드: 가중치 값), (부차적 키워드: 가중치 값), in the style of [고정 표현 방식]'
         
         출력은 무조건 순수 JSON 배열만 작성하세요:
         [

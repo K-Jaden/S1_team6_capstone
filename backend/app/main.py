@@ -701,17 +701,11 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
     else:
         # 🔥 [수정 2] 총 5개의 작품을 실제 득표 비율(%)에 맞춰 수학적으로 완벽하게 분배
         total_votes = sum(kw.vote_count for kw in top_subjects)
-        remaining_artworks = 5
-        
-        for i, kw in enumerate(top_subjects):
-            if i == len(top_subjects) - 1:
-                # 마지막 키워드는 남은 개수 전부 몰빵 (예: 1개만 골랐으면 여기에 5개가 다 들어감)
-                keyword_distribution[kw.word] = remaining_artworks
-            else:
-                # 득표 비율에 맞춰 5개 중 몇 개를 그릴지 계산 (반올림)
-                share = int(round((kw.vote_count / total_votes) * 5))
-                keyword_distribution[kw.word] = share
-                remaining_artworks -= share
+        # 득표 비율(%)을 바탕으로 이미지 생성 AI 괄호 문법에 맞는 실수형 가중치(1.0 ~ 1.5) 산출
+        for kw in top_subjects:
+            ratio = kw.vote_count / total_votes
+            weight = round(1.0 + (ratio * 0.5), 2)
+            keyword_distribution[kw.word] = weight
 
     # 스타일(화풍)도 투표받은 것 중에 1등만 선택
     style_kw = db.query(models.Keyword).filter(
