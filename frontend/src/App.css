@@ -57,7 +57,7 @@ body {
   font-size: 0.95rem; 
   cursor: pointer; 
   transition: 0.2s;
-  border-radius: 8px; 
+  border-radius: 4px; 
   margin-bottom: 5px;
   display: flex;
   align-items: center;
@@ -91,7 +91,7 @@ body {
   color: #000; 
   border: none; 
   padding: 10px 25px; 
-  border-radius: 30px; /* 둥근 버튼 */
+  border-radius: 4px; /* 둥근 버튼 */
   cursor: pointer; 
   font-weight: bold; 
   transition: 0.2s;
@@ -99,7 +99,7 @@ body {
 .connect-btn:hover { background: var(--accent-hover); }
 
 .logged-in-box { display: flex; align-items: center; gap: 15px; }
-.badge-connected { background: #2A2A2A; color: var(--text-main); padding: 8px 15px; border-radius: 20px; font-size: 0.9rem; border: 1px solid var(--border); }
+.badge-connected { background: #2A2A2A; color: var(--text-main); padding: 8px 15px; border-radius: 4px; font-size: 0.9rem; border: 1px solid var(--border); }
 .logout-btn { background: transparent; color: var(--text-sub); border: none; cursor: pointer; text-decoration: underline; }
 .logout-btn:hover { color: #ef4444; }
 
@@ -117,7 +117,7 @@ body {
 .card { 
   background: var(--bg-panel); 
   border: 1px solid var(--border);
-  border-radius: 16px; 
+  border-radius: 4px; 
   padding: 25px; 
   box-shadow: none; /* 다크모드에선 그림자보다 보더가 중요 */
 }
@@ -168,12 +168,12 @@ body {
   background: var(--bg-dark); 
   border: 1px solid var(--border); 
   color: var(--accent);
-  border-radius: 8px; 
+  border-radius: 4px; 
 }
 .chat-input input::placeholder { color: var(--text-sub); }
 
 /* ==========================================
-   [FIX] 세련된 다크모드 전용 스크롤바 커스텀
+   세련된 다크모드 전용 스크롤바 커스텀
    ========================================== */
 ::-webkit-scrollbar {
   width: 6px;
@@ -184,14 +184,14 @@ body {
 }
 ::-webkit-scrollbar-thumb {
   background: #374151; 
-  border-radius: 10px;
+  border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #4B5563; 
 }
 
 /* ==========================================
-   [FIX] 스크롤 레이아웃 완벽 교정 (영역별 독립 스크롤)
+   스크롤 레이아웃 완벽 교정 (영역별 독립 스크롤)
    ========================================== */
 .App { 
   display: flex; 
@@ -202,7 +202,7 @@ body {
 .main-content {
   flex: 1;
   height: 100%;
-  overflow-y: auto; /* ✅ 메인 컨텐츠만 독립적으로 스크롤! */
+  overflow-y: auto; /* 메인 컨텐츠만 독립적으로 스크롤! */
   padding-bottom: 50px;
 }
 .right-panel {
@@ -219,7 +219,7 @@ body {
 }
 .messages {
   flex: 1;
-  overflow-y: auto; /* ✅ 채팅 내용만 독립적으로 스크롤! */
+  overflow-y: auto; /* 채팅 내용만 독립적으로 스크롤! */
   padding: 20px;
 }
 .chat-input {
@@ -227,7 +227,7 @@ body {
 }
 
 /* ==========================================
-   [NEW] AI Studio 세련된 글래스모피즘 디자인
+   AI Studio 세련된 글래스모피즘 디자인
    ========================================== */
 .studio-layout {
   display: grid;
@@ -237,7 +237,7 @@ body {
 .studio-card {
   background: linear-gradient(145deg, #1A1A1A 0%, #111111 100%);
   border: 1px solid #2A2A2A;
-  border-radius: 16px;
+  border-radius: 4px;
   padding: 30px;
   box-shadow: 0 10px 30px rgba(0,0,0,0.4);
   display: flex;
@@ -249,7 +249,7 @@ body {
   border: 1px solid #333;
   color: #fff;
   padding: 16px;
-  border-radius: 12px;
+  border-radius: 4px;
   font-size: 1.05rem;
   outline: none;
   transition: all 0.3s;
@@ -265,7 +265,7 @@ body {
   border: 1px solid #333;
   color: #D1D5DB;
   padding: 16px;
-  border-radius: 12px;
+  border-radius: 4px;
   font-size: 0.95rem;
   line-height: 1.6;
   outline: none;
@@ -277,7 +277,7 @@ body {
   color: #0F0F0F;
   padding: 16px 20px;
   border: none;
-  border-radius: 12px;
+  border-radius: 4px;
   font-weight: bold;
   font-size: 1.05rem;
   cursor: pointer;
@@ -298,7 +298,7 @@ body {
   transform: none;
 }
 /* ==========================================
-   [수정] 우측 고정 패널 채팅방 (말풍선 디자인)
+   우측 고정 패널 채팅방 (말풍선 디자인)
    ========================================== */
 .chat-window { 
   display: flex; 
@@ -363,7 +363,7 @@ body {
 }
 
 /* ==========================================
-   [NEW] 안건 목록(Proposals) 고급 카드 디자인
+   안건 목록(Proposals) 고급 카드 디자인
    ========================================== */
 .proposals-header-wrap {
   display: flex;
@@ -384,7 +384,7 @@ body {
   color: #9CA3AF;
   border: 1px solid #2A2A2A;
   padding: 8px 18px;
-  border-radius: 20px;
+  border-radius: 4px;
   cursor: pointer;
   font-size: 0.9rem;
   font-weight: 600;
@@ -399,7 +399,7 @@ body {
 .proposal-premium-card {
   background: linear-gradient(145deg, #1A1A1A 0%, #151515 100%);
   border: 1px solid #2A2A2A;
-  border-radius: 16px;
+  border-radius: 4px;
   padding: 24px;
   margin-bottom: 20px;
   display: flex;
@@ -479,7 +479,7 @@ body {
   width: 140px;
   height: 140px;
   flex-shrink: 0;
-  border-radius: 12px;
+  border-radius: 4px;
   overflow: hidden;
   border: 1px solid #2A2A2A;
   background: #0F0F0F;
@@ -498,12 +498,12 @@ body {
   transform: scale(1.05); /* 호버 시 이미지 살짝 확대 */
 }
 /* ==========================================
-   [NEW] A2A 사고 과정 (Premium Thinking UI)
+   A2A 사고 과정 (Premium Thinking UI)
    ========================================== */
 .a2a-premium-thinking {
   background: linear-gradient(180deg, rgba(30, 41, 59, 0.4) 0%, rgba(15, 23, 42, 0.4) 100%);
   border: 1px solid rgba(56, 189, 248, 0.2);
-  border-radius: 12px;
+  border-radius: 4px;
   padding: 25px;
   margin-top: 15px;
   margin-bottom: 15px;
@@ -592,7 +592,7 @@ body {
 }
 
 /* ==========================================
-   [FIX] 안건 작성 폼 (세로 레이아웃 완벽 복구)
+   안건 작성 폼 (세로 레이아웃 완벽 복구)
    ========================================== */
 .form-card {
   display: flex;
@@ -612,7 +612,7 @@ body {
   width: 100%;
   padding: 14px;
   border: 1px solid #2A2A2A;
-  border-radius: 8px;
+  border-radius: 4px;
   background: #0F0F0F;
   color: #F3F4F6;
   box-sizing: border-box;
@@ -634,7 +634,7 @@ body {
 }
 .btn-group button {
   padding: 14px 24px;
-  border-radius: 8px;
+  border-radius: 4px;
   font-weight: bold;
   cursor: pointer;
   border: none;
@@ -647,7 +647,7 @@ body {
 .btn-group .primary:hover { background: #2563EB; }
 
 /* ==========================================
-   [FIX] 우측 채팅창 (입력창 + 로딩 애니메이션)
+   우측 채팅창 (입력창 + 로딩 애니메이션)
    ========================================== */
 .chat-input-wrapper {
   display: flex;
@@ -663,7 +663,7 @@ body {
   outline: none;
   background: #1A1A1A;
   color: #fff;
-  border-radius: 25px; /* 동글동글하게 */
+  border-radius: 4px; /* 동글동글하게 */
   transition: border-color 0.3s;
 }
 .chat-text-input:focus {
@@ -717,7 +717,7 @@ body {
   40% { transform: scale(1); background: var(--primary); opacity: 1; }
 }
 /* ==========================================
-   [NEW] Botto DAO 스타일 후보작 투표 갤러리
+   Botto DAO 스타일 후보작 투표 갤러리
    ========================================== */
 .candidate-grid {
   display: grid;
@@ -729,7 +729,7 @@ body {
 .candidate-card {
   background: #1A1A1A;
   border: 1px solid #2A2A2A;
-  border-radius: 16px;
+  border-radius: 4px;
   overflow: hidden;
   transition: transform 0.3s ease, border-color 0.3s ease;
   display: flex;
@@ -809,7 +809,7 @@ body {
   border: 1px solid #2A2A2A;
   color: #fff;
   padding: 10px;
-  border-radius: 8px;
+  border-radius: 4px;
   outline: none;
   text-align: center;
   font-weight: bold;
@@ -820,7 +820,7 @@ body {
   color: white;
   border: none;
   padding: 10px 20px;
-  border-radius: 8px;
+  border-radius: 4px;
   cursor: pointer;
   font-weight: bold;
   transition: background 0.2s;
@@ -832,7 +832,7 @@ body {
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.3);
   padding: 15px 20px;
-  border-radius: 12px;
+  border-radius: 4px;
   margin-bottom: 30px;
   display: flex;
   justify-content: space-between;
@@ -853,7 +853,7 @@ body {
   margin: 0;
 }
 /* =================================================================== */
-/* 🔥 [NEW] AI 에이전트 난상토론 라이브 뷰어 스타일                      */
+/* AI 에이전트 난상토론 라이브 뷰어 스타일                      */
 /* 기존 다크 테마(검정+네온) 톤 유지                                     */
 /* =================================================================== */
 
@@ -886,7 +886,7 @@ body {
   max-width: 900px;
   height: 85vh;
   max-height: 850px;
-  border-radius: 20px;
+  border-radius: 4px;
   border: 1px solid #2A2A2A;
   box-shadow: 0 20px 60px rgba(56, 189, 248, 0.15);
   display: flex;
@@ -940,7 +940,7 @@ body {
   padding: 4px 10px;
   background: rgba(239, 68, 68, 0.15);
   border: 1px solid #EF4444;
-  border-radius: 20px;
+  border-radius: 4px;
   font-size: 0.75rem;
   font-weight: bold;
   color: #EF4444;
@@ -1048,7 +1048,7 @@ body {
 /* ---------- 메시지 카드 ---------- */
 .discussion-msg {
   border-left: 3px solid #38BDF8;
-  border-radius: 8px;
+  border-radius: 4px;
   padding: 14px 18px;
   background: rgba(56, 189, 248, 0.05);
   animation: msgSlideIn 0.4s ease-out;
@@ -1083,7 +1083,7 @@ body {
   font-size: 1.1rem;
 }
 
-/* ⭐ 핵심: 에이전트 역할명만 색이 들어감 */
+/* 핵심: 에이전트 역할명만 색이 들어감 */
 .discussion-msg-agent {
   font-weight: bold;
   font-size: 0.95rem;
@@ -1096,7 +1096,7 @@ body {
   color: #9CA3AF;
   background: #1A1A1A;
   padding: 3px 10px;
-  border-radius: 12px;
+  border-radius: 4px;
   border: 1px solid #2A2A2A;
   letter-spacing: 0.3px;
 }
@@ -1125,7 +1125,7 @@ body {
   padding: 14px 18px;
   background: rgba(56, 189, 248, 0.05);
   border-left: 3px solid #38BDF8;
-  border-radius: 8px;
+  border-radius: 4px;
   margin-top: 4px;
 }
 
@@ -1176,7 +1176,7 @@ body {
     width: 95%;
     height: 90vh;
     max-height: none;
-    border-radius: 12px;
+    border-radius: 4px;
   }
 
   .discussion-header {
@@ -1202,13 +1202,13 @@ body {
   }
 }
 /* =================================================================== */
-/* 🔥 [NEW] Co-creation (키워드 투표 & 결산) 커스텀 UI CSS            */
+/* Co-creation (키워드 투표 & 결산) 커스텀 UI CSS            */
 /* =================================================================== */
 
 .co-creation-panel {
   background: linear-gradient(145deg, #1A1A1A 0%, #151515 100%);
   border: 1px solid #2A2A2A;
-  border-radius: 16px;
+  border-radius: 4px;
   padding: 35px;
   box-shadow: 0 10px 30px rgba(0,0,0,0.4);
 }
@@ -1227,7 +1227,7 @@ body {
   color: #9CA3AF;
   border: 1px solid #333;
   padding: 12px 24px;
-  border-radius: 30px;
+  border-radius: 4px;
   font-size: 1.05rem;
   font-weight: 600;
   cursor: pointer;
