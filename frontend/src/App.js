@@ -721,8 +721,8 @@ function App() {
 
                             {/* 실시간 내 자산 글로벌 위젯 */}
                             <div style={{ display: 'flex', gap: '15px', background: '#1A1A1A', padding: '10px 20px', borderRadius: '30px', border: '1px solid #333', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}>
-                                <span style={{ color: '#9CA3AF', fontSize: '0.95rem' }}>
-                                    투표권: <strong style={{ color: '#38BDF8' }}>{myInfo.balance} TUK</strong>
+                                <span style={{ color: '#9CA3AF', fontSize: '0.95rem' }} title={`${Number(myInfo.balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TUK`}>
+                                    투표권: <strong style={{ color: '#38BDF8' }}>{Number(myInfo.balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TUK</strong>
                                 </span>
                             </div>
                             {/* 지갑 주소 및 로그아웃 */}
@@ -988,7 +988,7 @@ function App() {
                             <>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0F0F0F', padding: '15px 20px', borderRadius: '12px', border: '1px solid #2A2A2A', marginBottom: '20px' }}>
                                     <span style={{ color: '#38BDF8', fontWeight: 'bold', fontSize: '1.1rem' }}>라운드 #{currentRound?.round_number || "X"} 작품 투표 중</span>
-                                    <span style={{ color: '#9CA3AF' }}>이번 라운드 잔여 투표력: <strong style={{ color: 'white' }}>{myInfo.balance} TUK</strong></span>
+                                    <span style={{ color: '#9CA3AF' }} title={`${Number(myInfo.balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TUK`}>이번 라운드 잔여 투표력: <strong style={{ color: 'white' }}>{Number(myInfo.balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TUK</strong></span>
                                 </div>
 
                                 {currentRound && currentRound.candidates && currentRound.candidates.length > 0 ? (
@@ -1167,7 +1167,7 @@ function App() {
                                                     /*  Case 1: 판매 대기 중 상태 (결정된 매각 금액 시각화 강조) */
                                                     <div style={{ padding: '15px', background: '#0F0F0F', borderRadius: '12px', border: '1px solid #333' }}>
                                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                                            <span style={{ color: '#9CA3AF', fontSize: '0.85rem' }}> 확정 가상 매각가</span>
+                                                            <span style={{ color: '#9CA3AF', fontSize: '0.85rem' }} title={`${Number(myInfo.balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TUK`}> 확정 가상 매각가</span>
                                                             <strong style={{ color: '#FBBF24', fontSize: '1.2rem' }}>{Number(item.auction_price || 0).toLocaleString()} TUK</strong>
                                                         </div>
                                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1239,7 +1239,7 @@ function App() {
                                     {/* 온체인 지갑 자산 */}
                                     <div className="card" style={{ background: '#1A1A1A', padding: '40px', textAlign: 'center', border: '1px solid #38BDF8', boxShadow: '0 4px 20px rgba(56, 189, 248, 0.1)' }}>
                                         <h3 style={{ color: '#9CA3AF', margin: '0 0 15px 0', fontSize: '1.1rem' }}>내 지갑 TUK 잔고 (On-chain)</h3>
-                                        <div style={{ fontSize: '3.5rem', fontWeight: 'bold', color: '#38BDF8' }}>{myInfo.balance} <span style={{ fontSize: '1.5rem', color: '#6B7280' }}>TUK</span></div>
+                                        <div style={{ fontSize: '3.5rem', fontWeight: 'bold', color: '#38BDF8' }}>{Number(myInfo.balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span style={{ fontSize: '1.5rem', color: '#6B7280' }}>TUK</span></div>
                                         <p style={{ color: '#6B7280', fontSize: '0.95rem', marginTop: '15px' }}>투표에 사용할 수 있는 실제 블록체인 거버넌스 토큰입니다.</p>
                                     </div>
                                 </div>
@@ -1430,7 +1430,7 @@ function App() {
                             <div className="msg bot">
                                 <div className="bot-name"><span></span> ArtDAO Guide</div>
                                 <div className="chat-typing-indicator" style={{ padding: '12px', background: '#1A1A1A', borderRadius: '12px', display: 'inline-block' }}>
-                                    <span style={{ color: '#9CA3AF' }}>입력 중...</span>
+                                    <span style={{ color: '#9CA3AF' }} title={`${Number(myInfo.balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TUK`}>입력 중...</span>
                                 </div>
                             </div>
                         )}
@@ -1528,7 +1528,7 @@ function App() {
                                     <div className="dot"></div>
                                     <div className="dot"></div>
                                     <div className="dot"></div>
-                                    <span style={{ marginLeft: '10px', color: '#9CA3AF', fontSize: '0.85rem' }}>
+                                    <span style={{ marginLeft: '10px', color: '#9CA3AF', fontSize: '0.85rem' }} title={`${Number(myInfo.balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TUK`}>
                                         에이전트가 사고 중...
                                     </span>
                                 </div>
