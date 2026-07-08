@@ -12,6 +12,7 @@ logger = logging.getLogger("ai_core")
 
 import chat as chat_module
 import llm as llm_module
+import rag
 import streaming
 from graphs.candidates import get_candidates_graph
 from graphs.critique import get_critique_graph
@@ -110,6 +111,17 @@ def evaluate_winner_only(req: WinnerEvalOnlyRequest):
         streaming.push_log(session_id, "시스템", "error", f"비평 에러: {e}")
         streaming.push_log(session_id, "시스템", "final", "✅ 비평 완료 (오류)")
         return {"report": "비평문 생성 중 오류가 발생했습니다."}
+
+
+@app.get("/api/agent/rag-debug")
+def rag_debug(query: str, k: int = 5):
+    """데모/디버그 전용 - RAG에 실제로 어떤 데이터가 들어있고 특정 쿼리에 무엇이 검색되는지
+    눈으로 바로 확인하기 위한 엔드포인트. 채팅/생성 흐름에는 영향 없는 읽기 전용 조회."""
+    return {
+        "query": query,
+        "total_documents": rag.count(),
+        "results": rag.search_similar_debug(query, k=k),
+    }
 
 
 @app.post("/chat")

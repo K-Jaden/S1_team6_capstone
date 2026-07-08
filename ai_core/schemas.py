@@ -19,6 +19,17 @@ class CandidateList(BaseModel):
     candidates: List[CandidateConcept] = Field(min_length=5, max_length=5)
 
 
+class SeedRound(BaseModel):
+    keywords: List[str] = Field(description="이 라운드의 핵심 테마/화풍 키워드 2~3개")
+    title: str = Field(description="한국어 전시/작품 제목")
+    description: str = Field(description="한국어 설명, 2~3문장")
+    report: str = Field(description="미술 비평가 톤의 비평 요지, 2~3문단")
+
+
+class SeedRoundBatch(BaseModel):
+    rounds: List[SeedRound]
+
+
 # ---- API 요청/응답 모델 ----
 
 class WeightedCandidateRequest(BaseModel):
