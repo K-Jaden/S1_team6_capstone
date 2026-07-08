@@ -642,7 +642,7 @@ function App() {
 
           fetchGallery(); // 갤러리 데이터 새로고침
 	  fetchEndedRounds();
-          setActiveTab("gallery"); // 명예의 전당 탭으로 자동 이동!
+          setActiveTab("명예의전당"); // 명예의 전당 탭으로 자동 이동!
           setRoundPhase("KEYWORD"); // 라운드 상태 초기화
           alert("🎉 최종 결산 및 스마트 컨트랙트 등록이 완료되었습니다!\n우승작이 명예의 전당(Hall of Fame)에 영구 박제되었습니다.");
       } catch (err) {
@@ -705,10 +705,10 @@ function App() {
         <h1 className="logo" onClick={() => setActiveTab("대시보드")} style={{cursor: 'pointer'}}>ArtDAO</h1>
         
         <nav>
-        <button className={activeTab==="main"?"active":""} onClick={()=>setActiveTab("대시보드")}>📊 Dashboard</button>
-        <button className={activeTab==="curate"?"active":""} onClick={()=>setActiveTab("큐레이션")}> Curate</button>
-        <button className={activeTab==="gallery"?"active":""} onClick={()=>setActiveTab("gallery")}>🖼️ Hall of Fame</button>
-        <button className={activeTab==="mypage"?"active":""} onClick={()=>setActiveTab("mypage")}>👤 Profile</button>
+        <button className={activeTab==="대시보드"?"active":""} onClick={()=>setActiveTab("대시보드")}>대시보드</button>
+        <button className={activeTab==="큐레이션"?"active":""} onClick={()=>setActiveTab("큐레이션")}>큐레이션</button>
+        <button className={activeTab==="명예의전당"?"active":""} onClick={()=>setActiveTab("명예의전당")}>명예의 전당</button>
+        <button className={activeTab==="프로필"?"active":""} onClick={()=>setActiveTab("프로필")}>프로필</button>
         </nav>
         
 
@@ -1098,7 +1098,7 @@ function App() {
           </div>
         )}
         {/* Hall of Fame */}
-        {activeTab === "gallery" && (
+        {activeTab === "명예의전당" && (
             <div className="page fade-in">
                 <h2 style={{fontFamily: "'Playfair Display', serif", fontSize: "2.5rem"}}>🖼️ Hall of Fame</h2>
                 <p style={{color: '#9CA3AF', marginBottom: '30px'}}>대중의 선택을 받아 NFT로 영구 박제된 우승작 컬렉션입니다.</p>
@@ -1229,7 +1229,7 @@ function App() {
             </div>
         )}
 
-        {activeTab === "mypage" && (
+        {activeTab === "프로필" && (
     <div className="page fade-in">
         <h2 style={{fontFamily: "'Playfair Display', serif", fontSize: "2.5rem", marginBottom: '30px'}}>👤 My Assets & Activity</h2>
         {!isLoggedIn ? <p style={{color: '#9CA3AF'}}>지갑을 먼저 연결해주세요.</p> : (
