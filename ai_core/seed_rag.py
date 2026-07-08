@@ -15,8 +15,11 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
 logger = logging.getLogger("ai_core.seed_rag")
 
+import random
+
 import llm
 import rag
+from graphs.critique import refresh_digest_now
 from schemas import SeedRoundBatch
 
 # 실제 게임의 pool_subjects/pool_styles(backend/app/main.py) 어휘와 맞춘 테마 클러스터.
@@ -65,6 +68,8 @@ def run():
 
         for idx, item in enumerate(batch.rounds):
             doc_id = f"seed-{cluster_slug}-{idx}"
+            # "역대 인기작" 채널 데모용 - 실제 투표처럼 보이도록 편차 있는 득표수를 부여
+            fake_vp_votes = random.randint(10, 500)
             rag.archive_round(
                 round_id=seed_id,
                 keywords=item.keywords,
@@ -72,12 +77,25 @@ def run():
                 description=item.description,
                 report=item.report,
                 doc_id=doc_id,
+                vp_votes=fake_vp_votes,
             )
-            logger.info(f"  archived [{doc_id}] '{item.title}' ({', '.join(item.keywords)})")
+            logger.info(f"  archived [{doc_id}] '{item.title}' ({', '.join(item.keywords)}, vp={fake_vp_votes})")
             seed_id -= 1
             total_archived += 1
 
     logger.info(f"완료: {total_archived}건 아카이브 시도. 컬렉션 총 문서 수: {rag.count()}")
+
+    logger.info("커뮤니티 방향성 요약본 생성 중...")
+    digest = refresh_digest_now()
+    if digest:
+        logger.info(f"방향성 요약본: {digest}")
+    else:
+        logger.warning("방향성 요약본 생성 실패 또는 데이터 부족")
+
+    top_rounds = rag.get_top_rounds(limit=3)
+    logger.info(f"--- 역대 인기작 top {len(top_rounds)} ---")
+    for t in top_rounds:
+        logger.info(f"  {t[:80]}...")
 
     # 데모 확인용 - 시드 데이터가 실제로 검색되는지 샘플 쿼리로 바로 증명
     sample_queries = ["사이버펑크 로봇", "몽환적인 자연", "미니멀 기하학"]

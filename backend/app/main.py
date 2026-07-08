@@ -865,6 +865,7 @@ def start_phase3_valuation(round_id: int = 0, session_id: str = "", db: Session 
             "session_id": session_id,
             "round_id": round_id,
             "keywords": [k.word for k in top_keywords],
+            "vp_votes": winner.vp_votes,
         }, timeout=180)
         report = res.json().get("report", "훌륭한 작품입니다.")
     except Exception as e:

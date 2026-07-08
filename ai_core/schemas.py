@@ -44,6 +44,7 @@ class WinnerEvalOnlyRequest(BaseModel):
     session_id: str = ""
     round_id: Optional[int] = None
     keywords: List[str] = []
+    vp_votes: int = 0
 
 
 class ChatRequest(BaseModel):

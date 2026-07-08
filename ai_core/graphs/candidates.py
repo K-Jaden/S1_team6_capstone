@@ -29,13 +29,26 @@ def _dist_str(weights: dict) -> str:
 
 def retrieve_context_node(state: CandidatesState) -> CandidatesState:
     query = f"{', '.join(state['weights'].keys())} {state['style']}"
+    digest = rag.get_current_digest()
+    top_rounds = rag.get_top_rounds(limit=2)
     similar = rag.search_similar(query, k=3)
+
+    parts = []
+    log_bits = []
+    if digest:
+        parts.append(f"[커뮤니티 방향성 요약]\n{digest}")
+        log_bits.append("방향성 요약")
+    if top_rounds:
+        parts.append("[역대 인기 라운드]\n" + "\n".join(f"- {t}" for t in top_rounds))
+        log_bits.append(f"역대 인기작 {len(top_rounds)}건")
     if similar:
-        push_log(state["session_id"], PLANNER_NAME, "thought", f"📚 과거 라운드 {len(similar)}건 참조")
-        context = "\n".join(f"- {s}" for s in similar)
-    else:
-        context = ""
-    return {**state, "rag_context": context}
+        parts.append("[이번 주제와 유사한 과거 라운드]\n" + "\n".join(f"- {s}" for s in similar))
+        log_bits.append(f"유사 라운드 {len(similar)}건")
+
+    if log_bits:
+        push_log(state["session_id"], PLANNER_NAME, "thought", f"📚 참고 자료 확보: {', '.join(log_bits)}")
+
+    return {**state, "rag_context": "\n\n".join(parts)}
 
 
 def plan_node(state: CandidatesState) -> CandidatesState:

@@ -14,3 +14,5 @@ STRUCTURED_OUTPUT_METHOD = os.getenv("STRUCTURED_OUTPUT_METHOD") or None
 QUEUE_TTL_SECONDS = 30 * 60
 
 RAG_COLLECTION_NAME = "round_history"
+COMMUNITY_DIGEST_DOC_ID = "community-digest"
+DIGEST_REFRESH_INTERVAL = 10  # 실제 게임 라운드 N개마다 커뮤니티 방향성 요약본 재생성

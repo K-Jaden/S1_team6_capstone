@@ -102,6 +102,7 @@ def evaluate_winner_only(req: WinnerEvalOnlyRequest):
                 "description": req.description,
                 "round_id": req.round_id,
                 "keywords": req.keywords,
+                "vp_votes": req.vp_votes,
                 "report": "",
             }
         )
@@ -115,11 +116,14 @@ def evaluate_winner_only(req: WinnerEvalOnlyRequest):
 
 @app.get("/api/agent/rag-debug")
 def rag_debug(query: str, k: int = 5):
-    """데모/디버그 전용 - RAG에 실제로 어떤 데이터가 들어있고 특정 쿼리에 무엇이 검색되는지
-    눈으로 바로 확인하기 위한 엔드포인트. 채팅/생성 흐름에는 영향 없는 읽기 전용 조회."""
+    """데모/디버그 전용 - RAG에 실제로 어떤 데이터가 들어있고 특정 쿼리에 무엇이 검색되는지,
+    커뮤니티 방향성 요약본·역대 인기작이 뭘로 잡히는지 눈으로 바로 확인하기 위한 엔드포인트.
+    채팅/생성 흐름에는 영향 없는 읽기 전용 조회."""
     return {
         "query": query,
         "total_documents": rag.count(),
+        "community_digest": rag.get_current_digest(),
+        "top_rounds": rag.get_top_rounds(limit=3),
         "results": rag.search_similar_debug(query, k=k),
     }
 
