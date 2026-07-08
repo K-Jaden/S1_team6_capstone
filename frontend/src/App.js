@@ -195,7 +195,7 @@ function App() {
   };
 
   useEffect(() => {
-    if (activeTab === "큐레이션") {
+    if (activeTab === "curate") {
         fetchCurrentRound(); // 탭 누르자마자 1번 실행
         
         // 5초(5000ms)마다 백엔드에 최신 데이터 물어보기
@@ -257,7 +257,7 @@ function App() {
       setWalletAddress("");
       setIsLoggedIn(false);
       setMyInfo({ balance: 0, membership: "", rewards: 0 });
-      setActiveTab("대시보드");
+      setActiveTab("main");
     }
   };
   useEffect(() => {
@@ -642,7 +642,7 @@ function App() {
 
           fetchGallery(); // 갤러리 데이터 새로고침
 	  fetchEndedRounds();
-          setActiveTab("명예의전당"); // 명예의 전당 탭으로 자동 이동!
+          setActiveTab("gallery"); // 명예의 전당 탭으로 자동 이동!
           setRoundPhase("KEYWORD"); // 라운드 상태 초기화
           alert("🎉 최종 결산 및 스마트 컨트랙트 등록이 완료되었습니다!\n우승작이 명예의 전당(Hall of Fame)에 영구 박제되었습니다.");
       } catch (err) {
@@ -702,13 +702,13 @@ function App() {
     <div className="App">
       {/* 1. 좌측 사이드바 */}
       <aside className="sidebar">
-        <h1 className="logo" onClick={() => setActiveTab("대시보드")} style={{cursor: 'pointer'}}>ArtDAO</h1>
+        <h1 className="logo" onClick={() => setActiveTab("main")} style={{cursor: 'pointer'}}>ArtDAO</h1>
         
         <nav>
-        <button className={activeTab==="대시보드"?"active":""} onClick={()=>setActiveTab("대시보드")}>대시보드</button>
-        <button className={activeTab==="큐레이션"?"active":""} onClick={()=>setActiveTab("큐레이션")}>큐레이션</button>
-        <button className={activeTab==="명예의전당"?"active":""} onClick={()=>setActiveTab("명예의전당")}>명예의 전당</button>
-        <button className={activeTab==="프로필"?"active":""} onClick={()=>setActiveTab("프로필")}>프로필</button>
+        <button className={activeTab==="대시보드"?"active":""} onClick={()=>setActiveTab("main")}>대시보드</button>
+        <button className={activeTab==="큐레이션"?"active":""} onClick={()=>setActiveTab("curate")}>큐레이션</button>
+        <button className={activeTab==="명예의전당"?"active":""} onClick={()=>setActiveTab("gallery")}>명예의 전당</button>
+        <button className={activeTab==="프로필"?"active":""} onClick={()=>setActiveTab("mypage")}>프로필</button>
         </nav>
         
       </aside>
@@ -809,7 +809,7 @@ function App() {
           </div>
         )}
         {/* Dashboard */}
-        {activeTab === "대시보드" && (
+        {activeTab === "main" && (
           <div className="page fade-in">
             <div style={{ padding: '60px 40px', background: 'linear-gradient(135deg, #1e1e1e 0%, #0f0f0f 100%)', borderRadius: '16px', border: '1px solid #2A2A2A', marginBottom: '30px', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
                 <div style={{ position: 'relative', zIndex: 2 }}>
@@ -820,7 +820,7 @@ function App() {
                         AI가 트렌드를 분석하여 매주 새로운 예술을 창조합니다.<br/>
                         DAO 멤버가 되어 가스비 없이 투표하고, 블록체인 배당을 받으세요.
                     </p>
-                    <button onClick={() => setActiveTab("큐레이션")} style={{ background: '#3B82F6', color: '#fff', border: 'none', padding: '16px 36px', fontSize: '1.1rem', fontWeight: 'bold', borderRadius: '30px', cursor: 'pointer', boxShadow: '0 4px 15px rgba(59, 130, 246, 0.4)' }}>
+                    <button onClick={() => setActiveTab("curate")} style={{ background: '#3B82F6', color: '#fff', border: 'none', padding: '16px 36px', fontSize: '1.1rem', fontWeight: 'bold', borderRadius: '30px', cursor: 'pointer', boxShadow: '0 4px 15px rgba(59, 130, 246, 0.4)' }}>
                         큐레이션 참여하기
                     </button>
                 </div>
@@ -848,7 +848,7 @@ function App() {
         )}
 
         {/* Curate */}
-        {activeTab === "큐레이션" && (
+        {activeTab === "curate" && (
           <div className="page fade-in">
             <div className="proposals-header-wrap" style={{borderBottom: 'none', marginBottom: '20px'}}>
                 <div>
@@ -1091,7 +1091,7 @@ function App() {
           </div>
         )}
         {/* Hall of Fame */}
-        {activeTab === "명예의전당" && (
+        {activeTab === "gallery" && (
             <div className="page fade-in">
                 <h2 style={{fontFamily: "'Playfair Display', serif", fontSize: "2.5rem"}}>🖼️ Hall of Fame</h2>
                 <p style={{color: '#9CA3AF', marginBottom: '30px'}}>대중의 선택을 받아 NFT로 영구 박제된 우승작 컬렉션입니다.</p>
@@ -1222,7 +1222,7 @@ function App() {
             </div>
         )}
 
-        {activeTab === "프로필" && (
+        {activeTab === "mypage" && (
     <div className="page fade-in">
         <h2 style={{fontFamily: "'Playfair Display', serif", fontSize: "2.5rem", marginBottom: '30px'}}>👤 My Assets & Activity</h2>
         {!isLoggedIn ? <p style={{color: '#9CA3AF'}}>지갑을 먼저 연결해주세요.</p> : (
