@@ -711,13 +711,6 @@ function App() {
         <button className={activeTab==="프로필"?"active":""} onClick={()=>setActiveTab("프로필")}>프로필</button>
         </nav>
         
-
-        <div style={{ marginTop: "auto", padding: "15px", background: "#0F0F0F", borderRadius: "8px", border: "1px solid #2A2A2A", textAlign: "center" }}>
-            <div style={{ fontSize: "0.8rem", color: "#9CA3AF", marginBottom: "5px" }}>Current Block Time</div>
-            <strong style={{ color: "#F3F4F6", fontSize: "0.9rem", display: "block", marginBottom: "10px" }}>
-                {new Date(currentBlockTime * 1000).toLocaleString()}
-            </strong>
-        </div>
       </aside>
 
       {/* 2. 중앙 메인 컨텐츠 */}
