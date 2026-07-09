@@ -30,6 +30,16 @@ class SeedRoundBatch(BaseModel):
     rounds: List[SeedRound]
 
 
+class QualityCheckItem(BaseModel):
+    name: str = Field(description="체크 항목 이름 (예: 핵심요소반영, 구조결함없음, 화풍일관성, 내용일치)")
+    passed: bool = Field(description="이 항목을 통과했는가")
+    detail: str = Field(default="", description="실패 시 구체적 이유 (통과 시 빈 문자열)")
+
+
+class QualityCheckResult(BaseModel):
+    checks: List[QualityCheckItem] = Field(min_length=4, max_length=4)
+
+
 # ---- API 요청/응답 모델 ----
 
 class WeightedCandidateRequest(BaseModel):
@@ -50,3 +60,12 @@ class WinnerEvalOnlyRequest(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     wallet_address: str = ""
+
+
+class QualityCheckRequest(BaseModel):
+    image_base64: str  # 순수 base64 (data: 접두사 없이)
+    mime_type: str = "image/png"
+    image_prompt: str
+    title: str
+    description: str
+    style: str = ""

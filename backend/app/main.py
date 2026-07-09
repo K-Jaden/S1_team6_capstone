@@ -771,13 +771,16 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
 
     for idx, c_data in enumerate(ai_data, 1):
         raw_prompt = str(c_data.get("image_prompt", "digital art"))[:900]
-        prompt = raw_prompt
-        image_url = "" 
-        
+        # flux-1-schnell은 negative_prompt를 지원하지 않으므로(공식 문서 확인 완료),
+        # 회피 문구를 프롬프트 문자열에 직접 녹여 넣는다. steps도 기본 4 -> 최대 8로 올려
+        # 추가 API 호출 없이 구조적 결함(신체 왜곡 등) 발생률을 낮춘다 (docs/quality_validation_framework.md 참고)
+        prompt = raw_prompt + ", no distorted anatomy, no extra limbs, no deformed hands, no garbled text, no artifacts, clean composition"
+        image_url = ""
+
         try:
             logger.info(f"🚀 [{idx}번 그림] CF API 요청 시작...")
-            time.sleep(6) 
-            img_res = requests.post(cf_url, headers=headers, json={"prompt": prompt}, timeout=60)
+            time.sleep(6)
+            img_res = requests.post(cf_url, headers=headers, json={"prompt": prompt, "steps": 8}, timeout=60)
             logger.info(f"📥 [{idx}번 그림] CF API 응답 상태코드: {img_res.status_code}")
             
             if img_res.status_code == 200:
@@ -808,8 +811,8 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
 
         db.add(models.Candidate(
             round_id=round_id, title=c_data.get("title", f"작품 {idx}"),
-            description=c_data.get("description", "이미지 렌더링 지연으로 임시 썸네일이 표시됩니다."), 
-            image_url=image_url, ipfs_hash="PENDING"
+            description=c_data.get("description", "이미지 렌더링 지연으로 임시 썸네일이 표시됩니다."),
+            image_url=image_url, image_prompt=prompt, ipfs_hash="PENDING"
         ))
         candidate_uris.append(image_url)
 
@@ -858,6 +861,62 @@ def start_phase3_valuation(round_id: int = 0, session_id: str = "", db: Session 
         models.Keyword.vote_count > 0
     ).order_by(desc(models.Keyword.vote_count)).limit(3).all()
 
+    # =========================================================
+    # 🟢 [품질 게이트] 우승작 이미지 축 A(실행 품질) 검증
+    # 5개 후보 전부가 아니라 온체인에 영구 기록되는 우승작 1개에만 적용 (토큰 절약).
+    # 자세한 설계 근거는 docs/quality_validation_framework.md 참고.
+    # =========================================================
+    quality_result = None
+    if winner.image_prompt and winner.image_url.startswith("/static/images/"):
+        try:
+            filepath = winner.image_url.lstrip("/")
+            if os.path.exists(filepath):
+                with open(filepath, "rb") as f:
+                    img_b64 = base64.b64encode(f.read()).decode()
+
+                style_kw = db.query(models.Keyword).filter(
+                    models.Keyword.round_id == round_id,
+                    models.Keyword.type == "style",
+                    models.Keyword.vote_count > 0
+                ).order_by(desc(models.Keyword.vote_count)).first()
+                selected_style = style_kw.word if style_kw else ""
+
+                qc_res = requests.post(f"{AI_AGENT_URL}/api/agent/quality-check", json={
+                    "image_base64": img_b64,
+                    "mime_type": "image/png",
+                    "image_prompt": winner.image_prompt,
+                    "title": winner.title,
+                    "description": winner.description,
+                    "style": selected_style,
+                }, timeout=60)
+                quality_result = qc_res.json()
+
+                if not quality_result.get("passed", True):
+                    logger.warning(f"🔍 품질 게이트 실패: {quality_result.get('failure_summary')}")
+                    revised_prompt = quality_result.get("revised_prompt") or winner.image_prompt
+
+                    # 재시도는 최대 1회 - 무료 API 티어 제약상 무한정 매달리지 않음
+                    CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
+                    CF_API_TOKEN = os.getenv("CF_API_TOKEN")
+                    cf_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/@cf/black-forest-labs/flux-1-schnell"
+                    headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
+                    retry_res = requests.post(cf_url, headers=headers, json={"prompt": revised_prompt[:1000], "steps": 8}, timeout=60)
+                    if retry_res.status_code == 200:
+                        retry_json = retry_res.json()
+                        if "result" in retry_json and "image" in retry_json["result"]:
+                            new_bytes = base64.b64decode(retry_json["result"]["image"])
+                            with open(filepath, "wb") as f:
+                                f.write(new_bytes)
+                            winner.image_prompt = revised_prompt
+                            db.commit()
+                            logger.info("✅ 품질 게이트 재수정 완료 - 이미지 교체됨")
+                        else:
+                            logger.warning("품질 게이트 재수정 실패 (CF 응답 형식 이상) - 기존 이미지 유지")
+                    else:
+                        logger.warning(f"품질 게이트 재수정 실패 (CF 상태코드 {retry_res.status_code}) - 기존 이미지 유지")
+        except Exception:
+            logger.exception("품질 게이트 처리 중 오류 - 기존 이미지로 진행")
+
     try:
         res = requests.post(f"{AI_AGENT_URL}/api/agent/evaluate-winner-only", json={
             "title": winner.title,
@@ -872,7 +931,7 @@ def start_phase3_valuation(round_id: int = 0, session_id: str = "", db: Session 
         logger.error(f"비평문 생성 실패: {e}")
         report = "비평문 에러"
 
-    return {"message": "Phase 3: 가치 평가 완료", "report": report}
+    return {"message": "Phase 3: 가치 평가 완료", "report": report, "quality_check": quality_result}
 
 # 🟢 [Step 4] 유저 결산 (IPFS 영구 박제 및 스마트 컨트랙트 등록)
 class FinalizeReq(BaseModel):

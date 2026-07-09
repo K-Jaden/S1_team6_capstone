@@ -96,8 +96,9 @@ class Candidate(Base):
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=False)
     image_url = Column(String(255), nullable=False)
+    image_prompt = Column(Text, nullable=True)  # 품질 검증 게이트에서 재생성 시 필요
     ipfs_hash = Column(String(255), nullable=False)
-    
+
     vp_votes = Column(Integer, default=0)
     is_winner = Column(Boolean, default=False)
     auction_price = Column(Integer, nullable=True)

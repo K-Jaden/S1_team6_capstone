@@ -12,12 +12,13 @@ logger = logging.getLogger("ai_core")
 
 import chat as chat_module
 import llm as llm_module
+import quality_gate
 import rag
 import streaming
 from graphs.candidates import get_candidates_graph
 from graphs.critique import get_critique_graph
 from graphs.trends import get_trends_graph
-from schemas import ChatRequest, WeightedCandidateRequest, WinnerEvalOnlyRequest
+from schemas import ChatRequest, QualityCheckRequest, WeightedCandidateRequest, WinnerEvalOnlyRequest
 
 app = FastAPI(title="ArtDAO LangGraph A2A Server", version="9.0-LangGraph")
 
@@ -112,6 +113,26 @@ def evaluate_winner_only(req: WinnerEvalOnlyRequest):
         streaming.push_log(session_id, "시스템", "error", f"비평 에러: {e}")
         streaming.push_log(session_id, "시스템", "final", "✅ 비평 완료 (오류)")
         return {"report": "비평문 생성 중 오류가 발생했습니다."}
+
+
+@app.post("/api/agent/quality-check")
+def quality_check(req: QualityCheckRequest):
+    """축 A(실행 품질)만 검증 - 화풍 취향은 판단하지 않는다 (docs/quality_validation_framework.md 참고).
+    실패 시 재수정 프롬프트까지 함께 반환해 backend가 별도 왕복 없이 바로 재시도할 수 있게 한다."""
+    result = quality_gate.check_image_quality(req)
+    passed = quality_gate.is_passed(result)
+    response = {"passed": passed, "checks": [c.model_dump() for c in result.checks]}
+    if not passed:
+        summary = quality_gate.failure_summary(result)
+        response["failure_summary"] = summary
+        try:
+            response["revised_prompt"] = quality_gate.rewrite_prompt_for_retry(
+                req.image_prompt, req.title, req.description, req.style, summary
+            )
+        except Exception as e:
+            logger.warning(f"재수정 프롬프트 생성 실패: {e}")
+            response["revised_prompt"] = req.image_prompt
+    return response
 
 
 @app.get("/api/agent/rag-debug")
