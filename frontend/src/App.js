@@ -973,7 +973,14 @@ function App() {
                         {roundPhase === "KEYWORD" && (
                             <div className="co-creation-panel fade-in">
                                 <h3 style={{ color: '#38BDF8', marginBottom: '10px' }}>Autonomous Art Co-Creation</h3>
-                                <p style={{ color: '#9CA3AF', marginBottom: '25px' }}>투자할 작품의 기획 요소를 5개 카테고리에서 조율해 주세요.</p>
+                                <p style={{ color: '#9CA3AF', marginBottom: '20px' }}>투자할 작품의 기획 요소를 5개 카테고리에서 조율해 주세요.</p>
+
+                                <div style={{ display: 'flex', gap: '20px', marginBottom: '30px', padding: '12px 20px', background: 'rgba(255, 255, 255, 0.03)', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)', fontSize: '0.9rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                                    <span style={{ color: '#38BDF8', fontWeight: 'bold' }}>💡 키워드 표시 안내 :</span>
+                                    <span style={{ color: '#FFF' }}>🔥 실시간 레딧 트렌드</span>
+                                    <span style={{ color: '#FFF' }}>✨ AI 자체 분석 추천</span>
+                                    <span style={{ color: '#6B7280' }}>#️⃣ 기본 제공 키워드</span>
+                                </div>
                                 
                                 <h4 style={{ color: '#F59E0B', margin: '20px 0 10px 0' }}>1. 시대 및 공간적 배경 (1개 선택)</h4>
                                 <div className="keyword-tag-container">
