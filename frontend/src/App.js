@@ -98,7 +98,7 @@ function App() {
     const [selectedBackground, setSelectedBackground] = useState("");
     const [selectedStyle, setSelectedStyle] = useState("");
     const [selectedMood, setSelectedMood] = useState("");
-    
+
     const [customSubject, setCustomSubject] = useState("");
     const [customEra, setCustomEra] = useState("");
     const [customBackground, setCustomBackground] = useState("");
@@ -976,12 +976,11 @@ function App() {
                                 <p style={{ color: '#9CA3AF', marginBottom: '20px' }}>투자할 작품의 기획 요소를 5개 카테고리에서 조율해 주세요.</p>
 
                                 <div style={{ display: 'flex', gap: '20px', marginBottom: '30px', padding: '12px 20px', background: 'rgba(255, 255, 255, 0.03)', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)', fontSize: '0.9rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                                    <span style={{ color: '#38BDF8', fontWeight: 'bold' }}>💡 키워드 표시 안내 :</span>
+                                    <span style={{ color: '#38BDF8', fontWeight: 'bold' }}>키워드 표시 안내 :</span>
                                     <span style={{ color: '#FFF' }}>🔥 실시간 레딧 트렌드</span>
                                     <span style={{ color: '#FFF' }}>✨ AI 자체 분석 추천</span>
-                                    <span style={{ color: '#6B7280' }}>#️⃣ 기본 제공 키워드</span>
                                 </div>
-                                
+
                                 <h4 style={{ color: '#F59E0B', margin: '20px 0 10px 0' }}>1. 시대 및 공간적 배경 (1개 선택)</h4>
                                 <div className="keyword-tag-container">
                                     {currentRound && currentRound.eras && currentRound.eras.map((kw) => (
@@ -1267,7 +1266,7 @@ function App() {
                 {/* Hall of Fame */}
                 {activeTab === "gallery" && (
                     <div className="page fade-in">
-                        <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: "2.5rem" }}>🖼️ Hall of Fame</h2>
+                        <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: "2.5rem" }}>명예의 전당</h2>
                         <p style={{ color: '#9CA3AF', marginBottom: '30px' }}>대중의 선택을 받아 NFT로 영구 박제된 우승작 컬렉션입니다.</p>
 
                         {/* auto-fill 덕분에 작품이 무한히 늘어나도 다음 줄로 예쁘게 정렬됩니다. */}
@@ -1398,7 +1397,7 @@ function App() {
 
                 {activeTab === "mypage" && (
                     <div className="page fade-in">
-                        <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: "2.5rem", marginBottom: '30px' }}>👤 My Assets & Activity</h2>
+                        <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: "2.5rem", marginBottom: '30px' }}>프로필</h2>
                         {!isLoggedIn ? <p style={{ color: '#9CA3AF' }}>지갑을 먼저 연결해주세요.</p> : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
 
