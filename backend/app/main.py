@@ -522,9 +522,11 @@ def get_current_round(db: Session = Depends(get_db)):
         "round_number": active.round_number,
         "status": active.status,
         "candidates": active.candidates,
-        # 🔥 [수정] 단순 문자열 리스트에서 '단어'와 '투표수'를 포함한 딕셔너리로 변경!
+        "eras": [{"word": k.word, "vote_count": k.vote_count} for k in keywords if k.type == "era"],
         "subjects": [{"word": k.word, "vote_count": k.vote_count} for k in keywords if k.type == "subject"],
-        "styles": [{"word": k.word, "vote_count": k.vote_count} for k in keywords if k.type == "style"]
+        "backgrounds": [{"word": k.word, "vote_count": k.vote_count} for k in keywords if k.type == "background"],
+        "styles": [{"word": k.word, "vote_count": k.vote_count} for k in keywords if k.type == "style"],
+        "moods": [{"word": k.word, "vote_count": k.vote_count} for k in keywords if k.type == "mood"]
     }
 @app.get("/api/rounds/ended")
 def get_ended_rounds(db: Session = Depends(get_db)):
@@ -582,44 +584,114 @@ def start_phase1_keywords(session_id: str = "", db: Session = Depends(get_db)):
     db.add(new_round)
     db.commit()
 
-    # 💡 1. 2개의 대분류 풀로 합침 (화풍 + 재질 통합)
+    # 💡 5대 슬롯의 기본 단어 풀 정의
+    pool_eras = [
+        "조선시대", "사이버펑크 미래", "중세 판타지", "현대 도시", "스페이스 오페라 시대", 
+        "포스트 아포칼립스", "고대 이집트", "로마 제국", "빅토리아 스팀펑크", "서부 개척 시대"
+    ]
     pool_subjects = [
         "공룡", "총", "로봇", "고양이", "기사", "마법사", "천사", "악마", "소나무", "네온사인", 
         "고층빌딩", "해골", "고래", "나비", "사막", "심해", "은하수", "성곽", "오로라", "벚꽃", 
-        "가면", "사이보그", "크리스탈", "시계탑", "유령", "사람", "서울", "뉴욕", "도시", "대통령", "지구", "아니메", "소녀",
-        "소년", "중후한", "자연", "웅장한"
+        "가면", "사이보그", "크리스탈", "시계탑", "유령", "사람", "서울", "뉴욕", "지구", "아니메 소년", 
+        "소년", "소녀", "자연", "웅장한"
+    ]
+    pool_backgrounds = [
+        "네온 불빛 골목길", "벚꽃 정원", "우주선 조종실", "울창한 열대우림", "고요한 사원 마당", 
+        "황량한 모래 언덕", "빗방울 맺힌 서재", "화려한 대성당 내부", "눈 덮인 산 정상", "구름 위의 천공도시", 
+        "안개 낀 공동묘지", "심해 산호초", "복잡한 사이버 연구소", "아늑한 숲속 오두막", "끝없는 도서관"
     ]
     pool_styles = [
-        "빈센트 반 고흐 풍", "피카소 큐비즘", "지브리 애니메이션 풍", "무채색", "하찮은 귀여운 풍", 
-        "신비로운 분위기", "키치한 색감", "레트로 신스웨이브", "픽셀 아트", "3D 언리얼 엔진 render", 
-        "사이버펑크", "포근한 파스텔톤", "전통 수묵화", "강렬한 팝아트", "다크 판타지", 
-        "디즈니 3D 애니메이션 풍", "미니멀리즘 디자인", "화려한 네온 라이팅", "빛바랜 빈티지 사진 풍", "8비트 도트", 
-        "몽환적인 수채화", "글리치 노이즈 왜곡", "말랑한 점토 클레이아트", "거친 질감의 목판화", "초현실주의"
+        "전통 수묵화", "디즈니 3D 애니메이션 풍", "8비트 도트", "몽환적인 수채화", "말랑한 점토 클레이아트", 
+        "거친 질감의 목판화", "클래식 유화 풍", "정교한 펜화 스케치", "미니멀리즘 디자인", "초현실주의 회화", 
+        "인상주의 회화 풍", "아르누보 일러스트", "팝아트 포스터 스타일", "2D 플랫 벡터 일러스트", "사이버네틱 SF 화풍"
+    ]
+    pool_moods = [
+        "포근한 파스텔톤", "화려한 네온 라이팅", "빛바랜 빈티지 사진 풍", "다크 판타지 분위기", "몽환적인 새벽 안개", 
+        "사이키델릭 컬러", "시네마틱 라이팅", "일몰의 황금빛", "차가운 새벽 공기", "강렬한 대비 효과", 
+        "몽환적이고 따뜻한 빛", "어두운 분위기", "신비로운 분위기", "사이버펑크 네온 글로우", "빈티지 레트로 감성", "미니멀하고 깨끗한 조명"
     ]
 
-    selected_subjects = random.sample(pool_subjects, 15)
-    selected_styles = random.sample(pool_styles, 15)
+    # 💡 2. AI 트렌드 연동 (Reddit 크롤러 및 AI 자체 분석 데이터 수집)
+    crawled_eras, ai_eras = [], []
+    crawled_subjects, ai_subjects = [], []
+    crawled_backgrounds, ai_backgrounds = [], []
+    crawled_styles, ai_styles = [], []
+    crawled_moods, ai_moods = [], []
 
-    # 💡 2. AI 트렌드 연동 (실패해도 ✨ 무조건 나오게 방어막 강화)
     try:
         res = requests.get(f"{AI_AGENT_URL}/api/agent/trends-keywords", timeout=20)
         ai_data = res.json()
         
-        if "subjects" in ai_data: selected_subjects.extend([f"✨{w}" for w in ai_data["subjects"][:5]])
-        if "styles" in ai_data: selected_styles.extend([f"✨{w}" for w in ai_data["styles"][:5]])
+        if "eras" in ai_data: crawled_eras = [w.strip() for w in ai_data["eras"][:3] if w.strip()]
+        if "ai_eras" in ai_data: ai_eras = [w.strip() for w in ai_data["ai_eras"][:3] if w.strip()]
+        
+        if "subjects" in ai_data: crawled_subjects = [w.strip() for w in ai_data["subjects"][:3] if w.strip()]
+        if "ai_subjects" in ai_data: ai_subjects = [w.strip() for w in ai_data["ai_subjects"][:3] if w.strip()]
+        
+        if "backgrounds" in ai_data: crawled_backgrounds = [w.strip() for w in ai_data["backgrounds"][:3] if w.strip()]
+        if "ai_backgrounds" in ai_data: ai_backgrounds = [w.strip() for w in ai_data["ai_backgrounds"][:3] if w.strip()]
+        
+        if "styles" in ai_data: crawled_styles = [w.strip() for w in ai_data["styles"][:3] if w.strip()]
+        if "ai_styles" in ai_data: ai_styles = [w.strip() for w in ai_data["ai_styles"][:3] if w.strip()]
+        
+        if "moods" in ai_data: crawled_moods = [w.strip() for w in ai_data["moods"][:3] if w.strip()]
+        if "ai_moods" in ai_data: ai_moods = [w.strip() for w in ai_data["ai_moods"][:3] if w.strip()]
     except Exception as e:
         logger.warning(f"🔥 AI 트렌드 지연, 비상 트렌드 가동: {e}")
-        # 🚨 AI가 뻗어도 사용자는 모르게 멋진 트렌드 단어에 ✨를 붙여서 제공
-        selected_subjects.extend([f"✨메타버스 가상현실", f"✨초거대 AI", f"✨포스트 아포칼립스", f"✨양자 컴퓨터", f"✨스페이스 오페라"])
-        selected_styles.extend([f"✨네오 베이퍼웨이브", f"✨홀로그램 글리치", f"✨점토 클레이아트", f"✨사이버펑크 네온", f"✨미니멀리즘"])
+        ai_eras = ["조선시대", "사이버펑크 미래", "중세 판타지"]
+        ai_subjects = ["메타버스 가상현실", "초거대 AI", "포스트 아포칼립스"]
+        ai_backgrounds = ["네온 불빛 골목길", "벚꽃 정원", "우주선 조종실"]
+        ai_styles = ["전통 수묵화", "3D 복셀", "점토 클레이아트"]
+        ai_moods = ["화려한 네온 라이팅", "차가운 새벽 공기", "몽환적 안개"]
 
+    # 💡 3. 중복 방지 처리 및 베이스 풀 샘플링 결합
+    # (크롤링/AI 분석 키워드가 베이스 고정 풀에 포함되어 있을 경우 중복 출력을 막기 위해 필터링)
+    trend_eras = set(crawled_eras + ai_eras)
+    filtered_eras = [w for w in pool_eras if w not in trend_eras]
+    selected_eras = random.sample(filtered_eras, min(10, len(filtered_eras)))
+    selected_eras.extend([f"🔥{w}" for w in crawled_eras])
+    selected_eras.extend([f"✨{w}" for w in ai_eras])
+
+    trend_subjects = set(crawled_subjects + ai_subjects)
+    filtered_subjects = [w for w in pool_subjects if w not in trend_subjects]
+    selected_subjects = random.sample(filtered_subjects, min(12, len(filtered_subjects)))
+    selected_subjects.extend([f"🔥{w}" for w in crawled_subjects])
+    selected_subjects.extend([f"✨{w}" for w in ai_subjects])
+
+    trend_backgrounds = set(crawled_backgrounds + ai_backgrounds)
+    filtered_backgrounds = [w for w in pool_backgrounds if w not in trend_backgrounds]
+    selected_backgrounds = random.sample(filtered_backgrounds, min(10, len(filtered_backgrounds)))
+    selected_backgrounds.extend([f"🔥{w}" for w in crawled_backgrounds])
+    selected_backgrounds.extend([f"✨{w}" for w in ai_backgrounds])
+
+    trend_styles = set(crawled_styles + ai_styles)
+    filtered_styles = [w for w in pool_styles if w not in trend_styles]
+    selected_styles = random.sample(filtered_styles, min(10, len(filtered_styles)))
+    selected_styles.extend([f"🔥{w}" for w in crawled_styles])
+    selected_styles.extend([f"✨{w}" for w in ai_styles])
+
+    trend_moods = set(crawled_moods + ai_moods)
+    filtered_moods = [w for w in pool_moods if w not in trend_moods]
+    selected_moods = random.sample(filtered_moods, min(10, len(filtered_moods)))
+    selected_moods.extend([f"🔥{w}" for w in crawled_moods])
+    selected_moods.extend([f"✨{w}" for w in ai_moods])
+
+    random.shuffle(selected_eras)
     random.shuffle(selected_subjects)
+    random.shuffle(selected_backgrounds)
     random.shuffle(selected_styles)
+    random.shuffle(selected_moods)
 
+    for word in selected_eras:
+        db.add(models.Keyword(round_id=new_round.id, word=word.replace("#", ""), type="era"))
     for word in selected_subjects:
         db.add(models.Keyword(round_id=new_round.id, word=word.replace("#", ""), type="subject"))
+    for word in selected_backgrounds:
+        db.add(models.Keyword(round_id=new_round.id, word=word.replace("#", ""), type="background"))
     for word in selected_styles:
         db.add(models.Keyword(round_id=new_round.id, word=word.replace("#", ""), type="style"))
+    for word in selected_moods:
+        db.add(models.Keyword(round_id=new_round.id, word=word.replace("#", ""), type="mood"))
 
     db.commit()
     return {
@@ -631,7 +703,10 @@ def start_phase1_keywords(session_id: str = "", db: Session = Depends(get_db)):
 class KeywordVoteReq(BaseModel):
     round_id: int
     selected_words: list[str]
+    selected_era: str = ""
+    selected_background: str = ""
     selected_style: str = ""
+    selected_mood: str = ""
     wallet_address: str = "" # 🔥 중복 검증을 위한 지갑 주소 필드 추가
 
 @app.post("/api/rounds/vote-keyword")
@@ -651,9 +726,21 @@ def vote_keywords(req: KeywordVoteReq, db: Session = Depends(get_db)):
         kw = db.query(models.Keyword).filter(models.Keyword.round_id == req.round_id, models.Keyword.word == word, models.Keyword.type == "subject").first()
         if kw: kw.vote_count += 1
 
+    if req.selected_era:
+        ek = db.query(models.Keyword).filter(models.Keyword.round_id == req.round_id, models.Keyword.word == req.selected_era, models.Keyword.type == "era").first()
+        if ek: ek.vote_count += 1
+
+    if req.selected_background:
+        bk = db.query(models.Keyword).filter(models.Keyword.round_id == req.round_id, models.Keyword.word == req.selected_background, models.Keyword.type == "background").first()
+        if bk: bk.vote_count += 1
+
     if req.selected_style:
         sk = db.query(models.Keyword).filter(models.Keyword.round_id == req.round_id, models.Keyword.word == req.selected_style, models.Keyword.type == "style").first()
         if sk: sk.vote_count += 1
+
+    if req.selected_mood:
+        mk = db.query(models.Keyword).filter(models.Keyword.round_id == req.round_id, models.Keyword.word == req.selected_mood, models.Keyword.type == "mood").first()
+        if mk: mk.vote_count += 1
 
     db.add(models.KeywordVoteLog(round_id=req.round_id, wallet_address=req.wallet_address))
 
@@ -714,46 +801,74 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
     target_round.status = RoundPhase.IMAGE_GENERATING
     db.commit()
 
-    # 🔥 [수정 1] 투표수(vote_count)가 0보다 큰 키워드만 진짜로 가져오기!
-    top_subjects = db.query(models.Keyword).filter(
+    # 🔥 [수정 1] 피사체(Subject)도 복수 선택 투표 결과 중 '1등(동점자 모두 포함)'만 선별하여 전달
+    max_subject_votes = db.query(func.max(models.Keyword.vote_count)).filter(
         models.Keyword.round_id == round_id, 
         models.Keyword.type == "subject",
-        models.Keyword.vote_count > 0  # 👈 아무도 투표 안 한 0표짜리는 확실히 걸러냅니다.
-    ).order_by(desc(models.Keyword.vote_count)).limit(3).all()
+        models.Keyword.vote_count > 0
+    ).scalar()
 
     keyword_distribution = {}
-    if not top_subjects:
-        # 투표가 아예 없었을 경우의 기본값 (총 5개)
-        keyword_distribution["Digital Art"] = 5
+    if not max_subject_votes:
+        # 투표가 아예 없었을 경우의 기본값
+        keyword_distribution["Digital Art"] = 1.5
     else:
-        # 득표 비율(%)을 바탕으로 이미지 생성 AI 괄호 문법에 맞는 실수형 가중치(1.0 ~ 1.5) 산출
-        total_votes = sum(kw.vote_count for kw in top_subjects)
-        for kw in top_subjects:
-            ratio = kw.vote_count / total_votes
+        # 1등 득표수를 가진 피사체들만 선택 (동점자 모두 포함)
+        winning_subjects = db.query(models.Keyword).filter(
+            models.Keyword.round_id == round_id,
+            models.Keyword.type == "subject",
+            models.Keyword.vote_count == max_subject_votes
+        ).all()
+        
+        num_winners = len(winning_subjects)
+        for kw in winning_subjects:
+            # 1등 보너스 가중치(0.5)를 동점자 수만큼 균등하게 나눔
+            ratio = 1.0 / num_winners
             weight = round(1.0 + (ratio * 0.5), 2)
             keyword_distribution[kw.word] = weight
 
-    # 스타일(화풍)도 투표받은 것 중에 1등만 선택
-    style_kw = db.query(models.Keyword).filter(
-        models.Keyword.round_id == round_id, 
-        models.Keyword.type == "style",
-        models.Keyword.vote_count > 0
-    ).order_by(desc(models.Keyword.vote_count)).first()
-    
-    selected_style = style_kw.word if style_kw else "digital art style"
+    def get_winning_keywords(kw_type: str, default_val: str) -> str:
+        max_votes = db.query(func.max(models.Keyword.vote_count)).filter(
+            models.Keyword.round_id == round_id,
+            models.Keyword.type == kw_type,
+            models.Keyword.vote_count > 0
+        ).scalar()
+        if not max_votes:
+            return default_val
+        kws = db.query(models.Keyword).filter(
+            models.Keyword.round_id == round_id,
+            models.Keyword.type == kw_type,
+            models.Keyword.vote_count == max_votes
+        ).all()
+        return ", ".join(k.word for k in kws)
+
+    selected_era = get_winning_keywords("era", "modern era")
+    selected_background = get_winning_keywords("background", "simple background")
+    selected_style = get_winning_keywords("style", "digital art style")
+    selected_mood = get_winning_keywords("mood", "cinematic lighting")
 
     try:
-        # 🚨 표현방식 변수(expression) 제거 및 단일 style만 전달
+        # 🚨 5대 슬롯 매개변수 전송
         res = requests.post(f"{AI_AGENT_URL}/api/agent/generate-weighted-candidates",
             json={
                 "weights": keyword_distribution, 
+                "era": selected_era,
+                "background": selected_background,
                 "style": selected_style, 
+                "mood": selected_mood,
                 "session_id": session_id
             }, timeout=300)
         ai_data = res.json().get("candidates", [])
     except Exception as e:
         logger.warning(f"AI 통신 장애 대응 폴백 가동: {e}")
-        ai_data = [{"title": f"임시 아트 {i}", "description": "복구본", "image_prompt": "digital art"} for i in range(1, 6)]
+        ai_data = [
+            {
+                "title": f"임시 아트 {i}", 
+                "description": "복구본", 
+                "image_prompt": f"masterpiece, {selected_style}, {selected_mood}, set in {selected_background}, {selected_era} era"
+            }
+            for i in range(1, 6)
+        ]
 
     CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
     CF_API_TOKEN = os.getenv("CF_API_TOKEN")
@@ -874,13 +989,22 @@ def start_phase3_valuation(round_id: int = 0, session_id: str = "", db: Session 
                 ).order_by(desc(models.Keyword.vote_count)).first()
                 selected_style = style_kw.word if style_kw else ""
 
+                mood_kw = db.query(models.Keyword).filter(
+                    models.Keyword.round_id == round_id,
+                    models.Keyword.type == "mood",
+                    models.Keyword.vote_count > 0
+                ).order_by(desc(models.Keyword.vote_count)).first()
+                selected_mood = mood_kw.word if mood_kw else ""
+
+                combined_style = f"{selected_style} with {selected_mood}" if selected_mood else selected_style
+
                 qc_res = requests.post(f"{AI_AGENT_URL}/api/agent/quality-check", json={
                     "image_base64": img_b64,
                     "mime_type": "image/png",
                     "image_prompt": winner.image_prompt,
                     "title": winner.title,
                     "description": winner.description,
-                    "style": selected_style,
+                    "style": combined_style,
                 }, timeout=60)
                 quality_result = qc_res.json()
 

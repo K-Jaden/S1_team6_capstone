@@ -94,8 +94,16 @@ function App() {
 
     // Step 1: 키워드 투표 상태
     const [selectedKeywords, setSelectedKeywords] = useState([]);
+    const [selectedEra, setSelectedEra] = useState("");
+    const [selectedBackground, setSelectedBackground] = useState("");
     const [selectedStyle, setSelectedStyle] = useState("");
+    const [selectedMood, setSelectedMood] = useState("");
+    
     const [customSubject, setCustomSubject] = useState("");
+    const [customEra, setCustomEra] = useState("");
+    const [customBackground, setCustomBackground] = useState("");
+    const [customStyle, setCustomStyle] = useState("");
+    const [customMood, setCustomMood] = useState("");
 
     const handleAddCustomSubject = async () => {
         if (!isLoggedIn) return alert("지갑을 먼저 연결해주세요!");
@@ -116,7 +124,43 @@ function App() {
         }
     };
 
-    const [customStyle, setCustomStyle] = useState("");
+    const handleAddCustomEra = async () => {
+        if (!isLoggedIn) return alert("지갑을 먼저 연결해주세요!");
+        if (!customEra.trim()) return alert("추가할 시대를 입력하세요.");
+
+        try {
+            const res = await axios.post(`${API_URL}/api/rounds/custom-keyword`, {
+                round_id: currentRound.id,
+                word: customEra,
+                type: "era",
+                wallet_address: walletAddress
+            });
+            alert(res.data.message);
+            setCustomEra("");
+            fetchCurrentRound();
+        } catch (err) {
+            alert(`❌ 추가 실패: ${err.response?.data?.detail || "알 수 없는 오류"}`);
+        }
+    };
+
+    const handleAddCustomBackground = async () => {
+        if (!isLoggedIn) return alert("지갑을 먼저 연결해주세요!");
+        if (!customBackground.trim()) return alert("추가할 배경을 입력하세요.");
+
+        try {
+            const res = await axios.post(`${API_URL}/api/rounds/custom-keyword`, {
+                round_id: currentRound.id,
+                word: customBackground,
+                type: "background",
+                wallet_address: walletAddress
+            });
+            alert(res.data.message);
+            setCustomBackground("");
+            fetchCurrentRound();
+        } catch (err) {
+            alert(`❌ 추가 실패: ${err.response?.data?.detail || "알 수 없는 오류"}`);
+        }
+    };
 
     const handleAddCustomStyle = async () => {
         if (!isLoggedIn) return alert("지갑을 먼저 연결해주세요!");
@@ -131,6 +175,25 @@ function App() {
             });
             alert(res.data.message);
             setCustomStyle("");
+            fetchCurrentRound();
+        } catch (err) {
+            alert(`❌ 추가 실패: ${err.response?.data?.detail || "알 수 없는 오류"}`);
+        }
+    };
+
+    const handleAddCustomMood = async () => {
+        if (!isLoggedIn) return alert("지갑을 먼저 연결해주세요!");
+        if (!customMood.trim()) return alert("추가할 분위기를 입력하세요.");
+
+        try {
+            const res = await axios.post(`${API_URL}/api/rounds/custom-keyword`, {
+                round_id: currentRound.id,
+                word: customMood,
+                type: "mood",
+                wallet_address: walletAddress
+            });
+            alert(res.data.message);
+            setCustomMood("");
             fetchCurrentRound();
         } catch (err) {
             alert(`❌ 추가 실패: ${err.response?.data?.detail || "알 수 없는 오류"}`);
@@ -522,15 +585,21 @@ function App() {
             await axios.post(`${API_URL}/api/rounds/vote-keyword`, {
                 round_id: currentRound.id,
                 selected_words: selectedKeywords,
+                selected_era: selectedEra,
+                selected_background: selectedBackground,
                 selected_style: selectedStyle,
+                selected_mood: selectedMood,
                 wallet_address: walletAddress // 지갑 주소 필증 전송
             });
 
             fetchCurrentRound();
-            alert(`🎉 [${selectedKeywords.join(', ')}] 테마 및 [${selectedStyle}] 화풍으로 투표가 확정되었습니다!`);
+            alert(`🎉 조합 설계 투표가 성공적으로 블록체인 및 백엔드 서버에 확정되었습니다!`);
 
             setSelectedKeywords([]);
+            setSelectedEra("");
+            setSelectedBackground("");
             setSelectedStyle("");
+            setSelectedMood("");
         } catch (err) {
             console.error(err);
             // 백엔드가 뱉은 "이미 투표에 참여하셨습니다" 문구를 동적으로 출력
@@ -904,8 +973,41 @@ function App() {
                         {roundPhase === "KEYWORD" && (
                             <div className="co-creation-panel fade-in">
                                 <h3 style={{ color: '#38BDF8', marginBottom: '10px' }}>Autonomous Art Co-Creation</h3>
-                                <p style={{ color: '#9CA3AF', marginBottom: '25px' }}>투자할 작품의 기획 요소를 2개 카테고리에서 조율해 주세요.</p>
-                                <h4 style={{ color: '#38BDF8', margin: '20px 0 10px 0' }}>1. 기획 대상 및 테마 (최대 3개 선택)</h4>
+                                <p style={{ color: '#9CA3AF', marginBottom: '25px' }}>투자할 작품의 기획 요소를 5개 카테고리에서 조율해 주세요.</p>
+                                
+                                <h4 style={{ color: '#F59E0B', margin: '20px 0 10px 0' }}>1. 시대 및 공간적 배경 (1개 선택)</h4>
+                                <div className="keyword-tag-container">
+                                    {currentRound && currentRound.eras && currentRound.eras.map((kw) => (
+                                        <button
+                                            key={kw.word}
+                                            className={`keyword-tag ${selectedEra === kw.word ? 'active' : ''}`}
+                                            onClick={() => setSelectedEra(kw.word)}
+                                            style={{ borderColor: '#F59E0B' }}
+                                        >
+                                            {kw.word} <span style={{ fontSize: '0.85rem', color: '#FBBF24', marginLeft: '6px', fontWeight: 'bold' }}>{kw.vote_count}표</span>
+                                        </button>
+                                    ))}
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '10px', marginTop: '15px', marginBottom: '15px' }}>
+                                    <input
+                                        type="text"
+                                        className="glass-input"
+                                        placeholder="직접 제안하고 싶은 시대 입력 (예: 조선시대)"
+                                        value={customEra}
+                                        onChange={(e) => setCustomEra(e.target.value)}
+                                        onKeyPress={(e) => e.key === 'Enter' && handleAddCustomEra()}
+                                        style={{ flex: 1, padding: '12px 15px', fontSize: '0.9rem', background: '#1A1A1A', border: '1px solid #333', color: '#fff', borderRadius: '8px' }}
+                                    />
+                                    <button
+                                        onClick={handleAddCustomEra}
+                                        style={{ background: '#F59E0B', color: '#fff', border: 'none', padding: '0 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}
+                                    >
+                                        + 직접 제안
+                                    </button>
+                                </div>
+
+                                <h4 style={{ color: '#38BDF8', margin: '30px 0 10px 0' }}>2. 기획 대상 및 테마 (최대 3개 선택)</h4>
                                 <div className="keyword-tag-container">
                                     {currentRound && currentRound.subjects && currentRound.subjects.map((kw) => (
                                         <button
@@ -915,8 +1017,9 @@ function App() {
                                                 if (selectedKeywords.includes(kw.word)) setSelectedKeywords(selectedKeywords.filter(k => k !== kw.word));
                                                 else if (selectedKeywords.length < 3) setSelectedKeywords([...selectedKeywords, kw.word]);
                                             }}
+                                            style={{ borderColor: '#38BDF8', fontWeight: 'bold' }}
                                         >
-                                            #{kw.word} <span style={{ fontSize: '0.85rem', color: '#FBBF24', marginLeft: '6px', fontWeight: 'bold' }}>{kw.vote_count}표</span>
+                                            {kw.word} <span style={{ fontSize: '0.85rem', color: '#FBBF24', marginLeft: '6px', fontWeight: 'bold' }}>{kw.vote_count}표</span>
                                         </button>
                                     ))}
                                 </div>
@@ -939,7 +1042,39 @@ function App() {
                                     </button>
                                 </div>
 
-                                <h4 style={{ color: '#A78BFA', margin: '30px 0 10px 0' }}>2. 표현 방식 (화풍, 사조, 재질 등 1개 선택)</h4>
+                                <h4 style={{ color: '#10B981', margin: '30px 0 10px 0' }}>3. 세부 배경 및 장소 (1개 선택)</h4>
+                                <div className="keyword-tag-container">
+                                    {currentRound && currentRound.backgrounds && currentRound.backgrounds.map((kw) => (
+                                        <button
+                                            key={kw.word}
+                                            className={`keyword-tag ${selectedBackground === kw.word ? 'active' : ''}`}
+                                            onClick={() => setSelectedBackground(kw.word)}
+                                            style={{ borderColor: '#10B981' }}
+                                        >
+                                            {kw.word} <span style={{ fontSize: '0.85rem', color: '#FBBF24', marginLeft: '6px', fontWeight: 'bold' }}>{kw.vote_count}표</span>
+                                        </button>
+                                    ))}
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '10px', marginTop: '15px', marginBottom: '15px' }}>
+                                    <input
+                                        type="text"
+                                        className="glass-input"
+                                        placeholder="직접 제안하고 싶은 장소 입력 (예: 도서관)"
+                                        value={customBackground}
+                                        onChange={(e) => setCustomBackground(e.target.value)}
+                                        onKeyPress={(e) => e.key === 'Enter' && handleAddCustomBackground()}
+                                        style={{ flex: 1, padding: '12px 15px', fontSize: '0.9rem', background: '#1A1A1A', border: '1px solid #333', color: '#fff', borderRadius: '8px' }}
+                                    />
+                                    <button
+                                        onClick={handleAddCustomBackground}
+                                        style={{ background: '#10B981', color: '#fff', border: 'none', padding: '0 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}
+                                    >
+                                        + 직접 제안
+                                    </button>
+                                </div>
+
+                                <h4 style={{ color: '#A78BFA', margin: '30px 0 10px 0' }}>4. 표현 방식 (화풍, 사조, 재질 등 1개 선택)</h4>
                                 <div className="keyword-tag-container">
                                     {currentRound && currentRound.styles && currentRound.styles.map((kw) => (
                                         <button
@@ -971,9 +1106,41 @@ function App() {
                                     </button>
                                 </div>
 
+                                <h4 style={{ color: '#F472B6', margin: '30px 0 10px 0' }}>5. 분위기 및 조명 (1개 선택)</h4>
+                                <div className="keyword-tag-container">
+                                    {currentRound && currentRound.moods && currentRound.moods.map((kw) => (
+                                        <button
+                                            key={kw.word}
+                                            className={`keyword-tag ${selectedMood === kw.word ? 'active' : ''}`}
+                                            onClick={() => setSelectedMood(kw.word)}
+                                            style={{ borderColor: '#F472B6' }}
+                                        >
+                                            {kw.word} <span style={{ fontSize: '0.85rem', color: '#FBBF24', marginLeft: '6px', fontWeight: 'bold' }}>{kw.vote_count}표</span>
+                                        </button>
+                                    ))}
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '10px', marginTop: '15px', marginBottom: '15px' }}>
+                                    <input
+                                        type="text"
+                                        className="glass-input"
+                                        placeholder="직접 제안하고 싶은 분위기 입력 (예: 시네마틱 라이팅)"
+                                        value={customMood}
+                                        onChange={(e) => setCustomMood(e.target.value)}
+                                        onKeyPress={(e) => e.key === 'Enter' && handleAddCustomMood()}
+                                        style={{ flex: 1, padding: '12px 15px', fontSize: '0.9rem', background: '#1A1A1A', border: '1px solid #333', color: '#fff', borderRadius: '8px' }}
+                                    />
+                                    <button
+                                        onClick={handleAddCustomMood}
+                                        style={{ background: '#F472B6', color: '#fff', border: 'none', padding: '0 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}
+                                    >
+                                        + 직접 제안
+                                    </button>
+                                </div>
+
                                 <button
                                     className="glow-btn"
-                                    disabled={selectedKeywords.length === 0 || !selectedStyle}
+                                    disabled={selectedKeywords.length === 0 || !selectedEra || !selectedBackground || !selectedStyle || !selectedMood}
                                     onClick={submitKeywordVote}
                                     style={{ marginTop: '35px', width: 'auto', padding: '12px 35px' }}
                                 >

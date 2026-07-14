@@ -50,13 +50,45 @@ async def stream_discussion(session_id: str):
 def get_trends_keywords():
     try:
         graph = get_trends_graph()
-        result = graph.invoke({"session_id": "", "search_result": "", "subjects": [], "styles": []})
-        return {"subjects": result["subjects"], "styles": result["styles"]}
+        result = graph.invoke({
+            "session_id": "",
+            "search_result": "",
+            "eras": [],
+            "subjects": [],
+            "backgrounds": [],
+            "styles": [],
+            "moods": [],
+            "ai_eras": [],
+            "ai_subjects": [],
+            "ai_backgrounds": [],
+            "ai_styles": [],
+            "ai_moods": []
+        })
+        return {
+            "eras": result.get("eras", []),
+            "subjects": result.get("subjects", []),
+            "backgrounds": result.get("backgrounds", []),
+            "styles": result.get("styles", []),
+            "moods": result.get("moods", []),
+            "ai_eras": result.get("ai_eras", []),
+            "ai_subjects": result.get("ai_subjects", []),
+            "ai_backgrounds": result.get("ai_backgrounds", []),
+            "ai_styles": result.get("ai_styles", []),
+            "ai_moods": result.get("ai_moods", [])
+        }
     except Exception as e:
         logger.warning(f"🔥 트렌드 추출 실패: {e}")
         return {
-            "subjects": ["메타버스 공간", "우주 탐사선", "포스트 아포칼립스"],
-            "styles": ["베이퍼웨이브", "3D 복셀", "글리치 아트"],
+            "eras": ["중세 판타지", "사이버펑크 미래", "포스트 아포칼립스"],
+            "subjects": ["신비로운 숲의 정령", "우주 탐사 비행사", "사이버네틱 안드로이드"],
+            "backgrounds": ["고대 유적지 내부", "네온 불빛 가득한 골목길", "구름 위 떠 있는 공중 도시"],
+            "styles": ["몽환적인 수채화풍", "레드로 픽셀 아트", "실사 영화 같은 극사실주의"],
+            "moods": ["쓸쓸하고 고독한 분위기", "시네마틱한 강렬한 조명", "따스하고 포근한 황금빛"],
+            "ai_eras": ["조선시대", "빅토리아 스팀펑크", "서부 개척 시대"],
+            "ai_subjects": ["메타버스 가상현실", "초거대 AI", "포스트 아포칼립스"],
+            "backgrounds": ["벚꽃 정원", "우주선 조종실", "안개 낀 공동묘지"],
+            "styles": ["전통 수묵화", "3D 복셀", "점토 클레이아트"],
+            "moods": ["화려한 네온 라이팅", "차가운 새벽 공기", "몽환적 안개"]
         }
 
 
@@ -70,7 +102,10 @@ def generate_weighted_candidates(req: WeightedCandidateRequest):
             {
                 "session_id": session_id,
                 "weights": req.weights,
+                "era": req.era,
+                "background": req.background,
                 "style": req.style,
+                "mood": req.mood,
                 "rag_context": "",
                 "plan_draft": "",
                 "feedback": "",
@@ -86,7 +121,11 @@ def generate_weighted_candidates(req: WeightedCandidateRequest):
         streaming.push_log(session_id, "시스템", "final", "⚠️ 안전 모드로 전환하여 렌더링을 진행합니다.")
         return {
             "candidates": [
-                {"title": f"안전 렌더링 {i}", "description": "복구 처리됨", "image_prompt": f"masterpiece, {req.style}"}
+                {
+                    "title": f"안전 렌더링 {i}",
+                    "description": "복구 처리됨",
+                    "image_prompt": f"masterpiece, {req.style}, {req.mood}, set in {req.background}, {req.era} era",
+                }
                 for i in range(1, 6)
             ]
         }
