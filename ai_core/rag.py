@@ -70,6 +70,22 @@ def archive_round(
         logger.warning(f"라운드 아카이브 실패: {e}")
 
 
+def archive_reference(name: str, text: str, tags: Optional[List[str]] = None):
+    """게임 라운드가 아닌 외부 참고 자료(학교 마스코트 등)를 저장.
+    doc_type='reference'로 별도 태깅해 get_top_rounds()/get_all_round_texts()의
+    doc_type='round' 필터에 섞여 라운드 집계·방향성 요약본을 왜곡하지 않게 한다.
+    search_similar()은 doc_type 필터가 없으므로 유사도 검색에는 round 문서와 동일하게 걸린다.
+    doc_id를 name 기반 고정값으로 둬서 재실행해도 upsert (중복 안 쌓임)."""
+    vs = get_vectorstore()
+    if vs is None:
+        return
+    try:
+        metadata = {"doc_type": "reference", "name": name, "tags": ", ".join(tags or [])}
+        vs.add_texts([text], metadatas=[metadata], ids=[f"reference-{name}"])
+    except Exception as e:
+        logger.warning(f"참고 자료 아카이브 실패: {e}")
+
+
 def archive_digest(text: str):
     """커뮤니티 방향성 요약본을 고정 ID로 upsert - 항상 최신 1건만 유지된다."""
     vs = get_vectorstore()
