@@ -8,6 +8,13 @@ PRIMARY_MODEL = "gemini-3.1-flash-lite"
 FALLBACK_MODEL = "gemini-1.5-flash"
 EMBEDDING_MODEL = "models/gemini-embedding-001"
 
+# 팀 기본값은 Gemini(공유 키) - 개인적으로 유료 OpenAI 키가 있는 사람만
+# .env에 LLM_PROVIDER=openai + OPENAI_API_KEY를 넣어서 로컬에서만 전환해서 쓴다.
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").strip().lower()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_PRIMARY_MODEL = "gpt-4o"
+OPENAI_FALLBACK_MODEL = "gpt-4o-mini"
+
 # with_structured_output()의 기본값(json_schema)이 불안정할 경우 "function_calling"/"json_mode"로 전환
 STRUCTURED_OUTPUT_METHOD = os.getenv("STRUCTURED_OUTPUT_METHOD") or None
 

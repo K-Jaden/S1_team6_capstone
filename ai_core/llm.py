@@ -1,11 +1,25 @@
 import logging
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 import config
 
 logger = logging.getLogger("ai_core.llm")
 
+# LLM_PROVIDER=openai (개인 유료 키가 있을 때만 로컬에서 켬) 아니면 팀 기본값인 Gemini를 그대로 씀.
+_USE_OPENAI = config.LLM_PROVIDER == "openai"
 
-def _primary(temperature: float) -> ChatGoogleGenerativeAI:
+if _USE_OPENAI:
+    logger.info("LLM_PROVIDER=openai - OpenAI(gpt-4o/gpt-4o-mini)로 동작합니다.")
+
+
+def _primary(temperature: float):
+    if _USE_OPENAI:
+        return ChatOpenAI(
+            model=config.OPENAI_PRIMARY_MODEL,
+            api_key=config.OPENAI_API_KEY,
+            temperature=temperature,
+            max_retries=3,
+        )
     return ChatGoogleGenerativeAI(
         model=config.PRIMARY_MODEL,
         google_api_key=config.GOOGLE_API_KEY,
@@ -14,7 +28,14 @@ def _primary(temperature: float) -> ChatGoogleGenerativeAI:
     )
 
 
-def _fallback(temperature: float) -> ChatGoogleGenerativeAI:
+def _fallback(temperature: float):
+    if _USE_OPENAI:
+        return ChatOpenAI(
+            model=config.OPENAI_FALLBACK_MODEL,
+            api_key=config.OPENAI_API_KEY,
+            temperature=temperature,
+            max_retries=2,
+        )
     return ChatGoogleGenerativeAI(
         model=config.FALLBACK_MODEL,
         google_api_key=config.GOOGLE_API_KEY,
