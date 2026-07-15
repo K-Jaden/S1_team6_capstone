@@ -145,6 +145,18 @@ def format_node(state: CandidatesState) -> CandidatesState:
     weight_str = ", ".join([f"'{k}' (가중치: {v})" for k, v in state["weights"].items()])
     push_log(state["session_id"], PAINTER_NAME, "thought", "기획안을 영문 이미지 프롬프트로 변환 중...")
 
+    # rag_context(과거 라운드/참고 캐릭터 자료)에 색상·체형·얼굴 같은 구체적 외형 묘사가 있어도
+    # 지금까지는 이 노드에 아예 전달되지 않아서, 서사(이름·활동)는 반영돼도 실제 그림에 반영이
+    # 안 되는 문제가 있었다. rag_context를 직접 넘기고 시각 묘사 반영을 명시적으로 지시한다.
+    rag_block = (
+        f"\n\n[참고 자료 - 등장 캐릭터/과거 라운드의 시각적 특징]\n{state['rag_context']}\n"
+        "위 참고 자료에 색상·체형·얼굴 등 구체적인 외형 묘사가 있다면, 그 디테일을 image_prompt에 "
+        "직접적인 영문 시각 묘사(색상 코드가 아니라 색깔 이름, 신체 형태, 표정 등)로 반드시 포함시키세요. "
+        "활동/서사만 반영하고 외형 묘사를 생략하면 안 됩니다."
+        if state["rag_context"]
+        else ""
+    )
+
     prompt = f"""아래 기획안을 바탕으로 총 5개의 고해상도 영문 이미지 프롬프트를 작성하세요.
 
 기획안: {state['plan_draft']}
@@ -154,12 +166,12 @@ def format_node(state: CandidatesState) -> CandidatesState:
 2. 고정 시대 및 공간적 배경: 무조건 '{state['era']}'의 요소를 프롬프트에 반영
 3. 고정 세부 배경 및 장소: 무조건 '{state['background']}'의 요소를 프롬프트에 반영
 4. 고정 표현 방식/화풍: 무조건 '{state['style']}'의 요소를 프롬프트에 반영
-5. 고정 분위기 및 조명: 무조건 '{state['mood']}'의 요소를 프롬프트에 반영
+5. 고정 분위기 및 조명: 무조건 '{state['mood']}'의 요소를 프롬프트에 반영{rag_block}
 
 [프롬프트 작성 황금 공식]
 이미지 생성 AI가 키워드별 가중치를 정확히 인식할 수 있도록, 전달받은 가중치 점수를 이용해 반드시 수학적 괄호 문법 (keyword: weight)을 프롬프트 안에 삽입하세요.
 상충하는 여러 시대나 화풍이 주어졌다면(예: 'Chosun dynasty, cyberpunk'), 이를 시각적으로 교차 및 융합(Fusion)하여 매끄러운 영문 문장으로 작성해야 합니다.
-예시 포맷: '(주요 키워드: 가중치 값), (부차적 키워드: 가중치 값), in the style of [고정 화풍], [고정 분위기 및 조명], set in [고정 세부 배경], [고정 시대/공간적 배경]'"""
+예시 포맷: '(주요 키워드: 가중치 값), (부차적 키워드: 가중치 값), [구체적 외형 묘사], in the style of [고정 화풍], [고정 분위기 및 조명], set in [고정 세부 배경], [고정 시대/공간적 배경]'"""
 
     structured_llm = llm.get_structured_llm(CandidateList, temperature=0.9)
     try:
