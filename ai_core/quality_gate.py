@@ -1,11 +1,16 @@
 import logging
+import math
+from typing import Optional
 
 from langchain_core.messages import HumanMessage
 
+import config
 import llm
 from schemas import QualityCheckRequest, QualityCheckResult
 
 logger = logging.getLogger("ai_core.quality_gate")
+
+ALIGNMENT_JUDGE_MODEL = "gpt-4o"
 
 CHECK_PROMPT_TEMPLATE = """당신은 AI 생성 이미지의 "실행 품질"만 검증하는 검수자입니다.
 화풍의 좋고 나쁨(취향)은 절대 평가 대상이 아닙니다 - 의도한 화풍이 그 화풍답게 잘 구현됐는지만 봅니다.
@@ -62,6 +67,55 @@ def is_passed(result: QualityCheckResult) -> bool:
 def failure_summary(result: QualityCheckResult) -> str:
     failed = [f"{c.name}: {c.detail}" for c in result.checks if not c.passed]
     return "; ".join(failed)
+
+
+def compute_alignment_score(image_base64: str, mime_type: str, prompt: str) -> Optional[float]:
+    """VQAScore 방식 - "이 이미지가 {prompt}를 보여주는가?"에 대한 모델의 Yes 토큰 실제 확률을
+    점수로 사용한다 (사람 판단과의 상관관계가 CLIPScore/TIFA/DSG보다 높다고 보고된 방식).
+
+    logprobs를 노출하는 API가 필요해 OpenAI 전용으로 구현한다 - langchain_google_genai는
+    logprobs 필드 자체가 없어 Gemini로는 동일한 방식을 구현할 수 없다 (직접 확인 완료).
+    OpenAI가 설정 안 되어 있으면 None을 반환하고, 호출부에서 이 필드를 생략하면 된다."""
+    if config.LLM_PROVIDER != "openai" or not config.OPENAI_API_KEY:
+        return None
+
+    from langchain_openai import ChatOpenAI
+
+    judge = ChatOpenAI(
+        model=ALIGNMENT_JUDGE_MODEL,
+        api_key=config.OPENAI_API_KEY,
+        temperature=0,
+        logprobs=True,
+        top_logprobs=5,
+        max_tokens=1,
+    )
+    message = HumanMessage(
+        content=[
+            {"type": "text", "text": f'Does this image show: "{prompt}"? Answer with only Yes or No.'},
+            {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{image_base64}"}},
+        ]
+    )
+    try:
+        result = judge.invoke([message])
+        token_logprobs = result.response_metadata["logprobs"]["content"][0]["top_logprobs"]
+    except Exception as e:
+        logger.warning(f"정합성 점수 계산 실패: {e}")
+        return None
+
+    yes_prob = 0.0
+    no_prob = 0.0
+    for item in token_logprobs:
+        token = item["token"].strip().lower()
+        prob = math.exp(item["logprob"])
+        if token in ("yes", "y"):
+            yes_prob += prob
+        elif token in ("no", "n"):
+            no_prob += prob
+
+    if yes_prob == 0.0 and no_prob == 0.0:
+        logger.warning("정합성 점수 계산 실패: top_logprobs에 yes/no 토큰 없음")
+        return None
+    return yes_prob / (yes_prob + no_prob)
 
 
 def rewrite_prompt_for_retry(original_prompt: str, title: str, description: str, style: str, summary: str) -> str:

@@ -163,6 +163,12 @@ def quality_check(req: QualityCheckRequest):
     result = quality_gate.check_image_quality(req)
     passed = quality_gate.is_passed(result)
     response = {"passed": passed, "checks": [c.model_dump() for c in result.checks]}
+
+    # VQAScore 방식 정합성 점수 - OpenAI(logprobs) 설정 시에만 계산, 없으면 필드 자체를 생략
+    alignment_score = quality_gate.compute_alignment_score(req.image_base64, req.mime_type, req.image_prompt)
+    if alignment_score is not None:
+        response["alignment_score"] = alignment_score
+
     if not passed:
         summary = quality_gate.failure_summary(result)
         response["failure_summary"] = summary
