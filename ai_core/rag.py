@@ -86,6 +86,66 @@ def archive_reference(name: str, text: str, tags: Optional[List[str]] = None):
         logger.warning(f"참고 자료 아카이브 실패: {e}")
 
 
+def archive_losing_candidate(
+    round_id: Optional[int],
+    keywords: List[str],
+    title: str,
+    description: str,
+    vp_votes: int = 0,
+    doc_id: Optional[str] = None,
+):
+    """낙선 후보 - "이 방향은 시도했지만 커뮤니티가 덜 선호했다"는 네거티브 신호.
+    지금까지는 우승작 1개만 저장하고 나머지 4개는 완전히 버려졌음. doc_type="losing_candidate"로
+    태깅해 get_top_rounds()/get_all_round_texts()의 doc_type="round" 필터에는 안 섞이지만,
+    search_similar()에는 round 문서와 동일하게 걸려 candidates 그래프의 "유사 라운드" 검색에
+    자동으로 포함된다."""
+    vs = get_vectorstore()
+    if vs is None:
+        return
+    try:
+        keyword_str = ", ".join(keywords) if keywords else "N/A"
+        round_label = round_id if round_id is not None else "?"
+        doc_text = f"라운드 {round_label} | 낙선 후보 '{title}' (득표 {vp_votes}) | 키워드: {keyword_str} | {description}"
+        metadata = {
+            "doc_type": "losing_candidate",
+            "round_id": round_id or 0,
+            "keywords": keyword_str,
+            "title": title,
+            "vp_votes": vp_votes,
+        }
+        ids = [doc_id] if doc_id else None
+        vs.add_texts([doc_text], metadatas=[metadata], ids=ids)
+    except Exception as e:
+        logger.warning(f"낙선 후보 아카이브 실패: {e}")
+
+
+def archive_feedback(
+    round_id: Optional[int],
+    title: str,
+    comment: str,
+    sentiment: str = "중립",
+    doc_id: Optional[str] = None,
+):
+    """유저 관람평 - AI가 쓴 비평문보다 직접적인 커뮤니티 취향 신호.
+    doc_type="feedback"으로 태깅. search_similar()에 round 문서와 동일하게 걸림."""
+    vs = get_vectorstore()
+    if vs is None:
+        return
+    try:
+        round_label = round_id if round_id is not None else "?"
+        doc_text = f"라운드 {round_label} '{title}' 관람평({sentiment}): {comment}"
+        metadata = {
+            "doc_type": "feedback",
+            "round_id": round_id or 0,
+            "title": title,
+            "sentiment": sentiment,
+        }
+        ids = [doc_id] if doc_id else None
+        vs.add_texts([doc_text], metadatas=[metadata], ids=ids)
+    except Exception as e:
+        logger.warning(f"관람평 아카이브 실패: {e}")
+
+
 def archive_digest(text: str):
     """커뮤니티 방향성 요약본을 고정 ID로 upsert - 항상 최신 1건만 유지된다."""
     vs = get_vectorstore()

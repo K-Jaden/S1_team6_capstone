@@ -39,6 +39,23 @@ class SeedRoundBatch(BaseModel):
     rounds: List[SeedRound]
 
 
+class SeedLosingCandidate(BaseModel):
+    keywords: List[str] = Field(description="이 낙선 후보가 다룬 테마/화풍 키워드 2~3개")
+    title: str = Field(description="한국어 제목")
+    description: str = Field(description="한국어 설명, 1~2문장")
+    vp_votes: int = Field(description="당선작 대비 낮은 득표수 (예: 5~40 사이)")
+
+
+class SeedFeedback(BaseModel):
+    comment: str = Field(description="유저가 남긴 것 같은 자연스러운 한국어 관람평 한두 문장 (AI 비평문 톤이 아니라 일반 유저 말투)")
+    sentiment: str = Field(description="긍정/부정/중립 중 하나")
+
+
+class SeedCommunitySignalBatch(BaseModel):
+    losing_candidates: List[SeedLosingCandidate] = Field(min_length=2, max_length=2)
+    feedbacks: List[SeedFeedback] = Field(min_length=2, max_length=2)
+
+
 class QualityCheckItem(BaseModel):
     name: str = Field(description="체크 항목 이름 (예: 핵심요소반영, 구조결함없음, 화풍일관성, 내용일치)")
     passed: bool = Field(description="이 항목을 통과했는가")
