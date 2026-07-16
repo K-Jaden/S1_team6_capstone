@@ -11,3 +11,4 @@ langchain-openai
 langgraph
 langchain-chroma
 chromadb
+dreamsim
