@@ -23,3 +23,8 @@ QUEUE_TTL_SECONDS = 30 * 60
 RAG_COLLECTION_NAME = "round_history"
 COMMUNITY_DIGEST_DOC_ID = "community-digest"
 DIGEST_REFRESH_INTERVAL = 10  # 실제 게임 라운드 N개마다 커뮤니티 방향성 요약본 재생성
+
+# 유사도 검색 관련성 임계값 (L2 거리, 작을수록 유사) - 이보다 먼 매치는 억지로 채워넣지 않고 버린다.
+# 코퍼스가 작을 때 "제일 가까운 게 사실 안 비슷한" 매치가 프롬프트에 끼어드는 걸 막고,
+# 데이터가 쌓일수록 이 임계값을 진짜로 통과하는 매치가 늘어나며 자연스럽게 반영 정밀도가 올라간다.
+RAG_RELEVANCE_THRESHOLD = 0.6

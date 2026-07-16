@@ -92,20 +92,24 @@ def archive_losing_candidate(
     title: str,
     description: str,
     vp_votes: int = 0,
+    reason: str = "",
     doc_id: Optional[str] = None,
 ):
     """낙선 후보 - "이 방향은 시도했지만 커뮤니티가 덜 선호했다"는 네거티브 신호.
     지금까지는 우승작 1개만 저장하고 나머지 4개는 완전히 버려졌음. doc_type="losing_candidate"로
     태깅해 get_top_rounds()/get_all_round_texts()의 doc_type="round" 필터에는 안 섞이지만,
-    search_similar()에는 round 문서와 동일하게 걸려 candidates 그래프의 "유사 라운드" 검색에
-    자동으로 포함된다."""
+    search_similar()/search_similar_grouped()에는 round 문서와 동일하게 걸려 candidates 그래프의
+    "유사 라운드" 검색에 자동으로 포함된다.
+    reason("왜 덜 선호됐을지 추정")이 없으면 "낙선했다"는 사실만 남아 AI 입장에서 실제로
+    피할 점이 뭔지 알기 어렵다 - 있으면 실행 가능한 네거티브 시그널이 되므로 함께 저장한다."""
     vs = get_vectorstore()
     if vs is None:
         return
     try:
         keyword_str = ", ".join(keywords) if keywords else "N/A"
         round_label = round_id if round_id is not None else "?"
-        doc_text = f"라운드 {round_label} | 낙선 후보 '{title}' (득표 {vp_votes}) | 키워드: {keyword_str} | {description}"
+        reason_part = f" | 덜 선호된 이유(추정): {reason}" if reason else ""
+        doc_text = f"라운드 {round_label} | 낙선 후보 '{title}' (득표 {vp_votes}) | 키워드: {keyword_str} | {description}{reason_part}"
         metadata = {
             "doc_type": "losing_candidate",
             "round_id": round_id or 0,
@@ -212,6 +216,34 @@ def search_similar(query: str, k: int = 3) -> List[str]:
     except Exception as e:
         logger.warning(f"RAG 검색 실패: {e}")
         return []
+
+
+def search_similar_grouped(query: str, k: int = 8, threshold: float = config.RAG_RELEVANCE_THRESHOLD) -> dict:
+    """유사도 검색 결과를 doc_type별로 분류해 반환한다 - "제일 가까운 k개를 무조건 채워넣기"가
+    아니라 실제로 관련 있는(distance <= threshold) 것만 남긴다. 관련 있는 게 없으면 해당
+    doc_type은 그냥 빈 채로 둔다(강제로 채우지 않음). doc_type을 구분해서 반환하는 이유는
+    "우승작"(계승할 신호)과 "낙선 후보"(피할 신호), "관람평"(감정 신호)이 서로 반대되거나
+    다른 성격의 신호라서 호출부에서 doc_type별로 다른 지시문을 붙여야 하기 때문이다.
+    digest는 get_current_digest()로 항상 별도 조회하므로 여기서는 제외한다.
+    반환값: {doc_type: [문서 텍스트, ...]}"""
+    vs = get_vectorstore()
+    if vs is None:
+        return {}
+    try:
+        results = vs.similarity_search_with_score(query, k=k)
+    except Exception as e:
+        logger.warning(f"RAG 유사도 검색 실패: {e}")
+        return {}
+
+    grouped: dict = {}
+    for doc, distance in results:
+        if distance > threshold:
+            continue
+        doc_type = doc.metadata.get("doc_type", "unknown")
+        if doc_type == "digest":
+            continue
+        grouped.setdefault(doc_type, []).append(doc.page_content)
+    return grouped
 
 
 def search_similar_debug(query: str, k: int = 5) -> List[dict]:

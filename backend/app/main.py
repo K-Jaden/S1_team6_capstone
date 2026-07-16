@@ -226,12 +226,25 @@ def get_gallery_items(wallet_address: Optional[str] = None, db: Session = Depend
 @app.post("/api/gallery/feedback")
 def create_feedback(item_id: int, content: str, wallet_address: str, db: Session = Depends(get_db)):
     feedback = models.GalleryFeedback(
-        item_id=item_id, 
-        content=content, 
+        item_id=item_id,
+        content=content,
         wallet_address=wallet_address
     )
     db.add(feedback)
     db.commit()
+
+    # RAG는 부가 기능이라 실패해도 관람평 저장 자체는 이미 끝난 뒤 - 실패해도 무시하고 진행
+    try:
+        item = db.query(models.GalleryItem).filter(models.GalleryItem.id == item_id).first()
+        if item:
+            requests.post(f"{AI_AGENT_URL}/api/agent/archive-feedback", json={
+                "round_id": None,  # GalleryItem은 round_id를 안 갖고 있어 title로만 식별
+                "title": item.title,
+                "comment": content,
+            }, timeout=30)
+    except Exception as e:
+        logger.warning(f"관람평 RAG 아카이브 실패 (무시): {e}")
+
     return {"status": "feedback_saved"}
 
 # ==========================================
@@ -968,6 +981,32 @@ def start_phase3_valuation(round_id: int = 0, session_id: str = "", db: Session 
         models.Keyword.round_id == round_id,
         models.Keyword.vote_count > 0
     ).order_by(desc(models.Keyword.vote_count)).limit(3).all()
+
+    # =========================================================
+    # 🟢 낙선 후보(4개) RAG 아카이브 - 지금까지는 우승작 1개만 기록하고 나머지는 버려졌음.
+    # reason은 LLM 호출 없이 득표 비교로 사실 기반 계산 (비용 없음). RAG는 부가 기능이라
+    # 실패해도 라운드 진행에 영향 없도록 전체를 try/except로 감싼다.
+    # =========================================================
+    try:
+        losing_candidates = db.query(models.Candidate).filter(
+            models.Candidate.round_id == round_id,
+            models.Candidate.id != winner.id,
+        ).all()
+        if losing_candidates:
+            items = []
+            for c in losing_candidates:
+                vote_ratio = f"{(c.vp_votes / winner.vp_votes * 100):.0f}%" if winner.vp_votes else "0%"
+                items.append({
+                    "round_id": round_id,
+                    "keywords": [k.word for k in top_keywords],
+                    "title": c.title,
+                    "description": c.description,
+                    "vp_votes": c.vp_votes,
+                    "reason": f"우승작 '{winner.title}'(득표 {winner.vp_votes}) 대비 득표 {c.vp_votes}표 ({vote_ratio} 수준)",
+                })
+            requests.post(f"{AI_AGENT_URL}/api/agent/archive-losing-candidates", json={"items": items}, timeout=30)
+    except Exception as e:
+        logger.warning(f"낙선 후보 RAG 아카이브 실패 (무시하고 진행): {e}")
 
     # =========================================================
     # 🟢 [품질 게이트] 우승작 이미지 축 A(실행 품질) 검증

@@ -40,11 +40,26 @@ def _dist_str(weights: dict) -> str:
         return f"{joined} (공동 1등 키워드)"
 
 
+# doc_type별로 반대되거나 성격이 다른 신호이므로 각각 다른 지시문을 붙인다.
+# - round: 우승했던 방향 -> 계승할 신호
+# - losing_candidate: 낙선했던 방향 -> 피할 신호 (round와 정반대 방향의 지시가 필요)
+# - feedback: 실제 유저 반응 -> 감정(긍정/부정)에 따라 살릴지 피할지가 갈림
+# - reference: 등장 캐릭터 등 시각적 사실 -> 일관성 유지가 목적, 계승/회피 판단 대상이 아님
+DOC_TYPE_SECTIONS = {
+    "round": ("[유사한 과거 우승작]", "커뮤니티가 실제로 선택한 방향입니다. 그대로 베끼지 말고 좋았던 요소를 계승해 차별화하세요."),
+    "losing_candidate": ("[유사한 낙선 후보]", "이 방향들은 실제로 시도됐지만 투표에서 밀렸습니다. 함께 적힌 낙선 이유를 참고해 비슷한 약점을 반복하지 마세요."),
+    "feedback": ("[관련 유저 반응]", "실제 유저가 남긴 반응입니다. 긍정 반응을 이끈 요소는 살리고, 부정 반응을 이끈 요소는 피하세요."),
+    "reference": ("[등장 캐릭터/참고 자료]", "여기 묘사된 시각적 특징이 이번 주제와 관련 있다면, 임의로 바꾸지 말고 그대로 반영해 일관성을 유지하세요."),
+}
+
+
 def retrieve_context_node(state: CandidatesState) -> CandidatesState:
     query = f"{', '.join(state['weights'].keys())} {state['era']} {state['background']} {state['style']} {state['mood']}"
     digest = rag.get_current_digest()
     top_rounds = rag.get_top_rounds(limit=2)
-    similar = rag.search_similar(query, k=3)
+    # 관련성 임계값 이하(진짜 무관한) 매치는 억지로 채워넣지 않는다 - top_k를 무조건 채우는 대신
+    # doc_type별로 실제로 관련 있는 것만 남기고, 없으면 그 섹션은 그냥 비운다.
+    grouped = rag.search_similar_grouped(query, k=8)
 
     parts = []
     log_bits = []
@@ -52,14 +67,21 @@ def retrieve_context_node(state: CandidatesState) -> CandidatesState:
         parts.append(f"[커뮤니티 방향성 요약]\n{digest}")
         log_bits.append("방향성 요약")
     if top_rounds:
-        parts.append("[역대 인기 라운드]\n" + "\n".join(f"- {t}" for t in top_rounds))
+        parts.append("[역대 인기 라운드] (참고하되 차별화)\n" + "\n".join(f"- {t}" for t in top_rounds))
         log_bits.append(f"역대 인기작 {len(top_rounds)}건")
-    if similar:
-        parts.append("[이번 주제와 유사한 과거 라운드]\n" + "\n".join(f"- {s}" for s in similar))
-        log_bits.append(f"유사 라운드 {len(similar)}건")
+
+    for doc_type, (label, instruction) in DOC_TYPE_SECTIONS.items():
+        # top_rounds와 중복되는 항목은 다시 나열하지 않는다.
+        items = [t for t in grouped.get(doc_type, []) if t not in top_rounds]
+        if not items:
+            continue
+        parts.append(f"{label} ({instruction})\n" + "\n".join(f"- {t}" for t in items))
+        log_bits.append(f"{doc_type} {len(items)}건")
 
     if log_bits:
         push_log(state["session_id"], PLANNER_NAME, "thought", f"📚 참고 자료 확보: {', '.join(log_bits)}")
+    else:
+        push_log(state["session_id"], PLANNER_NAME, "thought", "📚 관련성 높은 참고 자료 없음 - 기존 조건만으로 기획")
 
     return {**state, "rag_context": "\n\n".join(parts)}
 
@@ -69,8 +91,11 @@ def plan_node(state: CandidatesState) -> CandidatesState:
     session_id = state["session_id"]
     turn = state.get("turn_count", 0)
 
+    # rag_context 내부에 각 섹션([역대 인기 라운드]/[유사한 낙선 후보]/[관련 유저 반응] 등)마다
+    # 이미 성격이 다른 지시문이 붙어 있으므로(계승 vs 회피 등), 여기서는 "각 섹션 지시를 따르라"는
+    # 상위 안내만 붙이고 섹션별 세부 지시를 덮어쓰지 않는다.
     context_block = (
-        f"\n\n참고할 과거 라운드 (동일하게 베끼지 말고 차별화하되, 호평받은 요소는 참고):\n{state['rag_context']}"
+        f"\n\n[참고 자료 - 아래 각 섹션에 적힌 지시사항을 그대로 따르세요]\n{state['rag_context']}"
         if state["rag_context"]
         else ""
     )
@@ -149,10 +174,11 @@ def format_node(state: CandidatesState) -> CandidatesState:
     # 지금까지는 이 노드에 아예 전달되지 않아서, 서사(이름·활동)는 반영돼도 실제 그림에 반영이
     # 안 되는 문제가 있었다. rag_context를 직접 넘기고 시각 묘사 반영을 명시적으로 지시한다.
     rag_block = (
-        f"\n\n[참고 자료 - 등장 캐릭터/과거 라운드의 시각적 특징]\n{state['rag_context']}\n"
-        "위 참고 자료에 색상·체형·얼굴 등 구체적인 외형 묘사가 있다면, 그 디테일을 image_prompt에 "
-        "직접적인 영문 시각 묘사(색상 코드가 아니라 색깔 이름, 신체 형태, 표정 등)로 반드시 포함시키세요. "
-        "활동/서사만 반영하고 외형 묘사를 생략하면 안 됩니다."
+        f"\n\n[참고 자료 - 아래 각 섹션의 지시사항을 따르세요]\n{state['rag_context']}\n"
+        "위 참고 자료 중 [등장 캐릭터/참고 자료] 섹션처럼 색상·체형·얼굴 등 구체적인 외형 묘사가 "
+        "있다면, 그 디테일을 image_prompt에 직접적인 영문 시각 묘사(색상 코드가 아니라 색깔 이름, "
+        "신체 형태, 표정 등)로 반드시 포함시키세요. 활동/서사만 반영하고 외형 묘사를 생략하면 안 됩니다. "
+        "[유사한 낙선 후보] 섹션이 있다면 그 낙선 이유가 이번 프롬프트에서 반복되지 않았는지 점검하세요."
         if state["rag_context"]
         else ""
     )

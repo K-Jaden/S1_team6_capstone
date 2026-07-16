@@ -43,6 +43,9 @@ def generate_cluster(cluster_desc: str) -> SeedCommunitySignalBatch:
 
 1. losing_candidates (2개): 이 테마로 후보에 올랐지만 유저 투표에서 우승하지 못한 컨셉.
    실제로 시도됐을 법한 그럴듯한 컨셉이되, 우승작보다는 임팩트가 약하거나 애매했을 법한 방향으로.
+   왜 덜 선호됐을지(reason)도 구체적으로 추정해서 함께 작성하세요 - 나중에 이 낙선 이유가
+   비슷한 실수를 피하는 데 실제로 쓰이므로, "그냥 별로였다"가 아니라 임팩트 부족/화풍-테마
+   불일치/진부함 등 구체적인 이유여야 합니다.
 2. feedbacks (2개): 이 테마의 우승작을 본 유저가 남겼을 법한 자연스러운 관람평.
    AI 비평가 톤이 아니라 실제 커뮤니티 유저가 짧게 쓸 법한 솔직한 말투 (긍정/부정/중립 골고루)."""
 
@@ -69,9 +72,10 @@ def run():
                 title=item.title,
                 description=item.description,
                 vp_votes=item.vp_votes,
+                reason=item.reason,
                 doc_id=doc_id,
             )
-            logger.info(f"  archived [{doc_id}] 낙선후보 '{item.title}' (vp={item.vp_votes})")
+            logger.info(f"  archived [{doc_id}] 낙선후보 '{item.title}' (vp={item.vp_votes}, 이유: {item.reason})")
             total_archived += 1
 
         for idx, item in enumerate(batch.feedbacks):

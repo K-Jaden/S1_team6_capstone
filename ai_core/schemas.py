@@ -44,6 +44,7 @@ class SeedLosingCandidate(BaseModel):
     title: str = Field(description="한국어 제목")
     description: str = Field(description="한국어 설명, 1~2문장")
     vp_votes: int = Field(description="당선작 대비 낮은 득표수 (예: 5~40 사이)")
+    reason: str = Field(description="왜 이 컨셉이 우승작보다 덜 선호됐을지에 대한 구체적 추정 이유, 1문장 (예: 임팩트 부족, 테마와 화풍의 어색한 결합 등)")
 
 
 class SeedFeedback(BaseModel):
@@ -99,3 +100,26 @@ class QualityCheckRequest(BaseModel):
     title: str
     description: str
     style: str = ""
+
+
+class LosingCandidateArchiveItem(BaseModel):
+    round_id: Optional[int] = None
+    keywords: List[str] = []
+    title: str
+    description: str
+    vp_votes: int = 0
+    reason: str = ""  # 사실 기반 낙선 이유 (예: "우승작 대비 득표 32% 수준") - backend에서 계산해 전달
+
+
+class LosingCandidateArchiveRequest(BaseModel):
+    items: List[LosingCandidateArchiveItem]
+
+
+class FeedbackArchiveRequest(BaseModel):
+    round_id: Optional[int] = None
+    title: str
+    comment: str
+
+
+class FeedbackSentiment(BaseModel):
+    sentiment: str = Field(description="관람평에 담긴 감정 분류 - '긍정'/'부정'/'중립' 중 하나만 정확히 반환")

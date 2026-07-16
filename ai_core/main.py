@@ -18,7 +18,15 @@ import streaming
 from graphs.candidates import get_candidates_graph
 from graphs.critique import get_critique_graph
 from graphs.trends import get_trends_graph
-from schemas import ChatRequest, QualityCheckRequest, WeightedCandidateRequest, WinnerEvalOnlyRequest
+from schemas import (
+    ChatRequest,
+    FeedbackArchiveRequest,
+    FeedbackSentiment,
+    LosingCandidateArchiveRequest,
+    QualityCheckRequest,
+    WeightedCandidateRequest,
+    WinnerEvalOnlyRequest,
+)
 
 app = FastAPI(title="ArtDAO LangGraph A2A Server", version="9.0-LangGraph")
 
@@ -180,6 +188,51 @@ def quality_check(req: QualityCheckRequest):
             logger.warning(f"재수정 프롬프트 생성 실패: {e}")
             response["revised_prompt"] = req.image_prompt
     return response
+
+
+@app.post("/api/agent/archive-losing-candidates")
+def archive_losing_candidates(req: LosingCandidateArchiveRequest):
+    """실제 라운드에서 우승하지 못한 후보들을 낙선 후보(doc_type=losing_candidate)로 아카이브.
+    reason은 backend가 득표 비교 등 사실 기반으로 미리 계산해 넘긴다 - 여기서는 LLM 호출 없이
+    그대로 저장만 하므로 추가 API 비용이 들지 않는다."""
+    archived = 0
+    for item in req.items:
+        try:
+            rag.archive_losing_candidate(
+                round_id=item.round_id,
+                keywords=item.keywords,
+                title=item.title,
+                description=item.description,
+                vp_votes=item.vp_votes,
+                reason=item.reason,
+            )
+            archived += 1
+        except Exception as e:
+            logger.warning(f"낙선 후보 아카이브 실패 ('{item.title}'): {e}")
+    return {"archived": archived}
+
+
+@app.post("/api/agent/archive-feedback")
+def archive_feedback_endpoint(req: FeedbackArchiveRequest):
+    """실제 유저 관람평을 감정 분류 후 관람평(doc_type=feedback)으로 아카이브.
+    관람평 제출은 라운드당 최대 5회 뿐인 이미지 생성/품질검증과 달리 빈도가 낮고 유저가 직접
+    트리거하는 이벤트라, 감정 분류에 LLM 호출 1회를 쓰는 비용은 감내 가능하다고 판단."""
+    sentiment = "중립"
+    try:
+        structured_llm = llm_module.get_structured_llm(FeedbackSentiment, temperature=0)
+        result: FeedbackSentiment = structured_llm.invoke(
+            f"다음은 전시 작품에 대한 유저 관람평입니다. 감정을 '긍정'/'부정'/'중립' 중 하나로만 분류하세요.\n관람평: {req.comment}"
+        )
+        sentiment = result.sentiment
+    except Exception as e:
+        logger.warning(f"관람평 감정 분류 실패, 중립으로 처리: {e}")
+
+    try:
+        rag.archive_feedback(round_id=req.round_id, title=req.title, comment=req.comment, sentiment=sentiment)
+    except Exception as e:
+        logger.warning(f"관람평 아카이브 실패: {e}")
+
+    return {"sentiment": sentiment}
 
 
 @app.get("/api/agent/rag-debug")
