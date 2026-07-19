@@ -105,7 +105,6 @@ def generate_weighted_candidates(req: WeightedCandidateRequest):
                 "era": req.era,
                 "background": req.background,
                 "style": req.style,
-                "mood": req.mood,
                 "rag_context": "",
                 "plan_draft": "",
                 "feedback": "",
@@ -124,7 +123,7 @@ def generate_weighted_candidates(req: WeightedCandidateRequest):
                 {
                     "title": f"안전 렌더링 {i}",
                     "description": "복구 처리됨",
-                    "image_prompt": f"masterpiece, {req.style}, {req.mood}, set in {req.background}, {req.era} era",
+                    "image_prompt": f"masterpiece, {req.style}, set in {req.background}, {req.era} era",
                 }
                 for i in range(1, 6)
             ]

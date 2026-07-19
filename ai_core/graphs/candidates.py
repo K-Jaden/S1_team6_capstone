@@ -21,7 +21,6 @@ class CandidatesState(TypedDict):
     era: str
     background: str
     style: str
-    mood: str
     rag_context: str
     prompt_rules_context: str
     style_guide_context: str
@@ -43,7 +42,7 @@ def _dist_str(weights: dict) -> str:
 
 
 def retrieve_context_node(state: CandidatesState) -> CandidatesState:
-    query = f"{', '.join(state['weights'].keys())} {state['era']} {state['background']} {state['style']} {state['mood']}"
+    query = f"{', '.join(state['weights'].keys())} {state['era']} {state['background']} {state['style']}"
     digest = rag.get_current_digest()
     top_rounds = rag.get_top_rounds(limit=2)
     similar = rag.search_similar(query, k=3)
@@ -109,10 +108,9 @@ def plan_node(state: CandidatesState) -> CandidatesState:
     if turn == 0:
         push_log(session_id, PLANNER_NAME, "thought", f"🎨 유저 투표 반영 기획 시작: {dist_str}")
         prompt = f"""유저 투표 결과 핵심 테마 비중: {dist_str}
-고정 시대 및 공간적 배경: {state['era']}
-고정 세부 배경 및 장소: {state['background']}
+고정 배경이 되는 시대: {state['era']}
+고정 세부 장소: {state['background']}
 고정 표현 방식/화풍: {state['style']}
-고정 분위기 및 조명: {state['mood']}
 
 [기획 미션]
 1. 위의 조건들을 조화롭게 반영하여 총 5개의 전시 후보작 컨셉을 한국어로 기획하세요.
@@ -125,10 +123,9 @@ def plan_node(state: CandidatesState) -> CandidatesState:
     else:
         push_log(session_id, PLANNER_NAME, "thought", "비평가의 피드백을 반영하여 기획안 수정 중...")
         prompt = f"""유저 투표 결과 핵심 테마 비중: {dist_str}
-고정 시대 및 공간적 배경: {state['era']}
-고정 세부 배경 및 장소: {state['background']}
+고정 배경이 되는 시대: {state['era']}
+고정 세부 장소: {state['background']}
 고정 표현 방식/화풍: {state['style']}
-고정 분위기 및 조명: {state['mood']}
 과거 참고 자료: {state['rag_context']}
 
 이전 작성했던 기획안 초안:
@@ -156,13 +153,12 @@ def critic_node(state: CandidatesState) -> CandidatesState:
 {state['plan_draft']}
 
 핵심 테마와 가중치: {dist_str}
-고정 시대 및 공간적 배경: {state['era']}
-고정 세부 배경 및 장소: {state['background']}
+고정 배경이 되는 시대: {state['era']}
+고정 세부 장소: {state['background']}
 고정 표현 방식/화풍: {state['style']}
-고정 분위기 및 조명: {state['mood']}
 
 [비평 가이드라인]
-1. 기획안의 스토리라인과 컨셉이 유저들이 투표한 핵심 테마 및 각 고정 슬롯(시대, 배경, 화풍, 분위기) 조건들과 유기적으로 부합하는지 평가하세요.
+1. 기획안의 스토리라인과 컨셉이 유저들이 투표한 핵심 테마 및 각 고정 슬롯(시대, 장소, 화풍) 조건들과 유기적으로 부합하는지 평가하세요.
 2. 여러 슬롯의 키워드가 모순될 경우(예: 조선시대 + 사이버펑크), 기획안이 두 장르를 단순 나열하는 것을 넘어 창의적으로 융합(Fusion)시켰는지 비판적으로 평가하세요.
 3. 각 후보작의 개성이 명확하고 다채로운지 검토하세요.
 4. 이미지 생성 프롬프트로 변환하기에 비주얼적 묘사나 조명/배경의 묘사가 부족한 부분을 지적하세요.
@@ -207,14 +203,13 @@ def format_node(state: CandidatesState) -> CandidatesState:
 
 [필수 반영 요소]
 1. 핵심 테마와 가중치: {weight_str}
-2. 고정 시대 및 공간적 배경: 무조건 '{state['era']}'의 요소를 프롬프트에 반영
-3. 고정 세부 배경 및 장소: 무조건 '{state['background']}'의 요소를 프롬프트에 반영
-4. 고정 표현 방식/화풍: 무조건 '{state['style']}'의 요소를 프롬프트에 반영
-5. 고정 분위기 및 조명: 무조건 '{state['mood']}'의 요소를 프롬프트에 반영{rag_block}{style_guide_block}{prompt_rules_block}
+2. 고정 배경이 되는 시대: 무조건 '{state['era']}'의 요소를 프롬프트에 반영
+3. 고정 세부 장소: 무조건 '{state['background']}'의 요소를 프롬프트에 반영
+4. 고정 표현 방식/화풍: 무조건 '{state['style']}'의 요소를 프롬프트에 반영{rag_block}{style_guide_block}{prompt_rules_block}
 
 [프롬프트 작성 황금 공식]
 1. 🔥 화풍 최우선 규칙 (Style-First Rule): 이미지 생성 AI가 화풍을 무조건 인식하도록, 획득한 [화풍 시각 묘사 가이드라인]의 트리거 지시어들을 영문 이미지 프롬프트의 가장 맨 앞(최전방)에 배치하십시오. 피사체 묘사보다 화풍이 먼저 기술되어야 합니다.
-   포맷 구도: `[화풍 트리거 키워드들], A [화풍명] of (주요 키워드: 가중치 값), [세부 피사체 묘사], [고정 분위기 및 조명], set in [고정 세부 배경], [고정 시대/공간적 배경]`
+   포맷 구도: `[화풍 트리거 키워드들], A [화풍명] of (주요 키워드: 가중치 값), [세부 피사체 묘사], set in [고정 세부 장소], [고정 배경이 되는 시대]`
 2. 이미지 생성 AI가 키워드별 가중치를 정확히 인식할 수 있도록, 전달받은 가중치 점수를 이용해 반드시 수학적 괄호 문법 (keyword: weight)을 프롬프트 안에 삽입하세요.
 3. 상충하는 여러 시대나 화풍이 주어졌다면(예: 'Chosun dynasty, cyberpunk'), 이를 시각적으로 교차 및 융합(Fusion)하여 매끄러운 영문 문장으로 작성해야 합니다."""
 
