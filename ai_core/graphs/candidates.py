@@ -107,6 +107,7 @@ def plan_node(state: CandidatesState) -> CandidatesState:
 
     if turn == 0:
         push_log(session_id, PLANNER_NAME, "thought", f"🎨 유저 투표 반영 기획 시작: {dist_str}")
+        push_log(session_id, PLANNER_NAME, "thought", f"📋 적용된 조합설계: 시대='{state['era']}', 장소='{state['background']}', 화풍='{state['style']}'")
         prompt = f"""유저 투표 결과 핵심 테마 비중: {dist_str}
 고정 배경이 되는 시대: {state['era']}
 고정 세부 장소: {state['background']}

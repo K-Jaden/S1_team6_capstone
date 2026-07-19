@@ -5,17 +5,15 @@ from pydantic import BaseModel, Field
 # ---- LLM 구조화 출력 스키마 ----
 
 class TrendKeywords(BaseModel):
-    eras: List[str] = Field(description="Reddit 크롤링 결과에서 추출한 트렌디한 시대 및 공간적 배경 키워드 한국어 3개", min_length=3, max_length=3)
+    eras: List[str] = Field(description="Reddit 크롤링 결과에서 추출한 트렌디한 시대 키워드 한국어 3개 (반드시 시대/제국으로 끝나야 함)", min_length=3, max_length=3)
     subjects: List[str] = Field(description="Reddit 크롤링 결과에서 추출한 트렌디한 핵심 피사체/캐릭터 키워드 한국어 3개", min_length=3, max_length=3)
-    backgrounds: List[str] = Field(description="Reddit 크롤링 결과에서 추출한 트렌디한 세부 배경/장소 키워드 한국어 3개", min_length=3, max_length=3)
+    backgrounds: List[str] = Field(description="Reddit 크롤링 결과에서 추출한 트렌디한 세부 장소 키워드 한국어 3개 (구체적인 장소/위치)", min_length=3, max_length=3)
     styles: List[str] = Field(description="Reddit 크롤링 결과에서 추출한 트렌디한 화풍 및 표현 기법 키워드 한국어 3개", min_length=3, max_length=3)
-    moods: List[str] = Field(description="Reddit 크롤링 결과에서 추출한 트렌디한 분위기 및 조명 키워드 한국어 3개", min_length=3, max_length=3)
 
-    ai_eras: List[str] = Field(description="AI가 자체 트렌드 지식으로 선정한 독창적이고 인기 있는 시대 및 공간적 배경 키워드 한국어 3개", min_length=3, max_length=3)
+    ai_eras: List[str] = Field(description="AI가 자체 트렌드 지식으로 선정한 독창적이고 인기 있는 시대 키워드 한국어 3개 (반드시 시대/제국으로 끝나야 함)", min_length=3, max_length=3)
     ai_subjects: List[str] = Field(description="AI가 자체 트렌드 지식으로 선정한 독창적이고 인기 있는 핵심 피사체/캐릭터 키워드 한국어 3개", min_length=3, max_length=3)
-    ai_backgrounds: List[str] = Field(description="AI가 자체 트렌드 지식으로 선정한 독창적이고 인기 있는 세부 배경/장소 키워드 한국어 3개", min_length=3, max_length=3)
+    ai_backgrounds: List[str] = Field(description="AI가 자체 트렌드 지식으로 선정한 독창적이고 인기 있는 세부 장소 키워드 한국어 3개 (구체적인 장소/위치)", min_length=3, max_length=3)
     ai_styles: List[str] = Field(description="AI가 자체 트렌드 지식으로 선정한 독창적이고 인기 있는 화풍 및 표현 기법 키워드 한국어 3개", min_length=3, max_length=3)
-    ai_moods: List[str] = Field(description="AI가 자체 트렌드 지식으로 선정한 독창적이고 인기 있는 분위기 및 조명 키워드 한국어 3개", min_length=3, max_length=3)
 
 
 class CandidateConcept(BaseModel):

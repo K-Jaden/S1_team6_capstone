@@ -1480,6 +1480,15 @@ function App() {
                                 {selectedCandidate.description}
                             </div>
 
+                            {selectedCandidate.image_prompt && (
+                                <div style={{ marginBottom: '20px' }}>
+                                    <h4 style={{ color: '#38BDF8', marginBottom: '8px', fontSize: '0.95rem' }}>🎨 AI 생성 프롬프트 및 조합 키워드</h4>
+                                    <div style={{ background: '#111', padding: '10px 15px', borderRadius: '8px', border: '1px solid #333', fontSize: '0.85rem', color: '#9CA3AF', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                                        {selectedCandidate.image_prompt}
+                                    </div>
+                                </div>
+                            )}
+
                             {/* 하단 정보바: 후보작(투표수)인지 우승작인지 구분해서 표시 */}
                             <div style={{ background: '#0F0F0F', padding: '20px', borderRadius: '12px', border: '1px solid #2A2A2A' }}>
                                 {selectedCandidate.vp_votes !== undefined ? (
