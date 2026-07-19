@@ -78,6 +78,24 @@ app.add_middleware(
 
 get_db = database.get_db
 
+
+def get_negative_prompt_for_style(style_name: str) -> str:
+    """화풍에 맞춰 번들거림(glossy), 네온(neon), 3D 렌더 등을 적절히 억제하는 네거티브 프롬프트를 동적으로 만듭니다."""
+    neg_parts = ["deformed", "bad anatomy", "disfigured", "poorly drawn face", "mutated", "extra limbs", "ugly", "blurry", "low quality"]
+    if not style_name:
+        return ", ".join(neg_parts)
+    style_lower = style_name.lower()
+    if "수묵화" in style_lower or "화강암" in style_lower or "펜화" in style_lower or "ink" in style_lower or "sketch" in style_lower:
+        neg_parts.extend(["digital gloss", "shiny", "plastic texture", "3d render", "photorealistic", "vibrant colors", "modern neon lights", "realistic render"])
+    elif "도트" in style_lower or "픽셀" in style_lower or "pixel" in style_lower:
+        neg_parts.extend(["smooth gradients", "blur", "photorealistic", "highly detailed skin", "3d rendering", "oil painting"])
+    elif "미니멀리즘" in style_lower or "2d" in style_lower or "벡터" in style_lower or "minimal" in style_lower or "vector" in style_lower:
+        neg_parts.extend(["realistic texture", "3d render", "shadow gradients", "photorealistic", "oil painting"])
+    elif "점토" in style_lower or "클레이" in style_lower or "clay" in style_lower:
+        neg_parts.extend(["digital rendering", "realistic skin", "glossy metal", "watercolors", "flat vector"])
+    return ", ".join(neg_parts)
+
+
 @app.get("/health")
 def health():
     db_ok = False
@@ -388,15 +406,20 @@ def create_art_image(request: schemas.StudioImageRequest):
     # 2. Cloudflare FLUX 서버 호출
     try:
         logger.info("📥 [Cloudflare FLUX] 고퀄리티 이미지 렌더링 중...")
-        cf_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/@cf/black-forest-labs/flux-1-schnell"
+        cf_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0"
         
         headers = {
             "Authorization": f"Bearer {CF_API_TOKEN}",
             "Content-Type": "application/json"
         }
         
+        # 유저가 고른 키워드를 통해 어울리는 네거티브 프롬프트 도출
+        negative_prompt = get_negative_prompt_for_style(request.keywords)
+        
         data = {
-            "prompt": enhanced_english_prompt[:1000] # 프롬프트 길이 제한
+            "prompt": enhanced_english_prompt[:1000],  # 프롬프트 길이 제한
+            "negative_prompt": negative_prompt,
+            "num_steps": 30
         }
 
         img_res = requests.post(cf_url, headers=headers, json=data, timeout=60)
@@ -872,23 +895,28 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
 
     CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
     CF_API_TOKEN = os.getenv("CF_API_TOKEN")
-    cf_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/@cf/black-forest-labs/flux-1-schnell"
+    cf_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0"
     headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
 
     candidate_uris = []
+    
+    # 화풍에 맞는 네거티브 프롬프트 준비
+    negative_prompt = get_negative_prompt_for_style(selected_style)
 
     for idx, c_data in enumerate(ai_data, 1):
         raw_prompt = str(c_data.get("image_prompt", "digital art"))[:900]
-        # flux-1-schnell은 negative_prompt를 지원하지 않으므로(공식 문서 확인 완료),
-        # 회피 문구를 프롬프트 문자열에 직접 녹여 넣는다. steps도 기본 4 -> 최대 8로 올려
-        # 추가 API 호출 없이 구조적 결함(신체 왜곡 등) 발생률을 낮춘다 (docs/quality_validation_framework.md 참고)
-        prompt = raw_prompt + ", no distorted anatomy, no extra limbs, no deformed hands, no garbled text, no artifacts, clean composition"
+        prompt = raw_prompt
         image_url = ""
 
         try:
             logger.info(f"🚀 [{idx}번 그림] CF API 요청 시작...")
             time.sleep(6)
-            img_res = requests.post(cf_url, headers=headers, json={"prompt": prompt, "steps": 8}, timeout=60)
+            data = {
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "num_steps": 30
+            }
+            img_res = requests.post(cf_url, headers=headers, json=data, timeout=60)
             logger.info(f"📥 [{idx}번 그림] CF API 응답 상태코드: {img_res.status_code}")
             
             if img_res.status_code == 200:
@@ -1015,9 +1043,15 @@ def start_phase3_valuation(round_id: int = 0, session_id: str = "", db: Session 
                     # 재시도는 최대 1회 - 무료 API 티어 제약상 무한정 매달리지 않음
                     CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
                     CF_API_TOKEN = os.getenv("CF_API_TOKEN")
-                    cf_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/@cf/black-forest-labs/flux-1-schnell"
+                    cf_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0"
                     headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
-                    retry_res = requests.post(cf_url, headers=headers, json={"prompt": revised_prompt[:1000], "steps": 8}, timeout=60)
+                    negative_prompt = get_negative_prompt_for_style(selected_style)
+                    retry_data = {
+                        "prompt": revised_prompt[:1000],
+                        "negative_prompt": negative_prompt,
+                        "num_steps": 30
+                    }
+                    retry_res = requests.post(cf_url, headers=headers, json=retry_data, timeout=60)
                     if retry_res.status_code == 200:
                         retry_json = retry_res.json()
                         if "result" in retry_json and "image" in retry_json["result"]:
