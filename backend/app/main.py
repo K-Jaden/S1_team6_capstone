@@ -432,7 +432,6 @@ def create_art_image(request: schemas.StudioImageRequest):
                 res_json = img_res.json()
                 if "result" in res_json and "image" in res_json["result"]:
                     b64_encoded = res_json["result"]["image"]
-                    # 클라우드플레어는 이미 Base64 텍스트로 주기 때문에 한 번 더 인코딩할 필요 없음!
                     data_url = f"data:image/jpeg;base64,{b64_encoded}"
                     logger.info("✅ Cloudflare FLUX 그림 생성 성공! (JSON 파싱 완벽)")
                     return {"image_url": data_url}
@@ -440,11 +439,10 @@ def create_art_image(request: schemas.StudioImageRequest):
                     logger.error(f"🔥 예상치 못한 JSON 구조: {res_json}")
                     return {"image_url": "https://dummyimage.com/600x400/ff0000/fff&text=CF+JSON+Structure+Error"}
             else:
-                # 만약 정말로 바이너리를 줬을 경우를 대비한 안전 장치
-                image_bytes = img_res.content
-                b64_encoded = base64.b64encode(image_bytes).decode('utf-8')
+                # SDXL 등 raw binary 이미지를 돌려주는 경우 base64 인코딩하여 data URL로 변환합니다.
+                b64_encoded = base64.b64encode(img_res.content).decode("utf-8")
                 data_url = f"data:image/jpeg;base64,{b64_encoded}"
-                logger.info("✅ Cloudflare FLUX 그림 생성 성공! (바이너리 인코딩 완벽)")
+                logger.info("✅ Cloudflare SDXL 그림 생성 성공! (raw binary ➔ base64 인코딩)")
                 return {"image_url": data_url}
         else:
             logger.error(f"🔥 Cloudflare API 에러: {img_res.status_code} - {img_res.text}")
@@ -920,11 +918,19 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
             logger.info(f"📥 [{idx}번 그림] CF API 응답 상태코드: {img_res.status_code}")
             
             if img_res.status_code == 200:
-                res_json = img_res.json()
-                if "result" in res_json and "image" in res_json["result"]:
-                    b64 = res_json["result"]["image"]
-                    img_bytes = base64.b64decode(b64)
+                content_type = img_res.headers.get("Content-Type", "")
+                img_bytes = None
+                
+                if "application/json" in content_type:
+                    res_json = img_res.json()
+                    if "result" in res_json and "image" in res_json["result"]:
+                        b64 = res_json["result"]["image"]
+                        img_bytes = base64.b64decode(b64)
+                else:
+                    # SDXL은 raw binary bytes를 직접 리턴하므로 바로 저장합니다.
+                    img_bytes = img_res.content
                     
+                if img_bytes:
                     os.makedirs("static/images", exist_ok=True)
                     filename = f"round{round_id}_c{idx}.png"
                     
@@ -935,7 +941,7 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
                     image_url = f"/static/images/{filename}"
                     logger.info(f"✅ [{idx}번 그림] 저장 완벽 성공!")
                 else:
-                    logger.error(f"🔥 [데이터 에러] CF가 그림을 안 줬습니다: {res_json}")
+                    logger.error(f"🔥 [데이터 에러] 그림 데이터 추출 실패 (컨텐츠 타입: {content_type})")
             else:
                 logger.error(f"🔥 [CF API 거절] 상태코드: {img_res.status_code} / 내용: {img_res.text}")
                 
@@ -1053,16 +1059,25 @@ def start_phase3_valuation(round_id: int = 0, session_id: str = "", db: Session 
                     }
                     retry_res = requests.post(cf_url, headers=headers, json=retry_data, timeout=60)
                     if retry_res.status_code == 200:
-                        retry_json = retry_res.json()
-                        if "result" in retry_json and "image" in retry_json["result"]:
-                            new_bytes = base64.b64decode(retry_json["result"]["image"])
+                        content_type = retry_res.headers.get("Content-Type", "")
+                        new_bytes = None
+                        
+                        if "application/json" in content_type:
+                            retry_json = retry_res.json()
+                            if "result" in retry_json and "image" in retry_json["result"]:
+                                new_bytes = base64.b64decode(retry_json["result"]["image"])
+                        else:
+                            # SDXL은 raw binary bytes를 직접 리턴하므로 바로 저장합니다.
+                            new_bytes = retry_res.content
+                            
+                        if new_bytes:
                             with open(filepath, "wb") as f:
                                 f.write(new_bytes)
                             winner.image_prompt = revised_prompt
                             db.commit()
                             logger.info("✅ 품질 게이트 재수정 완료 - 이미지 교체됨")
                         else:
-                            logger.warning("품질 게이트 재수정 실패 (CF 응답 형식 이상) - 기존 이미지 유지")
+                            logger.warning("품질 게이트 재수정 실패 (그림 데이터 추출 실패) - 기존 이미지 유지")
                     else:
                         logger.warning(f"품질 게이트 재수정 실패 (CF 상태코드 {retry_res.status_code}) - 기존 이미지 유지")
         except Exception:
