@@ -419,7 +419,7 @@ def create_art_image(request: schemas.StudioImageRequest):
         data = {
             "prompt": enhanced_english_prompt[:1000],  # 프롬프트 길이 제한
             "negative_prompt": negative_prompt,
-            "num_steps": 30
+            "num_steps": 20
         }
 
         img_res = requests.post(cf_url, headers=headers, json=data, timeout=60)
@@ -914,7 +914,7 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
             data = {
                 "prompt": prompt,
                 "negative_prompt": negative_prompt,
-                "num_steps": 30
+                "num_steps": 20
             }
             img_res = requests.post(cf_url, headers=headers, json=data, timeout=60)
             logger.info(f"📥 [{idx}번 그림] CF API 응답 상태코드: {img_res.status_code}")
@@ -1049,7 +1049,7 @@ def start_phase3_valuation(round_id: int = 0, session_id: str = "", db: Session 
                     retry_data = {
                         "prompt": revised_prompt[:1000],
                         "negative_prompt": negative_prompt,
-                        "num_steps": 30
+                        "num_steps": 20
                     }
                     retry_res = requests.post(cf_url, headers=headers, json=retry_data, timeout=60)
                     if retry_res.status_code == 200:
