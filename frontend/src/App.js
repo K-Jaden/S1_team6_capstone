@@ -83,6 +83,11 @@ function App() {
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [expandedLogs, setExpandedLogs] = useState({});
 
+    // 대시보드 통합 토론방 상태
+    const [globalMessages, setGlobalMessages] = useState([]);
+    const [globalInput, setGlobalInput] = useState("");
+
+
     const toggleLogExpansion = (idx) => {
         setExpandedLogs(prev => ({ ...prev, [idx]: !prev[idx] }));
     };
@@ -724,7 +729,40 @@ function App() {
         } catch (err) { alert("도슨트 실패"); }
     };
 
+    // 대시보드 통합 토론방 메시지 불러오기
+    const fetchGlobalMessages = async () => {
+        try {
+            const res = await axios.get(`${API_URL}/api/chat/global`);
+            setGlobalMessages(res.data || []);
+        } catch (e) { /* 조용히 실패 */ }
+    };
+
+    // 대시보드 통합 토론방 메시지 전송
+    const submitGlobalMessage = async () => {
+        if (!isLoggedIn || !globalInput.trim()) return;
+        try {
+            await axios.post(`${API_URL}/api/chat/global`, {
+                wallet_address: walletAddress,
+                text: globalInput.trim()
+            });
+            setGlobalInput("");
+            fetchGlobalMessages();
+        } catch (e) { console.error("글로벌 채팅 전송 실패", e); }
+    };
+
+    // 대시보드 탭 진입 시 글로벌 채팅 불러오기
+    useEffect(() => {
+        if (activeTab === "main") {
+            fetchGlobalMessages();
+        }
+    }, [activeTab]);
+
     const [selectedCandidate, setSelectedCandidate] = useState(null);
+
+    // 프로필 관련 상태
+    const [myNickname, setMyNickname] = useState("");
+    const [myProfilePic, setMyProfilePic] = useState("🔮");
+    const [isSavingProfile, setIsSavingProfile] = useState(false);
 
     const openCandidateModal = (candidate) => {
         setSelectedCandidate(candidate);
@@ -733,6 +771,54 @@ function App() {
     const closeCandidateModal = () => {
         setSelectedCandidate(null);
     };
+
+    // 유저 프로필(닉네임, 프로필픽) 불러오기
+    const fetchUserProfile = async () => {
+        if (!walletAddress) return;
+        try {
+            const res = await axios.get(`${API_URL}/api/user/profile`, { params: { wallet_address: walletAddress } });
+            setMyNickname(res.data.nickname || "");
+            setMyProfilePic(res.data.profile_pic || "🔮");
+        } catch (e) { console.error("프로필 로드 실패", e); }
+    };
+
+    // 프로필 저장(닉네임 + 프로필픽)
+    const handleSaveProfile = async () => {
+        setIsSavingProfile(true);
+        try {
+            const res = await axios.post(`${API_URL}/api/user/profile`, {
+                nickname: myNickname,
+                profile_pic: myProfilePic
+            }, { params: { wallet_address: walletAddress } });
+            alert("✅ 프로필이 저장되었습니다!");
+        } catch (e) {
+            alert("프로필 저장 실패");
+        } finally {
+            setIsSavingProfile(false);
+        }
+    };
+
+    // 프로필 이미지 파일 업로드
+    const handleProfilePicUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const formData = new FormData();
+        formData.append("file", file);
+        try {
+            const res = await axios.post(`${API_URL}/api/user/upload-profile-pic`, formData, {
+                params: { wallet_address: walletAddress },
+                headers: { "Content-Type": "multipart/form-data" }
+            });
+            setMyProfilePic(res.data.profile_pic);
+        } catch (e) { alert("이미지 업로드 실패"); }
+    };
+
+    // 지갑 연결 시 프로필도 불러오기
+    useEffect(() => {
+        if (isLoggedIn && walletAddress) {
+            fetchUserProfile();
+        }
+    }, [isLoggedIn, walletAddress]);
 
     // AI가 만든 Base64 이미지와 일반 URL을 모두 처리하는 함수
     const getImageUrl = (url) => {
@@ -856,46 +942,262 @@ function App() {
                         </div>
                     </div>
                 )}
+
+
                 {/* Dashboard */}
                 {activeTab === "main" && (
-                    <div className="page fade-in">
-                        <div style={{ padding: '60px 40px', background: 'linear-gradient(135deg, #1e1e1e 0%, #0f0f0f 100%)', borderRadius: '16px', border: '1px solid #2A2A2A', marginBottom: '30px', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
+                    <div className="page fade-in" style={{ padding: '0 40px 40px 40px' }}>
+                        {/* 1. 프리미엄 히어로 배너 */}
+                        <div className="hero-premium-box" style={{ padding: '80px 40px 60px 40px', borderRadius: '20px', marginBottom: '60px', textAlign: 'center', borderBottom: '1px solid #2A2A2A' }}>
                             <div style={{ position: 'relative', zIndex: 2 }}>
-                                <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: '5.5rem', color: '#F3F4F6', margin: '0 0 15px 0' }}>
+                                <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: '6rem', fontWeight: '900', color: '#F3F4F6', margin: '0 0 15px 0', letterSpacing: '4px', textShadow: '0 0 20px rgba(255,255,255,0.1)' }}>
                                     ArtDAO
                                 </h1>
-                                <p style={{ color: '#9CA3AF', fontSize: '1.2rem', lineHeight: '1.6', maxWidth: '600px', margin: '0 auto 30px auto' }}>
-                                    AI가 트렌드를 분석하여 매주 새로운 예술을 창조합니다.<br />
-                                    DAO 멤버가 되어 가스비 없이 투표하고, 블록체인 배당을 받으세요.
+                                <p style={{ color: '#9CA3AF', fontSize: '1.25rem', lineHeight: '1.8', maxWidth: '700px', margin: '0 auto 35px auto', fontWeight: '300' }}>
+                                    세계 최초의 자율형 AI 멀티에이전트 미술 DAO 프로젝트.<br />
+                                    AI가 실시간 글로벌 서브컬처 트렌드를 수집·난상토론하여 매주 독창적 명작을 탄생시키며,<br />
+                                    모든 거버넌스는 스마트 컨트랙트를 통해 배당금 형태로 투자자에게 공정하게 환원됩니다.
                                 </p>
-                                <button onClick={() => setActiveTab("curate")} style={{ background: '#3B82F6', color: '#fff', border: 'none', padding: '16px 36px', fontSize: '1.1rem', fontWeight: 'bold', borderRadius: '30px', cursor: 'pointer', boxShadow: '0 4px 15px rgba(59, 130, 246, 0.4)' }}>
-                                    큐레이션 참여하기
+                                <button onClick={() => setActiveTab("curate")} style={{ background: 'linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%)', color: '#fff', border: 'none', padding: '18px 40px', fontSize: '1.1rem', fontWeight: 'bold', borderRadius: '30px', cursor: 'pointer', boxShadow: '0 6px 20px rgba(59, 130, 246, 0.4)', transition: 'transform 0.2s', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                                    <span>🎨</span> 큐레이션 라운드 참여하기
                                 </button>
                             </div>
                         </div>
 
-                        <h2 style={{ marginTop: '40px', marginBottom: '20px', fontSize: '1.5rem' }}>동작 방식</h2>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px', marginBottom: '40px' }}>
-                            <div className="card" style={{ background: '#1A1A1A', padding: '25px', borderRadius: '12px', border: '1px solid #2A2A2A' }}>
-                                <div style={{ fontSize: '2.5rem', marginBottom: '15px' }}></div>
-                                <h3 style={{ color: '#fff', fontSize: '1.1rem', marginBottom: '10px' }}>1. AI 에이전트 생성</h3>
-                                <p style={{ color: '#9CA3AF', fontSize: '0.9rem', lineHeight: '1.5' }}>매주 AI 기획자와 비평가가 웹 트렌드를 검색하여 4개의 고품질 디지털 아트 후보작을 오프체인에 생성합니다.</p>
+                        {/* 2. 실시간 DAO 통계 위젯 Grid */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px', marginBottom: '45px' }}>
+                            <div className="dashboard-stat-premium-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                                <div>
+                                    <span style={{ fontSize: '0.85rem', color: '#8B5CF6', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px' }}>Current Phase</span>
+                                    <h3 style={{ fontSize: '1.4rem', color: '#F3F4F6', margin: '10px 0 5px 0', fontWeight: 'bold' }}>
+                                        {roundPhase === "KEYWORD" && "📝 1단계: 테마 기획"}
+                                        {roundPhase === "VOTING" && "🗳️ 2단계: 투자 투표"}
+                                        {roundPhase === "VALUATION" && "⚖️ 3단계: 가치평가"}
+                                    </h3>
+                                </div>
+                                <span style={{ fontSize: '0.85rem', color: '#9CA3AF', marginTop: '15px' }}>
+                                    {roundPhase === "KEYWORD" && "현재 레딧 트렌드와 자체 지식을 기반으로 키워드 조율 중"}
+                                    {roundPhase === "VOTING" && "최종 조율된 시대/장소/화풍 기반 AI 이미지 5선 투표 진행 중"}
+                                    {roundPhase === "VALUATION" && "선정작의 미술 가치를 심사하여 블록체인 경매 등록 단계"}
+                                </span>
                             </div>
-                            <div className="card" style={{ background: '#1A1A1A', padding: '25px', borderRadius: '12px', border: '1px solid #2A2A2A' }}>
-                                <div style={{ fontSize: '2.5rem', marginBottom: '15px' }}></div>
-                                <h3 style={{ color: '#fff', fontSize: '1.1rem', marginBottom: '10px' }}>2. 집단지성 투자</h3>
-                                <p style={{ color: '#9CA3AF', fontSize: '0.9rem', lineHeight: '1.5' }}>유저는 보유한 TUK를 직접 지불하여 가장 가치 있는 작품에 투자합니다. 우승작에 투자한 경우 배당을 얻지만, 탈락 시 투자금은 DAO에 귀속되어 소각됩니다.</p>
+
+                            <div className="dashboard-stat-premium-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                                <div>
+                                    <span style={{ fontSize: '0.85rem', color: '#10B981', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px' }}>DAO TVL Balance</span>
+                                    <h3 style={{ fontSize: '2.1rem', color: '#10B981', margin: '5px 0 0 0', fontWeight: '900' }}>
+                                        {daoStats.daoBalance} <span style={{ fontSize: '1rem', color: '#6B7280', fontWeight: 'normal' }}>TUK</span>
+                                    </h3>
+                                </div>
+                                <span style={{ fontSize: '0.85rem', color: '#9CA3AF', marginTop: '15px' }}>DAO 스마트 컨트랙트 금고에 누적 보관된 가상 자산 통계</span>
                             </div>
-                            <div className="card" style={{ background: '#1A1A1A', padding: '25px', borderRadius: '12px', border: '1px solid #2A2A2A' }}>
-                                <div style={{ fontSize: '2.5rem', marginBottom: '15px' }}></div>
-                                <h3 style={{ color: '#fff', fontSize: '1.1rem', marginBottom: '10px' }}>3. 스마트 컨트랙트 배당</h3>
-                                <p style={{ color: '#9CA3AF', fontSize: '0.9rem', lineHeight: '1.5' }}>투표 종료 시 1등 작품만 NFT로 민팅되며, AI 경매사의 산정가에 따라 안목 있는 투표자들에게 수익이 자동 배당됩니다.</p>
+
+                            <div className="dashboard-stat-premium-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                                <div>
+                                    <span style={{ fontSize: '0.85rem', color: '#38BDF8', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px' }}>Collection Size</span>
+                                    <h3 style={{ fontSize: '2.1rem', color: '#38BDF8', margin: '5px 0 0 0', fontWeight: '900' }}>
+                                        {galleryItems.length} <span style={{ fontSize: '1rem', color: '#6B7280', fontWeight: 'normal' }}>NFTs</span>
+                                    </h3>
+                                </div>
+                                <span style={{ fontSize: '0.85rem', color: '#9CA3AF', marginTop: '15px' }}>DAO 컬렉터들의 투표를 거쳐 IPFS에 박제된 명예의 전당 보존 개수</span>
+                            </div>
+                        </div>
+
+                        {/* 3. 투표 중일 때: 실시간 투자 리더보드 (왼쪽 65%) + 통합 토론장 (오른쪽 35%) */}
+                        {roundPhase === "VOTING" && currentRound && currentRound.candidates && currentRound.candidates.length > 0 && (
+                            <div style={{ display: 'flex', gap: '30px', alignItems: 'stretch', marginBottom: '55px' }}>
+                                {/* Left Side: Live Curation Grid */}
+                                <div style={{ flex: 1.8, display: 'flex', flexDirection: 'column' }}>
+                                    <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: '2.2rem', color: '#F3F4F6', marginBottom: '10px', letterSpacing: '1px' }}>⚡ 실시간 투자 리더보드 (Leaderboard)</h2>
+                                    <p style={{ color: '#9CA3AF', marginBottom: '20px', fontSize: '0.95rem' }}>현재 투자된 VP(TUK) 지분 규모에 따라 크기가 실시간 차등화됩니다. (클릭 시 상세 모달 오픈)</p>
+
+                                    {(() => {
+                                        const sorted = [...currentRound.candidates].sort((a, b) => b.vp_votes - a.vp_votes);
+                                        return (
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '15px' }}>
+                                                {sorted.map((candidate, index) => {
+                                                    let cardStyle = {};
+                                                    let rankLabel = "";
+                                                    let glowColor = "";
+
+                                                    if (index === 0) {
+                                                        cardStyle = { gridColumn: 'span 2', gridRow: 'span 2', borderColor: '#F59E0B', boxShadow: '0 0 20px rgba(245, 158, 11, 0.15)' };
+                                                        rankLabel = "🥇 1st FEATURED";
+                                                        glowColor = "#FBBF24";
+                                                    } else if (index === 1) {
+                                                        cardStyle = { gridColumn: 'span 2', borderColor: '#9CA3AF', boxShadow: '0 0 15px rgba(156, 163, 175, 0.1)' };
+                                                        rankLabel = "🥈 2nd PLACE";
+                                                        glowColor = "#D1D5DB";
+                                                    } else if (index === 2) {
+                                                        cardStyle = { gridColumn: 'span 2', borderColor: '#B45309', boxShadow: '0 0 10px rgba(180, 83, 9, 0.1)' };
+                                                        rankLabel = "🥉 3rd PLACE";
+                                                        glowColor = "#F59E0B";
+                                                    } else {
+                                                        cardStyle = { gridColumn: 'span 2', borderColor: '#2A2A2A' };
+                                                        rankLabel = `${index + 1}th PLACE`;
+                                                        glowColor = "#9CA3AF";
+                                                    }
+
+                                                    return (
+                                                        <div
+                                                            key={candidate.id}
+                                                            className="candidate-card"
+                                                            onClick={() => openCandidateModal(candidate)}
+                                                            style={{
+                                                                cursor: 'pointer',
+                                                                ...cardStyle,
+                                                                transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+                                                                display: 'flex',
+                                                                flexDirection: 'column',
+                                                                background: '#1A1A1A',
+                                                                borderRadius: '12px',
+                                                                border: '1px solid',
+                                                                overflow: 'hidden'
+                                                            }}
+                                                        >
+                                                            <div className="candidate-img-box" style={{ height: index === 0 ? '240px' : '130px', position: 'relative' }}>
+                                                                <img src={getImageUrl(candidate.image_url)} alt={candidate.title} style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#0B0B0B' }} />
+                                                                <div style={{ position: 'absolute', top: '10px', left: '10px', background: 'rgba(0,0,0,0.8)', padding: '4px 8px', borderRadius: '30px', border: `1px solid ${glowColor}`, fontSize: '0.65rem', color: '#fff', fontWeight: 'bold' }}>
+                                                                    {rankLabel}
+                                                                </div>
+                                                            </div>
+                                                            <div className="candidate-info" style={{ padding: '12px 15px', display: 'flex', flexDirection: 'column', flex: 1, gap: '4px' }}>
+                                                                <h3 className="candidate-title" style={{ fontSize: index === 0 ? '1.25rem' : '1rem', margin: 0, color: '#fff', fontWeight: 'bold' }}>{candidate.title}</h3>
+                                                                <p className="candidate-desc" style={{ fontSize: '0.8rem', color: '#9CA3AF', margin: 0, display: '-webkit-box', WebkitLineClamp: index === 0 ? 3 : 1, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: '1.4' }}>{candidate.description}</p>
+
+                                                                <div className="candidate-stats" style={{ marginTop: 'auto', paddingTop: '8px', borderTop: '1px dashed #2A2A2A', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                                    <span style={{ color: '#6B7280', fontSize: '0.75rem' }}>투자 규모</span>
+                                                                    <strong style={{ color: glowColor, fontSize: '0.95rem' }}>{candidate.vp_votes.toLocaleString()} TUK</strong>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+
+                                {/* Right Side: Global Chat Room */}
+                                <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                                    <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: '2.2rem', color: '#F3F4F6', marginBottom: '10px', letterSpacing: '1px' }}>💬 DAO 통합 토론방</h2>
+                                    <p style={{ color: '#9CA3AF', marginBottom: '20px', fontSize: '0.95rem' }}>나중에 들어와도 대화 기록이 유지되는 실시간 소통 공간입니다.</p>
+
+                                    <div style={{
+                                        background: 'rgba(26, 26, 26, 0.6)',
+                                        border: '1px solid rgba(255, 255, 255, 0.05)',
+                                        borderRadius: '16px',
+                                        padding: '20px',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        height: 'calc(100% - 70px)',
+                                        minHeight: '430px',
+                                        justifyContent: 'space-between'
+                                    }}>
+                                        {/* 메시지 리스트 */}
+                                        <div style={{
+                                            flex: 1,
+                                            overflowY: 'auto',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            gap: '12px',
+                                            marginBottom: '15px',
+                                            paddingRight: '5px',
+                                            maxHeight: '350px'
+                                        }}>
+                                            {globalMessages.length === 0 ? (
+                                                <div style={{ textAlign: 'center', color: '#6B7280', fontSize: '0.85rem', margin: 'auto 0' }}>
+                                                    아직 나누어진 대화가 없습니다.<br />첫 메시지를 남겨보세요!
+                                                </div>
+                                            ) : (
+                                                globalMessages.map((msg) => (
+                                                    <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', background: '#111', padding: '10px 12px', borderRadius: '10px', border: '1px solid #222' }}>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#6B7280', marginBottom: '4px' }}>
+                                                            <span style={{ color: '#38BDF8', fontWeight: 'bold' }}>{msg.wallet_address.substring(0, 6)}...{msg.wallet_address.substring(msg.wallet_address.length - 4)}</span>
+                                                            <span>{msg.created_at ? new Date(msg.created_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : ""}</span>
+                                                        </div>
+                                                        <div style={{ color: '#E5E7EB', fontSize: '0.85rem', lineHeight: '1.4', wordBreak: 'break-all' }}>{msg.text}</div>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+
+                                        {/* 입력창 */}
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <input
+                                                type="text"
+                                                placeholder={isLoggedIn ? "메시지를 입력하세요..." : "지갑을 연결해야 대화가 가능합니다."}
+                                                disabled={!isLoggedIn}
+                                                value={globalInput}
+                                                onChange={(e) => setGlobalInput(e.target.value)}
+                                                onKeyPress={(e) => e.key === 'Enter' && submitGlobalMessage()}
+                                                style={{
+                                                    flex: 1,
+                                                    padding: '10px 15px',
+                                                    background: '#0F0F0F',
+                                                    border: '1px solid #333',
+                                                    color: '#fff',
+                                                    borderRadius: '8px',
+                                                    fontSize: '0.85rem',
+                                                    outline: 'none'
+                                                }}
+                                            />
+                                            <button
+                                                onClick={submitGlobalMessage}
+                                                disabled={!isLoggedIn || !globalInput.trim()}
+                                                style={{
+                                                    background: isLoggedIn && globalInput.trim() ? 'linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%)' : '#374151',
+                                                    color: '#fff',
+                                                    border: 'none',
+                                                    padding: '0 20px',
+                                                    borderRadius: '8px',
+                                                    cursor: isLoggedIn && globalInput.trim() ? 'pointer' : 'not-allowed',
+                                                    fontSize: '0.85rem',
+                                                    fontWeight: 'bold'
+                                                }}
+                                            >
+                                                전송
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 4. 동작 방식 타임라인 */}
+                        <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: '2.2rem', color: '#F3F4F6', marginBottom: '25px', letterSpacing: '1px' }}>동작 방식 (How it Works)</h2>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '25px', marginBottom: '40px' }}>
+                            <div className="card timeline-premium-step" style={{ background: '#1A1A1A', padding: '30px', borderRadius: '12px', border: '1px solid #2A2A2A', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+                                <span style={{ position: 'absolute', top: '20px', right: '25px', fontSize: '3rem', fontWeight: '900', color: 'rgba(255,255,255,0.03)', fontFamily: "'Courier New', monospace" }}>01</span>
+                                <h3 style={{ color: '#fff', fontSize: '1.2rem', marginBottom: '12px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ color: '#8B5CF6' }}>Step 1.</span> AI 에이전트 생성
+                                </h3>
+                                <p style={{ color: '#9CA3AF', fontSize: '0.92rem', lineHeight: '1.6', margin: 0 }}>
+                                    매주 AI 기획자/비평가가 Reddit 웹 트렌드를 수집하고, 독창적인 시대·장소·피사체·화풍 조합을 발굴하여 AI 기획 토론을 시작합니다.
+                                </p>
+                            </div>
+                            <div className="card timeline-premium-step" style={{ background: '#1A1A1A', padding: '30px', borderRadius: '12px', border: '1px solid #2A2A2A', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+                                <span style={{ position: 'absolute', top: '20px', right: '25px', fontSize: '3rem', fontWeight: '900', color: 'rgba(255,255,255,0.03)', fontFamily: "'Courier New', monospace" }}>02</span>
+                                <h3 style={{ color: '#fff', fontSize: '1.2rem', marginBottom: '12px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ color: '#38BDF8' }}>Step 2.</span> 집단지성 큐레이션
+                                </h3>
+                                <p style={{ color: '#9CA3AF', fontSize: '0.92rem', lineHeight: '1.6', margin: 0 }}>
+                                    DAO 멤버들은 직접 4대 슬롯 조합설계 투표에 참가해 테마 방향성을 유도하며, 생성된 5개 후보작 중 최고의 미술품에 가스비 없이 TUK을 배팅합니다.
+                                </p>
+                            </div>
+                            <div className="card timeline-premium-step" style={{ background: '#1A1A1A', padding: '30px', borderRadius: '12px', border: '1px solid #2A2A2A', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+                                <span style={{ position: 'absolute', top: '20px', right: '25px', fontSize: '3rem', fontWeight: '900', color: 'rgba(255,255,255,0.03)', fontFamily: "'Courier New', monospace" }}>03</span>
+                                <h3 style={{ color: '#fff', fontSize: '1.2rem', marginBottom: '12px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ color: '#10B981' }}>Step 3.</span> 컨트랙트 배당 분배
+                                </h3>
+                                <p style={{ color: '#9CA3AF', fontSize: '0.92rem', lineHeight: '1.6', margin: 0 }}>
+                                    가장 많은 투표를 받은 우승작만 NFT로 영구 박제되며, 실거래 매각 시 매각 자금(TUK)의 70%가 지분 비율에 따라 안목 높은 투자자들에게 스마트 컨트랙트로 실시간 배당됩니다.
+                                </p>
                             </div>
                         </div>
                     </div>
                 )}
 
-                {/* Curate */}
                 {activeTab === "curate" && (
                     <div className="page fade-in">
                         <div className="proposals-header-wrap" style={{ borderBottom: 'none', marginBottom: '20px' }}>
@@ -1113,7 +1415,7 @@ function App() {
 
                                 {currentRound && currentRound.candidates && currentRound.candidates.length > 0 ? (
                                     <div className="candidate-grid">
-                                        {currentRound.candidates.map(candidate => (
+                                        {[...currentRound.candidates].sort((a, b) => b.vp_votes - a.vp_votes).map(candidate => (
                                             <div key={candidate.id} className="candidate-card" onClick={() => openCandidateModal(candidate)} style={{ cursor: 'pointer' }}>
                                                 <div className="candidate-img-box">
                                                     <img src={getImageUrl(candidate.image_url)} alt={candidate.title} />
@@ -1363,7 +1665,123 @@ function App() {
                                         <p style={{ color: '#6B7280', fontSize: '0.95rem', marginTop: '15px' }}>투표에 사용할 수 있는 실제 블록체인 거버넌스 토큰입니다.</p>
                                     </div>
                                 </div>
+                                {/* 1.5 내 프로필 설정 (Profile Settings) */}
+                                <div className="card" style={{ background: '#1A1A1A', border: '1px solid #2A2A2A', padding: '30px' }}>
+                                    <h3 style={{ color: '#38BDF8', borderBottom: '1px solid #333', paddingBottom: '15px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <span>👤</span> 내 프로필 설정
+                                    </h3>
+                                    <div style={{ display: 'flex', gap: '30px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                                        {/* 프로필픽 */}
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                                            <div style={{
+                                                width: '90px', height: '90px', borderRadius: '50%',
+                                                background: '#0F0F0F', border: '2px solid #38BDF8',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                overflow: 'hidden', flexShrink: 0
+                                            }}>
+                                                {myProfilePic && (myProfilePic.startsWith("http") || myProfilePic.startsWith("/static")) ? (
+                                                    <img
+                                                        src={myProfilePic.startsWith("http") ? myProfilePic : `${API_URL}${myProfilePic}`}
+                                                        alt="profile"
+                                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                    />
+                                                ) : (
+                                                    <span style={{ fontSize: '4.5rem' }}>{myProfilePic}</span>
+                                                )}
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center' }}>
+                                                <div style={{ display: 'flex', gap: '6px' }}>
+                                                    {["🔮", "🎨", "🦁", "🚀", "💎", "👾"].map(emoji => (
+                                                        <button
+                                                            key={emoji}
+                                                            onClick={() => setMyProfilePic(emoji)}
+                                                            style={{
+                                                                background: myProfilePic === emoji ? 'rgba(56,189,248,0.15)' : '#0F0F0F',
+                                                                border: `1px solid ${myProfilePic === emoji ? '#38BDF8' : '#333'}`,
+                                                                color: '#fff',
+                                                                borderRadius: '50%',
+                                                                width: '28px',
+                                                                height: '28px',
+                                                                fontSize: '0.9rem',
+                                                                cursor: 'pointer',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                transition: 'all 0.2s'
+                                                            }}
+                                                        >
+                                                            {emoji}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                                <label style={{
+                                                    background: '#0F0F0F',
+                                                    border: '1px solid #333',
+                                                    color: '#9CA3AF',
+                                                    padding: '6px 12px',
+                                                    borderRadius: '6px',
+                                                    fontSize: '0.8rem',
+                                                    cursor: 'pointer',
+                                                    fontWeight: 'bold',
+                                                    marginTop: '5px',
+                                                    display: 'inline-block'
+                                                }}>
+                                                    📷 이미지 업로드
+                                                    <input
+                                                        type="file"
+                                                        accept="image/*"
+                                                        onChange={handleProfilePicUpload}
+                                                        style={{ display: 'none' }}
+                                                    />
+                                                </label>
+                                            </div>
+                                        </div>
+
+                                        {/* 닉네임 입력 */}
+                                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                            <label style={{ color: '#9CA3AF', fontSize: '0.9rem' }}>닉네임 설정</label>
+                                            <input
+                                                type="text"
+                                                maxLength={15}
+                                                placeholder="닉네임을 입력하세요 (최대 15자)"
+                                                value={myNickname}
+                                                onChange={(e) => setMyNickname(e.target.value)}
+                                                style={{
+                                                    padding: '12px 15px',
+                                                    background: '#0F0F0F',
+                                                    border: '1px solid #333',
+                                                    color: '#fff',
+                                                    borderRadius: '8px',
+                                                    fontSize: '1rem',
+                                                    outline: 'none',
+                                                    width: '100%',
+                                                    maxWidth: '300px'
+                                                }}
+                                            />
+                                            <button
+                                                onClick={handleSaveProfile}
+                                                disabled={isSavingProfile}
+                                                style={{
+                                                    background: 'linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%)',
+                                                    color: '#fff',
+                                                    border: 'none',
+                                                    padding: '12px 24px',
+                                                    borderRadius: '8px',
+                                                    fontWeight: 'bold',
+                                                    cursor: 'pointer',
+                                                    marginTop: '10px',
+                                                    maxWidth: '150px',
+                                                    boxShadow: '0 4px 10px rgba(59, 130, 246, 0.2)'
+                                                }}
+                                            >
+                                                {isSavingProfile ? "저장 중..." : "프로필 저장"}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 {/* 3. 스마트 컨트랙트 배당금 청구 (기존 기능 유지) */}
+
                                 <div className="card profile" style={{ background: '#1A1A1A', border: '1px solid #2A2A2A', padding: '30px' }}>
                                     <h3 style={{ color: '#FBBF24', borderBottom: '1px solid #333', paddingBottom: '15px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
                                         <span>🏆</span> 온체인 우승 배당금 수령 (Claim)
@@ -1458,7 +1876,7 @@ function App() {
                             <img
                                 src={getImageUrl(selectedCandidate.image_url)}
                                 alt={selectedCandidate.title}
-                                style={{ width: '100%', borderRadius: '12px', border: '1px solid #2A2A2A', objectFit: 'cover' }}
+                                style={{ width: '100%', maxHeight: '480px', borderRadius: '12px', border: '1px solid #2A2A2A', objectFit: 'contain', backgroundColor: '#0B0B0B' }}
                             />
                         </div>
 

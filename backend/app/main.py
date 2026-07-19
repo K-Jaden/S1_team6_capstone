@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, Query, HTTPException
+from fastapi import FastAPI, Depends, Query, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func, text
@@ -93,6 +93,9 @@ def get_negative_prompt_for_style(style_name: str) -> str:
         neg_parts.extend(["realistic texture", "3d render", "shadow gradients", "photorealistic", "oil painting"])
     elif "점토" in style_lower or "클레이" in style_lower or "clay" in style_lower:
         neg_parts.extend(["digital rendering", "realistic skin", "glossy metal", "watercolors", "flat vector"])
+    elif "유화" in style_lower or "유채" in style_lower or "oil" in style_lower or "회화" in style_lower or "painting" in style_lower:
+        # 유화/회화 특유의 AI 디지털 광택, 3D 렌더링 느낌 억제
+        neg_parts.extend(["smooth 3d render", "digital art", "plastic glossy skin", "neon colors", "anime style", "flat illustration", "vector art", "perfectly clean"])
     return ", ".join(neg_parts)
 
 
@@ -201,8 +204,45 @@ def update_user_badge(wallet_address: str, db: Session = Depends(get_db)):
 
 
 # =========================================================
-# 2. 🖼️ 온라인 전시관 & 관람평
+# 👤 [NEW] 프로필 조회 / 저장 / 이미지 업로드
 # =========================================================
+@app.get("/api/user/profile")
+def get_user_profile(wallet_address: str, db: Session = Depends(get_db)):
+    """유저 프로필(닉네임, 프로필픽) 조회"""
+    user = get_user_or_404(wallet_address, db)
+    return {
+        "wallet_address": user.wallet_address,
+        "nickname": user.nickname or "",
+        "profile_pic": user.profile_pic or "🔮"
+    }
+
+@app.post("/api/user/profile")
+def save_user_profile(req: schemas.ProfileUpdateReq, wallet_address: str, db: Session = Depends(get_db)):
+    """유저 프로필(닉네임, 프로필픽) 저장"""
+    user = get_user_or_404(wallet_address, db)
+    user.nickname = req.nickname
+    user.profile_pic = req.profile_pic
+    db.commit()
+    return {"status": "ok", "nickname": user.nickname, "profile_pic": user.profile_pic}
+
+@app.post("/api/user/upload-profile-pic")
+async def upload_profile_pic(wallet_address: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """프로필 사진 이미지 파일 업로드 후 /static/images/profile_*.jpg 경로로 저장"""
+    user = get_user_or_404(wallet_address, db)
+    ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
+    # 지갑 주소 기반으로 고유 파일명 생성
+    save_path = f"static/images/profile_{wallet_address}.{ext}"
+    os.makedirs("static/images", exist_ok=True)
+    contents = await file.read()
+    with open(save_path, "wb") as f:
+        f.write(contents)
+    url_path = f"/{save_path}"
+    user.profile_pic = url_path
+    db.commit()
+    return {"profile_pic": url_path}
+
+
+
 @app.get("/api/gallery/items")
 def get_gallery_items(wallet_address: Optional[str] = None, db: Session = Depends(get_db)):
     items = db.query(models.GalleryItem).all()
@@ -888,10 +928,19 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
         try:
             logger.info(f"🚀 [{idx}번 그림] CF API 요청 시작...")
             time.sleep(6)
+            # 후보작별로 각기 다른 화면 비율 부여 (가로형/세로형/정사각형)
+            if idx == 1:
+                width, height = 1024, 1024  # 1:1 정사각형
+            elif idx in [2, 4]:
+                width, height = 1024, 576   # 16:9 가로형
+            else:
+                width, height = 576, 1024   # 9:16 세로형
             data = {
                 "prompt": prompt,
                 "negative_prompt": negative_prompt,
-                "num_steps": 20
+                "num_steps": 20,
+                "width": width,
+                "height": height
             }
             img_res = requests.post(cf_url, headers=headers, json=data, timeout=60)
             logger.info(f"📥 [{idx}번 그림] CF API 응답 상태코드: {img_res.status_code}")
@@ -1198,3 +1247,38 @@ def virtual_sell_item(req: VirtualSellReq, db: Session = Depends(get_db)):
         logger.exception("🔥 가상 판매 에러 발생")
         return {"error": "판매 처리 중 오류가 발생했습니다."}
 
+
+# =========================================================
+# 💬 대시보드 통합 토론방 (Global Chat)
+# =========================================================
+class GlobalChatRequest(BaseModel):
+    wallet_address: str
+    text: str
+
+@app.get("/api/chat/global")
+def get_global_messages(limit: int = 50, db: Session = Depends(get_db)):
+    """통합 토론방 메시지 최신 순으로 반환"""
+    msgs = db.query(models.GlobalChatMessage).order_by(
+        models.GlobalChatMessage.created_at.asc()
+    ).limit(limit).all()
+    return [
+        {
+            "id": m.id,
+            "wallet_address": m.wallet_address,
+            "text": m.text,
+            "created_at": m.created_at.isoformat() if m.created_at else None
+        }
+        for m in msgs
+    ]
+
+@app.post("/api/chat/global")
+def post_global_message(req: GlobalChatRequest, db: Session = Depends(get_db)):
+    """통합 토론방 메시지 저장"""
+    msg = models.GlobalChatMessage(
+        wallet_address=req.wallet_address,
+        text=req.text[:500]  # 최대 500자 제한
+    )
+    db.add(msg)
+    db.commit()
+    db.refresh(msg)
+    return {"id": msg.id, "status": "ok"}

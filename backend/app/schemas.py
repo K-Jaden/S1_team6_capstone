@@ -18,6 +18,10 @@ class UserResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class ProfileUpdateReq(BaseModel):
+    nickname: str
+    profile_pic: str
+
 # === 추천 전시 (마이페이지용) ===
 class RecommendationResponse(BaseModel):
     title: str

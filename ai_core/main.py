@@ -4,6 +4,7 @@ import os
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 load_dotenv()
 
@@ -201,3 +202,57 @@ def chat_endpoint(req: ChatRequest):
     except Exception:
         logger.exception("채팅 처리 실패")
         return {"reply": "죄송해요, 지금은 답변을 드리기 어려워요. 잠시 후 다시 시도해주세요."}
+
+
+# =========================================================
+# 🎨 [AI 스튜디오] 화풍별 RAG 스타일 가이드 기반 프롬프트 생성
+# 사용자가 직접 스튜디오에서 화풍을 선택하면 RAG에서 유사 작품의
+# 어휘·재질 가이드를 검색하여 정교한 이미지 프롬프트를 반환한다.
+# =========================================================
+class GeneratePromptReq(BaseModel):
+    subject: str
+    style: str
+    mood: str = ""
+
+
+@app.post("/generate")
+def generate_prompt(req: GeneratePromptReq):
+    """스튜디오 전용 - RAG 스타일 가이드를 검색하여 이미지 프롬프트 강화.
+    화풍 고유의 어휘(붓터치, 재질 등)를 기계적으로 삽입하여 품질 향상."""
+    try:
+        # RAG 스타일 컬렉션에서 입력 화풍과 가장 유사한 가이드 검색
+        style_guide = rag.search_similar_debug(req.style, k=2, collection="styles")
+        guide_text = " ".join([r.get("text", "") for r in style_guide]) if style_guide else ""
+
+        # 화풍 고유 어휘를 담은 스타일 수식어 구성
+        style_map = {
+            "유화": "thick impasto brushstrokes, knife-painted texture, rich oil pigments, canvas grain",
+            "유채": "thick impasto brushstrokes, knife-painted texture, rich oil pigments, canvas grain",
+            "수묵화": "ink wash gradients, rice paper texture, monochrome tonal range, spontaneous brushwork",
+            "픽셀": "pixel grid, 8-bit color palette, sharp edges, no anti-aliasing",
+            "수채화": "watercolor washes, wet-on-wet bleeding, translucent layers, paper texture",
+        }
+        style_vocab = ""
+        for key, vocab in style_map.items():
+            if key in req.style:
+                style_vocab = vocab
+                break
+
+        # 최종 프롬프트 조합
+        parts = [req.subject]
+        if req.mood:
+            parts.append(req.mood)
+        parts.append(req.style)
+        if style_vocab:
+            parts.append(style_vocab)
+        if guide_text:
+            parts.append(guide_text[:200])
+
+        prompt = ", ".join(parts)
+        return {"prompt": prompt, "style_vocab": style_vocab}
+    except Exception as e:
+        logger.warning(f"프롬프트 생성 실패, 폴백 사용: {e}")
+        prompt = f"{req.subject}, {req.style}"
+        if req.mood:
+            prompt += f", {req.mood}"
+        return {"prompt": prompt, "style_vocab": ""}
