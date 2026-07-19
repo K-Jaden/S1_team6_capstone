@@ -92,9 +92,9 @@ def run():
         ("style_first", "화풍 최우선 규칙: 지정된 스타일과 기법에 맞춰 렌더링되게 하려면, 프롬프트의 맨 앞에 화풍 지시어를 삽입하라. 뒤에 밀리면 무시된다. 예: (watercolor illustration:1.3), a landscape..."),
         ("break_split", "BREAK 키워드: 상반된 개념이나 복수의 캐릭터를 묘사할 때 서로 섞이지 않게 하려면, BREAK 대문자 키워드로 프롬프트의 의미적 단락을 나누어라. 예: a warrior in medieval armor BREAK a neon glowing alley."),
         ("double_colon", "이중 콜론 가중치 분리(::): 각 컨셉간의 분리와 강제 가중치 인지를 위해 :: 구분자를 활용하여 의미 블록을 구분하라. 예: cybernetic implants::1.3 Chosun general::1.5"),
-        ("genre_fusion_palace", "조선시대와 사이버펑크 융합: 전통 목조 건축인 한옥의 처마 라인은 유지하되, 기둥과 벽면에 홀로그램 한자 간판과 네온 조명을 덧입혀 융합하라. (Chosun palace:1.3), (cyberpunk neon signs:1.2)"),
-        ("genre_fusion_armor", "중세 갑옷과 공학 장비 융합: 기사의 철갑 갑옷 판금 이음새 부분에 파란색 발광 회로와 기계식 케이블을 촘촘히 묘사하여 사이버네틱 판타지 스타일을 만들어내라."),
-        ("texture_impasto", "임파스토(Impasto) 두꺼운 질감: 화풍이 회화풍일 때, 나이프로 거칠게 덧칠한 유화 물감의 물리적 입체감과 덩어리 질감을 표현하라. (thick impasto texture, heavy palette knife paint strokes:1.25)"),
+        ("genre_fusion_general", "이종 장르 시각적 융합(Fusion) 규칙: 서로 충돌하거나 상이한 장르/시대 키워드(예: 동양 수묵화와 SF, 중세 기사와 공학 케이블)가 만났을 때, 한쪽 장르의 핵심 형태 구조(예: 처마선, 판금 형태)를 뼈대로 잡은 채 다른 장르의 대표적 디테일(예: 네온 발광 회로, 크롬 금속판)을 표면에 매끄럽게 결합하여 어색하지 않은 시각적 융합을 이루어내라."),
+        ("contrast_ambient", "대비와 앰비언트 연출: 어두운 그림자와 핵심 피사체를 비추는 시네마틱 광원의 강렬한 대비(high contrast chiaroscuro)를 활용하여 주제를 극적으로 묘사하고 깊이감을 부여하라."),
+        ("texture_impasto", "임파스토(Impasto) 두꺼운 질감: 화풍이 회화풍일 때, 나이프로 거칠게 덧칠한 유화 물감의 물리적 입체감และ 덩어리 질감을 표현하라. (thick impasto texture, heavy palette knife paint strokes:1.25)"),
         ("contrast_neon", "어두운 저채도와 네온 대비: 전체 배경의 무게는 어두운 그늘(저채도)로 묵직하게 잡고, 강조하고 싶은 핵심 광원만 높은 채도의 네온 빛으로 산란시켜 대비를 극대화하라."),
         ("depth_segment", "공간 분할 레이어: 전경(foreground)에는 세부 소품을 가깝게 배치하고, 중경(midground)에는 주요 피사체, 원경(background)에는 안개나 산란광을 배치해 공간의 깊이감을 확보하라."),
         ("particle_glow", "발광 입자 연출: 신비롭고 초현실적인 묘사를 위해 공기 중에 떠다니는 먼지 크기의 미세한 발광 파티클(floating embers, luminous dust particles)을 가미하라."),
@@ -113,7 +113,7 @@ def run():
         rag.archive_prompt_rule(r_id, r_text)
     logger.info(f"✅ 프롬프트 문법 규칙 시딩 완료. prompt_guide 컬렉션 총 문서 수: {rag.count('prompt_guide')}")
 
-    # 🎨 [RAG 고도화] 2순위: 15가지 화풍별 시각 특징/트리거 단어 시딩
+    # 🎨 [RAG 고도화] 2순위: 화풍별 시각 특징/트리거 단어 시딩
     logger.info("🎨 화풍 가이드라인 시딩 시작...")
     style_guides = [
         ("전통 수묵화", "전통 수묵화 화풍 가이드: 프롬프트 맨 앞에 (oriental ink wash painting sumi-e:1.3)을 삽입하세요. 추가 트리거 단어: calligraphic black ink brush strokes, negative space, rough rice paper texture, ink splatters, monochromatic, minimal colors. 절대 현대식 디지털 광택을 허용하지 마세요."),
@@ -130,7 +130,14 @@ def run():
         ("아르누보 일러스트", "아르누보 일러스트 화풍 가이드: 프롬프트 맨 앞에 (Art Nouveau illustration Alphonse Mucha style:1.35)을 삽입하세요. 추가 트리거 단어: intricate flowing organic curves, decorative floral borders, elegant thin black outlines, muted warm gold tones, stylized mosaic pattern."),
         ("팝아트 포스터 스타일", "팝아트 포스터 스타일 화풍 가이드: 프롬프트 맨 앞에 (bold Pop Art screenprint style:1.3)을 삽입하세요. 추가 트리거 단어: Halftone dot pattern, Ben-day dots, thick black outlines, oversaturated flat primary colors, Andy Warhol silk-screen aesthetic."),
         ("2D 플랫 벡터 일러스트", "2D 플랫 벡터 일러스트 화풍 가이드: 프롬프트 맨 앞에 (2D flat vector art, clean illustration:1.3)을 삽입하세요. 추가 트리거 단어: solid flat colors, sharp crisp vector lines, no gradients, minimal shadow layers, corporate memphis look, modern editorial design."),
-        ("사이버네틱 SF 화풍", "사이버네틱 SF 화풍 가이드: 프롬프트 맨 앞에 (futuristic cybernetic digital concept art:1.3)을 삽입하세요. 추가 트리거 단어: neon glowing fiber optics, metallic chrome finishes, holographic overlays, dark techwear aesthetic, volumetric laser rays, highly detailed futuristic rendering.")
+        ("사이버네틱 SF 화풍", "사이버네틱 SF 화풍 가이드: 프롬프트 맨 앞에 (futuristic cybernetic digital concept art:1.3)을 삽입하세요. 추가 트리거 단어: neon glowing fiber optics, metallic chrome finishes, holographic overlays, dark techwear aesthetic, volumetric laser rays, highly detailed futuristic rendering."),
+        ("지브리 애니메이션 풍", "지브리 애니메이션 풍 화풍 가이드: 프롬프트 맨 앞에 (dreamy Ghibli anime style, warm hand-drawn:1.35)을 삽입하세요. 추가 트리거 단어: soft watercolor background, nostalgic warm lighting, clean line art, charming hand-painted aesthetic, whimsical cloud shapes, peaceful environment."),
+        ("우키요에 동양화", "우키요에 동양화 화풍 가이드: 프롬프트 맨 앞에 (traditional Japanese ukiyo-e woodblock print:1.3)을 삽입하세요. 추가 트리거 단어: flat decorative color blocks, outline drawing, dynamic wave shapes, historical aesthetic, vintage paper texture, classic asian art look."),
+        ("스테인드 글라스", "스테인드 글라스 화풍 가이드: 프롬프트 맨 앞에 (decorative stained glass window art, glowing mosaic:1.35)을 삽입하세요. 추가 트리거 단어: segmented colored glass panels, bold black lead came outlines, light shining through colored glass, glowing gothic cathedral window pattern, vibrant translucent colors."),
+        ("고딕 판타지", "고딕 판타지 화풍 가이드: 프롬프트 맨 앞에 (dark gothic fantasy oil painting:1.3)을 삽입하세요. 추가 트리거 단어: ornate medieval architecture, pointed arches, stone gargoyles, dramatic cinematic shadows, mysterious dark romance, high contrast chiaroscuro, haunted ambient fog."),
+        ("샌드 아트", "샌드 아트 화풍 가이드: 프롬프트 맨 앞에 (sand animation drawing, sand art:1.4)을 삽입하세요. 추가 트리거 단어: textured grains of sand, high contrast warm backlight, organic silhouettes created by shifting sand, monochrome earthy sepia tones, gritty texture."),
+        ("신스웨이브/레트로퓨처", "신스웨이브/레트로퓨처 화풍 가이드: 프롬프트 맨 앞에 (80s synthwave vaporwave style:1.3)을 삽입하세요. 추가 트리거 단어: neon pink and purple wireframe grid landscape, glowing grid lines, sunset retro sun, VHS tape grain, outrun aesthetic, cyberpunk neon glow."),
+        ("아크릴 페인팅", "아크릴 페인팅 화풍 가이드: 프롬프트 맨 앞에 (modern acrylic canvas painting, textured palette knife:1.3)을 삽입하세요. 추가 트리거 단어: bold rich colors, slightly shiny textured paint surface, expressive modern color blocks, clean edge definitions, painterly look.")
     ]
     for s_name, s_text in style_guides:
         rag.archive_style_guide(s_name, s_text)

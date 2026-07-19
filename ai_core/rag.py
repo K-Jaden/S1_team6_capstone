@@ -288,12 +288,29 @@ def archive_style_guide(style_name: str, guide_text: str):
 
 
 def search_style_guide(query: str, k: int = 1) -> List[str]:
-    """선택된 화풍명을 기반으로 그 그림체를 흉내 내기 위한 전문 트리거 단어들을 style_guide 컬렉션에서 조회합니다."""
+    """선택된 화풍명을 기반으로 그 그림체를 흉내 내기 위한 전문 트리거 단어들을 style_guide 컬렉션에서 조회합니다.
+    유저가 입력한 커스텀 화풍의 오타 교정, 다국어 번역, 동의어 표준화를 RAG 검색 전에 LLM으로 전처리합니다."""
     vs = get_vectorstore("style_guide")
     if vs is None:
         return []
     try:
-        results = vs.similarity_search(query, k=k)
+        refined_query = query
+        try:
+            import llm
+            refine_prompt = f"""당신은 이미지 생성 분야의 전문 아티스트입니다.
+입력된 예술 화풍/기법 키워드에 대해 오타를 교정하고, 영어인 경우 한국어로 번역하거나, 다른 문화나 나라에서 다르게 표현하는 동의어를 고려하여 RAG 검색에 가장 적절하고 표준적인 한국어 화풍 키워드로 변환해 한 단어로 대답해 주세요. (추가 설명 없이 오직 한 단어의 키워드만 반환하세요.)
+
+입력: {query}
+출력:"""
+            res = llm.llm_creative.invoke(refine_prompt)
+            result_txt = res.content.strip().replace("\"", "").replace("'", "")
+            if result_txt and len(result_txt) < 30:
+                refined_query = result_txt
+                logger.info(f"🔮 RAG 화풍 쿼리 정규화: '{query}' ➔ '{refined_query}'")
+        except Exception as le:
+            logger.warning(f"RAG 화풍 쿼리 정규화 중 실패 (원본 쿼리 사용): {le}")
+
+        results = vs.similarity_search(refined_query, k=k)
         return [r.page_content for r in results]
     except Exception as e:
         logger.warning(f"화풍 가이드 검색 실패: {e}")
