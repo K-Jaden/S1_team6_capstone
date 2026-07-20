@@ -447,6 +447,15 @@ function App() {
                 } else {
                     // 알림창도 30% 기준 명세서로 예쁘게 리포팅되도록 수정합니다.
                     alert(`🎉 판매 및 정산 완료!\n\n🧾 [오프체인 배당 명세서]\n 총 매각 금액: ${res.data.total_price.toLocaleString()} TUK\n🏛️ DAO 유지비용 (30%): ${(res.data.total_price * 0.3).toLocaleString()} TUK\n📈 나의 투자 지분율: ${res.data.stake_ratio.toFixed(2)}%\n💸 최종 실수령액 (70%): ${res.data.profit.toFixed(2)} TUK 입금 완료!`);
+                    
+                    // 모달 창 상태를 즉시 매각 완료(영수증 뷰)로 반영
+                    setSelectedCandidate(prev => prev && prev.id === item.id ? { 
+                        ...prev, 
+                        is_sold: true, 
+                        my_profit: res.data.profit, 
+                        stake_ratio: res.data.stake_ratio 
+                    } : prev);
+
                     fetchGallery();
                     fetchMyPageData();
                     fetchEndedRounds();
