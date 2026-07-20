@@ -140,8 +140,9 @@ def plan_node(state: CandidatesState) -> CandidatesState:
 
 [기획 미션]
 1. 위의 조건들을 조화롭게 반영하여 총 5개의 전시 후보작 컨셉을 한국어로 기획하세요.
-2. 각 후보작의 개성이 명확하고 비주얼이 중복되지 않도록 기획해야 합니다. 공통 화풍({state['style']}) 안에서도 질감 묘사(예: 거친 붓터치, 두꺼운 덧칠, 캔버스 노이즈, 나이프 터치, 도트 격자 등)를 5개 기획안에 서로 겹치지 않게 나누어 배치하세요.
-3. 만약 특정 조건에 상충하거나 모순되는 여러 키워드가 함께 제시된 경우(예: '조선시대, 사이버펑크'), 이를 오류로 판단하지 말고 두 장르의 교차점과 독창적인 비주얼 결합 방식(장르 융합/Fusion)을 설명하며 창의적인 기획안을 제시해 주세요.{prompt_rules_block}{style_guide_block}{context_block}"""
+2. 🚨 핵심 테마 키워드({dist_str})는 예외 없이 5개 후보작 전부에 반드시 등장해야 합니다. 일부 후보작에서 다른 피사체로 바꿔치기하거나 생략하는 것은 절대 금지입니다.
+3. 각 후보작의 개성과 차별화는 피사체 자체를 바꾸는 게 아니라, 공통 화풍({state['style']}) 안에서 질감 묘사(예: 거친 붓터치, 두꺼운 덧칠, 캔버스 노이즈, 나이프 터치, 도트 격자 등)·구도·행동·표정 등으로만 만드세요.
+4. 만약 특정 조건에 상충하거나 모순되는 여러 키워드가 함께 제시된 경우(예: '조선시대, 사이버펑크'), 이를 오류로 판단하지 말고 두 장르의 교차점과 독창적인 비주얼 결합 방식(장르 융합/Fusion)을 설명하며 창의적인 기획안을 제시해 주세요.{prompt_rules_block}{style_guide_block}{context_block}"""
         result = llm.llm_creative.invoke(prompt)
         plan_text = llm.to_text(result.content)
         push_log(session_id, PLANNER_NAME, "task_complete", f"✅ 초안 작성 완료\n{plan_text}")
@@ -161,7 +162,8 @@ def plan_node(state: CandidatesState) -> CandidatesState:
 {state['feedback']}
 
 [미션] 비평가의 피드백을 적극 수용하여 기존 기획안을 보완하고 완성도를 높인 최종 5개 후보작 컨셉 기획안을 한국어로 작성하세요.
-특히, 비평가의 개별 피드백은 해당 후보작 번호(1~5번)에만 정확히 수용하고, 특정 후보작의 특화 연출/기법이 다른 후보작으로 전염(Bleed-over)되어 5개 후보작이 비슷해지지 않도록 각 후보작의 독자적인 개성(시각적 차별성)을 반드시 유지하세요.{prompt_rules_block}{style_guide_block}"""
+특히, 비평가의 개별 피드백은 해당 후보작 번호(1~5번)에만 정확히 수용하고, 특정 후보작의 특화 연출/기법이 다른 후보작으로 전염(Bleed-over)되어 5개 후보작이 비슷해지지 않도록 각 후보작의 독자적인 개성(시각적 차별성)을 반드시 유지하세요.
+🚨 단, 어떤 경우에도 핵심 테마 키워드({dist_str})는 5개 후보작 전부에서 그대로 유지되어야 합니다 - 차별화를 이유로 피사체 자체를 바꾸지 마세요.{prompt_rules_block}{style_guide_block}"""
         result = llm.llm_creative.invoke(prompt)
         plan_text = llm.to_text(result.content)
         push_log(session_id, PLANNER_NAME, "task_complete", f"✅ 최종 기획안 수정 완료\n{plan_text}")
@@ -229,7 +231,7 @@ def format_node(state: CandidatesState) -> CandidatesState:
 기획안: {state['plan_draft']}
 
 [필수 반영 요소]
-1. 핵심 테마와 가중치: {weight_str}
+1. 핵심 테마와 가중치: 무조건 {weight_str}의 피사체를 5개 프롬프트 전부에 영문으로 명시적으로 포함시키세요 (프롬프트마다 빠짐없이 등장해야 하며, 절대 생략하거나 다른 대상으로 바꾸면 안 됩니다)
 2. 고정 배경이 되는 시대: 무조건 '{state['era']}'의 요소를 프롬프트에 반영
 3. 고정 세부 장소: 무조건 '{state['background']}'의 요소를 프롬프트에 반영
 4. 고정 표현 방식/화풍: 무조건 '{state['style']}'의 요소를 프롬프트에 반영{rag_block}{style_guide_block}{prompt_rules_block}
