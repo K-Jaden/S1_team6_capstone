@@ -2195,19 +2195,20 @@ function App() {
                                 ) : (
                                     <div className="sale-status">
                                         {!selectedCandidate.is_sold ? (
-                                            <div style={{ padding: '15px', background: '#111', borderRadius: '12px', border: '1px solid #333' }}>
+                                            <div style={{ padding: 0, background: 'transparent' }}>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                                    <span style={{ color: '#9CA3AF', fontSize: '0.85rem' }}> 확정 가상 매각가</span>
-                                                    <strong style={{ color: '#FBBF24', fontSize: '1.2rem' }}>{Number(selectedCandidate.auction_price || 0).toLocaleString()} TUK</strong>
+                                                    <span style={{ color: '#9CA3AF', fontSize: '0.9rem' }}>확정 가상 매각가</span>
+                                                    <strong style={{ color: '#FBBF24', fontSize: '1.3rem' }}>{Number(selectedCandidate.auction_price || 0).toLocaleString()} TUK</strong>
                                                 </div>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                    <span style={{ color: '#10B981', fontWeight: 'bold', fontSize: '0.85rem' }}> 가상 배당 가능</span>
+                                                    <span style={{ color: '#10B981', fontWeight: 'bold', fontSize: '0.85rem' }}>가상 배당 가능</span>
                                                     <button
                                                         onClick={() => handleVirtualSell(selectedCandidate)}
                                                         style={{
                                                             background: 'linear-gradient(135deg, #3B82F6, #8B5CF6)',
-                                                            color: '#fff', border: 'none', padding: '8px 16px',
-                                                            borderRadius: '8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 'bold'
+                                                            color: '#fff', border: 'none', padding: '8px 18px',
+                                                            borderRadius: '8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 'bold',
+                                                            boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)'
                                                         }}
                                                     >
                                                         배당금 받기
@@ -2215,15 +2216,15 @@ function App() {
                                                 </div>
                                             </div>
                                         ) : (
-                                            <div style={{ padding: '15px', background: '#111', borderRadius: '12px', border: '1px solid #EF4444', fontFamily: "'Courier New', Courier, monospace" }}>
-                                                <div style={{ fontSize: '0.8rem', color: '#EF4444', borderBottom: '1px dashed #333', paddingBottom: '6px', marginBottom: '10px', textAlign: 'center', fontWeight: 'bold' }}>
+                                            <div style={{ padding: 0, background: 'transparent', fontFamily: "'Courier New', Courier, monospace" }}>
+                                                <div style={{ fontSize: '0.85rem', color: '#EF4444', borderBottom: '1px dashed #333', paddingBottom: '6px', marginBottom: '12px', textAlign: 'center', fontWeight: 'bold' }}>
                                                     🧾 ART SALES RECEIPTS
                                                 </div>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '5px', color: '#9CA3AF' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '6px', color: '#9CA3AF' }}>
                                                     <span>판매금액</span>
                                                     <span style={{ color: '#fff' }}>{Number(selectedCandidate.auction_price || 0).toLocaleString()} TUK</span>
                                                 </div>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '5px', color: '#F87171' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '6px', color: '#F87171' }}>
                                                     <span>- DAO 유지비용 (30%)</span>
                                                     <span>{Number((selectedCandidate.auction_price || 0) * 0.3).toLocaleString()} TUK</span>
                                                 </div>
