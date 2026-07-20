@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, Query, HTTPException
+from fastapi import FastAPI, Depends, Query, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func, text
@@ -77,6 +77,27 @@ app.add_middleware(
 )
 
 get_db = database.get_db
+
+
+def get_negative_prompt_for_style(style_name: str) -> str:
+    """화풍에 맞춰 번들거림(glossy), 네온(neon), 3D 렌더 등을 적절히 억제하는 네거티브 프롬프트를 동적으로 만듭니다."""
+    neg_parts = ["deformed", "bad anatomy", "disfigured", "poorly drawn face", "mutated", "extra limbs", "ugly", "blurry", "low quality"]
+    if not style_name:
+        return ", ".join(neg_parts)
+    style_lower = style_name.lower()
+    if "수묵화" in style_lower or "화강암" in style_lower or "펜화" in style_lower or "ink" in style_lower or "sketch" in style_lower:
+        neg_parts.extend(["digital gloss", "shiny", "plastic texture", "3d render", "photorealistic", "vibrant colors", "modern neon lights", "realistic render"])
+    elif "도트" in style_lower or "픽셀" in style_lower or "pixel" in style_lower:
+        neg_parts.extend(["smooth gradients", "blur", "photorealistic", "highly detailed skin", "3d rendering", "oil painting"])
+    elif "미니멀리즘" in style_lower or "2d" in style_lower or "벡터" in style_lower or "minimal" in style_lower or "vector" in style_lower:
+        neg_parts.extend(["realistic texture", "3d render", "shadow gradients", "photorealistic", "oil painting"])
+    elif "점토" in style_lower or "클레이" in style_lower or "clay" in style_lower:
+        neg_parts.extend(["digital rendering", "realistic skin", "glossy metal", "watercolors", "flat vector"])
+    elif "유화" in style_lower or "유채" in style_lower or "oil" in style_lower or "회화" in style_lower or "painting" in style_lower:
+        # 유화/회화 특유의 AI 디지털 광택, 3D 렌더링 느낌 억제
+        neg_parts.extend(["smooth 3d render", "digital art", "plastic glossy skin", "neon colors", "anime style", "flat illustration", "vector art", "perfectly clean"])
+    return ", ".join(neg_parts)
+
 
 @app.get("/health")
 def health():
@@ -183,8 +204,45 @@ def update_user_badge(wallet_address: str, db: Session = Depends(get_db)):
 
 
 # =========================================================
-# 2. 🖼️ 온라인 전시관 & 관람평
+# 👤 [NEW] 프로필 조회 / 저장 / 이미지 업로드
 # =========================================================
+@app.get("/api/user/profile")
+def get_user_profile(wallet_address: str, db: Session = Depends(get_db)):
+    """유저 프로필(닉네임, 프로필픽) 조회"""
+    user = get_user_or_404(wallet_address, db)
+    return {
+        "wallet_address": user.wallet_address,
+        "nickname": user.nickname or "",
+        "profile_pic": user.profile_pic or "🔮"
+    }
+
+@app.post("/api/user/profile")
+def save_user_profile(req: schemas.ProfileUpdateReq, wallet_address: str, db: Session = Depends(get_db)):
+    """유저 프로필(닉네임, 프로필픽) 저장"""
+    user = get_user_or_404(wallet_address, db)
+    user.nickname = req.nickname
+    user.profile_pic = req.profile_pic
+    db.commit()
+    return {"status": "ok", "nickname": user.nickname, "profile_pic": user.profile_pic}
+
+@app.post("/api/user/upload-profile-pic")
+async def upload_profile_pic(wallet_address: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """프로필 사진 이미지 파일 업로드 후 /static/images/profile_*.jpg 경로로 저장"""
+    user = get_user_or_404(wallet_address, db)
+    ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
+    # 지갑 주소 기반으로 고유 파일명 생성
+    save_path = f"static/images/profile_{wallet_address}.{ext}"
+    os.makedirs("static/images", exist_ok=True)
+    contents = await file.read()
+    with open(save_path, "wb") as f:
+        f.write(contents)
+    url_path = f"/{save_path}"
+    user.profile_pic = url_path
+    db.commit()
+    return {"profile_pic": url_path}
+
+
+
 @app.get("/api/gallery/items")
 def get_gallery_items(wallet_address: Optional[str] = None, db: Session = Depends(get_db)):
     items = db.query(models.GalleryItem).all()
@@ -401,15 +459,20 @@ def create_art_image(request: schemas.StudioImageRequest):
     # 2. Cloudflare FLUX 서버 호출
     try:
         logger.info("📥 [Cloudflare FLUX] 고퀄리티 이미지 렌더링 중...")
-        cf_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/@cf/black-forest-labs/flux-1-schnell"
+        cf_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0"
         
         headers = {
             "Authorization": f"Bearer {CF_API_TOKEN}",
             "Content-Type": "application/json"
         }
         
+        # 유저가 고른 키워드를 통해 어울리는 네거티브 프롬프트 도출
+        negative_prompt = get_negative_prompt_for_style(request.keywords)
+        
         data = {
-            "prompt": enhanced_english_prompt[:1000] # 프롬프트 길이 제한
+            "prompt": enhanced_english_prompt[:1000],  # 프롬프트 길이 제한
+            "negative_prompt": negative_prompt,
+            "num_steps": 20
         }
 
         img_res = requests.post(cf_url, headers=headers, json=data, timeout=60)
@@ -422,7 +485,6 @@ def create_art_image(request: schemas.StudioImageRequest):
                 res_json = img_res.json()
                 if "result" in res_json and "image" in res_json["result"]:
                     b64_encoded = res_json["result"]["image"]
-                    # 클라우드플레어는 이미 Base64 텍스트로 주기 때문에 한 번 더 인코딩할 필요 없음!
                     data_url = f"data:image/jpeg;base64,{b64_encoded}"
                     logger.info("✅ Cloudflare FLUX 그림 생성 성공! (JSON 파싱 완벽)")
                     return {"image_url": data_url}
@@ -430,11 +492,10 @@ def create_art_image(request: schemas.StudioImageRequest):
                     logger.error(f"🔥 예상치 못한 JSON 구조: {res_json}")
                     return {"image_url": "https://dummyimage.com/600x400/ff0000/fff&text=CF+JSON+Structure+Error"}
             else:
-                # 만약 정말로 바이너리를 줬을 경우를 대비한 안전 장치
-                image_bytes = img_res.content
-                b64_encoded = base64.b64encode(image_bytes).decode('utf-8')
+                # SDXL 등 raw binary 이미지를 돌려주는 경우 base64 인코딩하여 data URL로 변환합니다.
+                b64_encoded = base64.b64encode(img_res.content).decode("utf-8")
                 data_url = f"data:image/jpeg;base64,{b64_encoded}"
-                logger.info("✅ Cloudflare FLUX 그림 생성 성공! (바이너리 인코딩 완벽)")
+                logger.info("✅ Cloudflare SDXL 그림 생성 성공! (raw binary ➔ base64 인코딩)")
                 return {"image_url": data_url}
         else:
             logger.error(f"🔥 Cloudflare API 에러: {img_res.status_code} - {img_res.text}")
@@ -539,7 +600,7 @@ def get_current_round(db: Session = Depends(get_db)):
         "subjects": [{"word": k.word, "vote_count": k.vote_count} for k in keywords if k.type == "subject"],
         "backgrounds": [{"word": k.word, "vote_count": k.vote_count} for k in keywords if k.type == "background"],
         "styles": [{"word": k.word, "vote_count": k.vote_count} for k in keywords if k.type == "style"],
-        "moods": [{"word": k.word, "vote_count": k.vote_count} for k in keywords if k.type == "mood"]
+        "moods": []
     }
 @app.get("/api/rounds/ended")
 def get_ended_rounds(db: Session = Depends(get_db)):
@@ -597,10 +658,11 @@ def start_phase1_keywords(session_id: str = "", db: Session = Depends(get_db)):
     db.add(new_round)
     db.commit()
 
-    # 💡 5대 슬롯의 기본 단어 풀 정의
+    # 💡 4대 슬롯의 기본 단어 풀 정의 (5번 분위기 슬롯 영구 삭제 및 1, 3번 명확성 분리)
     pool_eras = [
-        "조선시대", "사이버펑크 미래", "중세 판타지", "현대 도시", "스페이스 오페라 시대", 
-        "포스트 아포칼립스", "고대 이집트", "로마 제국", "빅토리아 스팀펑크", "서부 개척 시대"
+        "조선 시대", "고대 이집트 시대", "로마 제국 시대", "서부 개척 시대",
+        "사이버펑크 미래 시대", "중세 판타지 시대", "빅토리아 스팀펑크 시대",
+        "포스트 아포칼립스 시대", "현대 시대", "우주 개척 시대"
     ]
     pool_subjects = [
         "공룡", "총", "로봇", "고양이", "기사", "마법사", "천사", "악마", "소나무", "네온사인", 
@@ -609,19 +671,14 @@ def start_phase1_keywords(session_id: str = "", db: Session = Depends(get_db)):
         "소년", "소녀", "자연", "웅장한"
     ]
     pool_backgrounds = [
-        "네온 불빛 골목길", "벚꽃 정원", "우주선 조종실", "울창한 열대우림", "고요한 사원 마당", 
-        "황량한 모래 언덕", "빗방울 맺힌 서재", "화려한 대성당 내부", "눈 덮인 산 정상", "구름 위의 천공도시", 
-        "안개 낀 공동묘지", "심해 산호초", "복잡한 사이버 연구소", "아늑한 숲속 오두막", "끝없는 도서관"
+        "골목길", "정원", "우주선 내부", "열대우림", "사원 마당", 
+        "모래 언덕", "서재", "대성당 내부", "산 정상", "천공도시", 
+        "공동묘지", "산호초", "연구소", "오두막", "도서관"
     ]
     pool_styles = [
         "전통 수묵화", "디즈니 3D 애니메이션 풍", "8비트 도트", "몽환적인 수채화", "말랑한 점토 클레이아트", 
         "거친 질감의 목판화", "클래식 유화 풍", "정교한 펜화 스케치", "미니멀리즘 디자인", "초현실주의 회화", 
         "인상주의 회화 풍", "아르누보 일러스트", "팝아트 포스터 스타일", "2D 플랫 벡터 일러스트", "사이버네틱 SF 화풍"
-    ]
-    pool_moods = [
-        "포근한 파스텔톤", "화려한 네온 라이팅", "빛바랜 빈티지 사진 풍", "다크 판타지 분위기", "몽환적인 새벽 안개", 
-        "사이키델릭 컬러", "시네마틱 라이팅", "일몰의 황금빛", "차가운 새벽 공기", "강렬한 대비 효과", 
-        "몽환적이고 따뜻한 빛", "어두운 분위기", "신비로운 분위기", "사이버펑크 네온 글로우", "빈티지 레트로 감성", "미니멀하고 깨끗한 조명"
     ]
 
     # 💡 2. AI 트렌드 연동 (Reddit 크롤러 및 AI 자체 분석 데이터 수집)
@@ -629,7 +686,6 @@ def start_phase1_keywords(session_id: str = "", db: Session = Depends(get_db)):
     crawled_subjects, ai_subjects = [], []
     crawled_backgrounds, ai_backgrounds = [], []
     crawled_styles, ai_styles = [], []
-    crawled_moods, ai_moods = [], []
 
     try:
         res = requests.get(f"{AI_AGENT_URL}/api/agent/trends-keywords", timeout=20)
@@ -646,19 +702,14 @@ def start_phase1_keywords(session_id: str = "", db: Session = Depends(get_db)):
         
         if "styles" in ai_data: crawled_styles = [w.strip() for w in ai_data["styles"][:3] if w.strip()]
         if "ai_styles" in ai_data: ai_styles = [w.strip() for w in ai_data["ai_styles"][:3] if w.strip()]
-        
-        if "moods" in ai_data: crawled_moods = [w.strip() for w in ai_data["moods"][:3] if w.strip()]
-        if "ai_moods" in ai_data: ai_moods = [w.strip() for w in ai_data["ai_moods"][:3] if w.strip()]
     except Exception as e:
         logger.warning(f"🔥 AI 트렌드 지연, 비상 트렌드 가동: {e}")
-        ai_eras = ["조선시대", "사이버펑크 미래", "중세 판타지"]
+        ai_eras = ["조선 시대", "사이버펑크 미래 시대", "중세 판타지 시대"]
         ai_subjects = ["메타버스 가상현실", "초거대 AI", "포스트 아포칼립스"]
-        ai_backgrounds = ["네온 불빛 골목길", "벚꽃 정원", "우주선 조종실"]
+        ai_backgrounds = ["골목길", "정원", "우주선 내부"]
         ai_styles = ["전통 수묵화", "3D 복셀", "점토 클레이아트"]
-        ai_moods = ["화려한 네온 라이팅", "차가운 새벽 공기", "몽환적 안개"]
 
     # 💡 3. 중복 방지 처리 및 베이스 풀 샘플링 결합
-    # (크롤링/AI 분석 키워드가 베이스 고정 풀에 포함되어 있을 경우 중복 출력을 막기 위해 필터링)
     trend_eras = set(crawled_eras + ai_eras)
     filtered_eras = [w for w in pool_eras if w not in trend_eras]
     selected_eras = random.sample(filtered_eras, min(10, len(filtered_eras)))
@@ -683,17 +734,10 @@ def start_phase1_keywords(session_id: str = "", db: Session = Depends(get_db)):
     selected_styles.extend([f"🔥{w}" for w in crawled_styles])
     selected_styles.extend([f"✨{w}" for w in ai_styles])
 
-    trend_moods = set(crawled_moods + ai_moods)
-    filtered_moods = [w for w in pool_moods if w not in trend_moods]
-    selected_moods = random.sample(filtered_moods, min(10, len(filtered_moods)))
-    selected_moods.extend([f"🔥{w}" for w in crawled_moods])
-    selected_moods.extend([f"✨{w}" for w in ai_moods])
-
     random.shuffle(selected_eras)
     random.shuffle(selected_subjects)
     random.shuffle(selected_backgrounds)
     random.shuffle(selected_styles)
-    random.shuffle(selected_moods)
 
     for word in selected_eras:
         db.add(models.Keyword(round_id=new_round.id, word=word.replace("#", ""), type="era"))
@@ -703,8 +747,6 @@ def start_phase1_keywords(session_id: str = "", db: Session = Depends(get_db)):
         db.add(models.Keyword(round_id=new_round.id, word=word.replace("#", ""), type="background"))
     for word in selected_styles:
         db.add(models.Keyword(round_id=new_round.id, word=word.replace("#", ""), type="style"))
-    for word in selected_moods:
-        db.add(models.Keyword(round_id=new_round.id, word=word.replace("#", ""), type="mood"))
 
     db.commit()
     return {
@@ -858,17 +900,15 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
     selected_era = get_winning_keywords("era", "modern era")
     selected_background = get_winning_keywords("background", "simple background")
     selected_style = get_winning_keywords("style", "digital art style")
-    selected_mood = get_winning_keywords("mood", "cinematic lighting")
 
     try:
-        # 🚨 5대 슬롯 매개변수 전송
+        # 🚨 4대 슬롯 매개변수 전송 (분위기 제거)
         res = requests.post(f"{AI_AGENT_URL}/api/agent/generate-weighted-candidates",
             json={
                 "weights": keyword_distribution, 
                 "era": selected_era,
                 "background": selected_background,
-                "style": selected_style, 
-                "mood": selected_mood,
+                "style": selected_style,
                 "session_id": session_id
             }, timeout=300)
         ai_data = res.json().get("candidates", [])
@@ -878,38 +918,60 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
             {
                 "title": f"임시 아트 {i}", 
                 "description": "복구본", 
-                "image_prompt": f"masterpiece, {selected_style}, {selected_mood}, set in {selected_background}, {selected_era} era"
+                "image_prompt": f"masterpiece, {selected_style}, set in {selected_background}, {selected_era} era"
             }
             for i in range(1, 6)
         ]
 
     CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
     CF_API_TOKEN = os.getenv("CF_API_TOKEN")
-    cf_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/@cf/black-forest-labs/flux-1-schnell"
+    cf_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0"
     headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
 
     candidate_uris = []
+    
+    # 화풍에 맞는 네거티브 프롬프트 준비
+    negative_prompt = get_negative_prompt_for_style(selected_style)
 
     for idx, c_data in enumerate(ai_data, 1):
         raw_prompt = str(c_data.get("image_prompt", "digital art"))[:900]
-        # flux-1-schnell은 negative_prompt를 지원하지 않으므로(공식 문서 확인 완료),
-        # 회피 문구를 프롬프트 문자열에 직접 녹여 넣는다. steps도 기본 4 -> 최대 8로 올려
-        # 추가 API 호출 없이 구조적 결함(신체 왜곡 등) 발생률을 낮춘다 (docs/quality_validation_framework.md 참고)
-        prompt = raw_prompt + ", no distorted anatomy, no extra limbs, no deformed hands, no garbled text, no artifacts, clean composition"
+        prompt = raw_prompt
         image_url = ""
 
         try:
             logger.info(f"🚀 [{idx}번 그림] CF API 요청 시작...")
             time.sleep(6)
-            img_res = requests.post(cf_url, headers=headers, json={"prompt": prompt, "steps": 8}, timeout=60)
+            # 후보작별로 각기 다른 화면 비율 부여 (가로형/세로형/정사각형)
+            if idx == 1:
+                width, height = 1024, 1024  # 1:1 정사각형
+            elif idx in [2, 4]:
+                width, height = 1024, 576   # 16:9 가로형
+            else:
+                width, height = 576, 1024   # 9:16 세로형
+            data = {
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "num_steps": 20,
+                "width": width,
+                "height": height
+            }
+            img_res = requests.post(cf_url, headers=headers, json=data, timeout=60)
             logger.info(f"📥 [{idx}번 그림] CF API 응답 상태코드: {img_res.status_code}")
             
             if img_res.status_code == 200:
-                res_json = img_res.json()
-                if "result" in res_json and "image" in res_json["result"]:
-                    b64 = res_json["result"]["image"]
-                    img_bytes = base64.b64decode(b64)
+                content_type = img_res.headers.get("Content-Type", "")
+                img_bytes = None
+                
+                if "application/json" in content_type:
+                    res_json = img_res.json()
+                    if "result" in res_json and "image" in res_json["result"]:
+                        b64 = res_json["result"]["image"]
+                        img_bytes = base64.b64decode(b64)
+                else:
+                    # SDXL은 raw binary bytes를 직접 리턴하므로 바로 저장합니다.
+                    img_bytes = img_res.content
                     
+                if img_bytes:
                     os.makedirs("static/images", exist_ok=True)
                     filename = f"round{round_id}_c{idx}.png"
                     
@@ -920,7 +982,7 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
                     image_url = f"/static/images/{filename}"
                     logger.info(f"✅ [{idx}번 그림] 저장 완벽 성공!")
                 else:
-                    logger.error(f"🔥 [데이터 에러] CF가 그림을 안 줬습니다: {res_json}")
+                    logger.error(f"🔥 [데이터 에러] 그림 데이터 추출 실패 (컨텐츠 타입: {content_type})")
             else:
                 logger.error(f"🔥 [CF API 거절] 상태코드: {img_res.status_code} / 내용: {img_res.text}")
                 
@@ -1028,14 +1090,7 @@ def start_phase3_valuation(round_id: int = 0, session_id: str = "", db: Session 
                 ).order_by(desc(models.Keyword.vote_count)).first()
                 selected_style = style_kw.word if style_kw else ""
 
-                mood_kw = db.query(models.Keyword).filter(
-                    models.Keyword.round_id == round_id,
-                    models.Keyword.type == "mood",
-                    models.Keyword.vote_count > 0
-                ).order_by(desc(models.Keyword.vote_count)).first()
-                selected_mood = mood_kw.word if mood_kw else ""
-
-                combined_style = f"{selected_style} with {selected_mood}" if selected_mood else selected_style
+                combined_style = selected_style
 
                 qc_res = requests.post(f"{AI_AGENT_URL}/api/agent/quality-check", json={
                     "image_base64": img_b64,
@@ -1054,20 +1109,35 @@ def start_phase3_valuation(round_id: int = 0, session_id: str = "", db: Session 
                     # 재시도는 최대 1회 - 무료 API 티어 제약상 무한정 매달리지 않음
                     CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
                     CF_API_TOKEN = os.getenv("CF_API_TOKEN")
-                    cf_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/@cf/black-forest-labs/flux-1-schnell"
+                    cf_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0"
                     headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
-                    retry_res = requests.post(cf_url, headers=headers, json={"prompt": revised_prompt[:1000], "steps": 8}, timeout=60)
+                    negative_prompt = get_negative_prompt_for_style(selected_style)
+                    retry_data = {
+                        "prompt": revised_prompt[:1000],
+                        "negative_prompt": negative_prompt,
+                        "num_steps": 20
+                    }
+                    retry_res = requests.post(cf_url, headers=headers, json=retry_data, timeout=60)
                     if retry_res.status_code == 200:
-                        retry_json = retry_res.json()
-                        if "result" in retry_json and "image" in retry_json["result"]:
-                            new_bytes = base64.b64decode(retry_json["result"]["image"])
+                        content_type = retry_res.headers.get("Content-Type", "")
+                        new_bytes = None
+                        
+                        if "application/json" in content_type:
+                            retry_json = retry_res.json()
+                            if "result" in retry_json and "image" in retry_json["result"]:
+                                new_bytes = base64.b64decode(retry_json["result"]["image"])
+                        else:
+                            # SDXL은 raw binary bytes를 직접 리턴하므로 바로 저장합니다.
+                            new_bytes = retry_res.content
+                            
+                        if new_bytes:
                             with open(filepath, "wb") as f:
                                 f.write(new_bytes)
                             winner.image_prompt = revised_prompt
                             db.commit()
                             logger.info("✅ 품질 게이트 재수정 완료 - 이미지 교체됨")
                         else:
-                            logger.warning("품질 게이트 재수정 실패 (CF 응답 형식 이상) - 기존 이미지 유지")
+                            logger.warning("품질 게이트 재수정 실패 (그림 데이터 추출 실패) - 기존 이미지 유지")
                     else:
                         logger.warning(f"품질 게이트 재수정 실패 (CF 상태코드 {retry_res.status_code}) - 기존 이미지 유지")
         except Exception:
@@ -1216,3 +1286,38 @@ def virtual_sell_item(req: VirtualSellReq, db: Session = Depends(get_db)):
         logger.exception("🔥 가상 판매 에러 발생")
         return {"error": "판매 처리 중 오류가 발생했습니다."}
 
+
+# =========================================================
+# 💬 대시보드 통합 토론방 (Global Chat)
+# =========================================================
+class GlobalChatRequest(BaseModel):
+    wallet_address: str
+    text: str
+
+@app.get("/api/chat/global")
+def get_global_messages(limit: int = 50, db: Session = Depends(get_db)):
+    """통합 토론방 메시지 최신 순으로 반환"""
+    msgs = db.query(models.GlobalChatMessage).order_by(
+        models.GlobalChatMessage.created_at.asc()
+    ).limit(limit).all()
+    return [
+        {
+            "id": m.id,
+            "wallet_address": m.wallet_address,
+            "text": m.text,
+            "created_at": m.created_at.isoformat() if m.created_at else None
+        }
+        for m in msgs
+    ]
+
+@app.post("/api/chat/global")
+def post_global_message(req: GlobalChatRequest, db: Session = Depends(get_db)):
+    """통합 토론방 메시지 저장"""
+    msg = models.GlobalChatMessage(
+        wallet_address=req.wallet_address,
+        text=req.text[:500]  # 최대 500자 제한
+    )
+    db.add(msg)
+    db.commit()
+    db.refresh(msg)
+    return {"id": msg.id, "status": "ok"}

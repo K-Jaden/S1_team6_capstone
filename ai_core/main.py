@@ -4,6 +4,7 @@ import os
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 load_dotenv()
 
@@ -87,16 +88,14 @@ def get_trends_keywords():
     except Exception as e:
         logger.warning(f"🔥 트렌드 추출 실패: {e}")
         return {
-            "eras": ["중세 판타지", "사이버펑크 미래", "포스트 아포칼립스"],
-            "subjects": ["신비로운 숲의 정령", "우주 탐사 비행사", "사이버네틱 안드로이드"],
-            "backgrounds": ["고대 유적지 내부", "네온 불빛 가득한 골목길", "구름 위 떠 있는 공중 도시"],
-            "styles": ["몽환적인 수채화풍", "레드로 픽셀 아트", "실사 영화 같은 극사실주의"],
-            "moods": ["쓸쓸하고 고독한 분위기", "시네마틱한 강렬한 조명", "따스하고 포근한 황금빛"],
-            "ai_eras": ["조선시대", "빅토리아 스팀펑크", "서부 개척 시대"],
-            "ai_subjects": ["메타버스 가상현실", "초거대 AI", "포스트 아포칼립스"],
-            "backgrounds": ["벚꽃 정원", "우주선 조종실", "안개 낀 공동묘지"],
-            "styles": ["전통 수묵화", "3D 복셀", "점토 클레이아트"],
-            "moods": ["화려한 네온 라이팅", "차가운 새벽 공기", "몽환적 안개"]
+            "eras": ["중세 판타지 시대", "사이버펑크 미래 시대", "포스트 아포칼립스 시대"],
+            "subjects": ["숲의 정령", "우주 비행사", "안드로이드"],
+            "backgrounds": ["유적지", "골목길", "공중 도시"],
+            "styles": ["몽환적인 수채화풍", "레트로 픽셀 아트", "실사 영화 화풍"],
+            "ai_eras": ["조선 시대", "빅토리아 스팀펑크 시대", "서부 개척 시대"],
+            "ai_subjects": ["메타버스", "인공지능", "포스트 아포칼립스"],
+            "ai_backgrounds": ["정원", "우주선 내부", "공동묘지"],
+            "ai_styles": ["전통 수묵화", "3D 복셀", "점토 클레이아트"]
         }
 
 
@@ -113,7 +112,6 @@ def generate_weighted_candidates(req: WeightedCandidateRequest):
                 "era": req.era,
                 "background": req.background,
                 "style": req.style,
-                "mood": req.mood,
                 "rag_context": "",
                 "plan_draft": "",
                 "feedback": "",
@@ -132,7 +130,7 @@ def generate_weighted_candidates(req: WeightedCandidateRequest):
                 {
                     "title": f"안전 렌더링 {i}",
                     "description": "복구 처리됨",
-                    "image_prompt": f"masterpiece, {req.style}, {req.mood}, set in {req.background}, {req.era} era",
+                    "image_prompt": f"masterpiece, {req.style}, set in {req.background}, {req.era} era",
                 }
                 for i in range(1, 6)
             ]
@@ -257,3 +255,57 @@ def chat_endpoint(req: ChatRequest):
     except Exception:
         logger.exception("채팅 처리 실패")
         return {"reply": "죄송해요, 지금은 답변을 드리기 어려워요. 잠시 후 다시 시도해주세요."}
+
+
+# =========================================================
+# 🎨 [AI 스튜디오] 화풍별 RAG 스타일 가이드 기반 프롬프트 생성
+# 사용자가 직접 스튜디오에서 화풍을 선택하면 RAG에서 유사 작품의
+# 어휘·재질 가이드를 검색하여 정교한 이미지 프롬프트를 반환한다.
+# =========================================================
+class GeneratePromptReq(BaseModel):
+    subject: str
+    style: str
+    mood: str = ""
+
+
+@app.post("/generate")
+def generate_prompt(req: GeneratePromptReq):
+    """스튜디오 전용 - RAG 스타일 가이드를 검색하여 이미지 프롬프트 강화.
+    화풍 고유의 어휘(붓터치, 재질 등)를 기계적으로 삽입하여 품질 향상."""
+    try:
+        # RAG 스타일 컬렉션에서 입력 화풍과 가장 유사한 가이드 검색
+        style_guide = rag.search_similar_debug(req.style, k=2, collection="styles")
+        guide_text = " ".join([r.get("text", "") for r in style_guide]) if style_guide else ""
+
+        # 화풍 고유 어휘를 담은 스타일 수식어 구성
+        style_map = {
+            "유화": "thick impasto brushstrokes, knife-painted texture, rich oil pigments, canvas grain",
+            "유채": "thick impasto brushstrokes, knife-painted texture, rich oil pigments, canvas grain",
+            "수묵화": "ink wash gradients, rice paper texture, monochrome tonal range, spontaneous brushwork",
+            "픽셀": "pixel grid, 8-bit color palette, sharp edges, no anti-aliasing",
+            "수채화": "watercolor washes, wet-on-wet bleeding, translucent layers, paper texture",
+        }
+        style_vocab = ""
+        for key, vocab in style_map.items():
+            if key in req.style:
+                style_vocab = vocab
+                break
+
+        # 최종 프롬프트 조합
+        parts = [req.subject]
+        if req.mood:
+            parts.append(req.mood)
+        parts.append(req.style)
+        if style_vocab:
+            parts.append(style_vocab)
+        if guide_text:
+            parts.append(guide_text[:200])
+
+        prompt = ", ".join(parts)
+        return {"prompt": prompt, "style_vocab": style_vocab}
+    except Exception as e:
+        logger.warning(f"프롬프트 생성 실패, 폴백 사용: {e}")
+        prompt = f"{req.subject}, {req.style}"
+        if req.mood:
+            prompt += f", {req.mood}"
+        return {"prompt": prompt, "style_vocab": ""}

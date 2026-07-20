@@ -24,6 +24,7 @@ class User(Base):
 
     wallet_address = Column(String(255), primary_key=True, index=True)
     nickname = Column(String(50), nullable=True)
+    profile_pic = Column(Text, default="🔮")
     membership_grade = Column(String(20), default="Bronze")
     token_balance = Column(Float, default=0.0)
     pending_rewards = Column(Float, default=0.0)
@@ -162,3 +163,20 @@ class UserRecommendation(Base):
     reason = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     user = relationship("User", back_populates="recommendations")
+
+class ArtworkComment(Base):
+    __tablename__ = "artwork_comments"
+    id = Column(Integer, primary_key=True, index=True)
+    artwork_title = Column(String(255), index=True, nullable=False)
+    wallet_address = Column(String(255), nullable=False)
+    text = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# 대시보드 통합 토론방 메시지 (GlobalChatMessage)
+class GlobalChatMessage(Base):
+    __tablename__ = "global_chat_messages"
+    id = Column(Integer, primary_key=True, index=True)
+    wallet_address = Column(String(255), nullable=False)
+    text = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
