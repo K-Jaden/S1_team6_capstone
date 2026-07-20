@@ -1100,8 +1100,39 @@ def start_phase3_valuation(round_id: int = 0, session_id: str = "", db: Session 
     else:
         target_round = db.query(models.Round).filter(models.Round.id == round_id).first()
 
+    # =========================================================
+    # 🟢 온체인 실제 득표수로 DB vp_votes를 보정한 뒤 우승자를 결정한다.
+    # handleVote()는 (1)토큰 approve (2)온체인 vote 두 메타마스크 트랜잭션이 전부 성공해야만
+    # /api/vote를 호출해 DB vp_votes를 올리는 구조라, 유저가 팝업 하나라도 취소/실패/타임아웃하면
+    # 그 표는 DB 집계에서 조용히 누락된다. 반면 온체인 vote()가 성공하기만 하면
+    # roundCandidates[...].totalVotes에는 정확히 반영된다. 지금까지는 이 온체인 원본을 한 번도
+    # 조회하지 않고 DB vp_votes만으로 1등을 정해서, "체감상 1등"과 다른 후보가 뽑히는 문제가 있었다.
+    # DB 후보작은 phase2-generate에서 온체인 candidate_uris와 동일한 순서(id 오름차순)로
+    # 생성되므로, 온체인 배열 인덱스와 1:1로 대응된다.
+    # =========================================================
+    candidates_in_round = db.query(models.Candidate).filter(
+        models.Candidate.round_id == round_id
+    ).order_by(models.Candidate.id).all()
+
+    if target_round.onchain_round_id is not None and ADMIN_ACCOUNT:
+        try:
+            dao_contract = get_dao_contract()
+            if dao_contract:
+                onchain_candidates = dao_contract.functions.getCandidates(target_round.onchain_round_id).call()
+                if len(onchain_candidates) == len(candidates_in_round):
+                    for db_candidate, onchain_candidate in zip(candidates_in_round, onchain_candidates):
+                        db_candidate.vp_votes = int(w3.from_wei(onchain_candidate[3], 'ether'))
+                    db.commit()
+                else:
+                    logger.warning(
+                        f"🔥 온체인/DB 후보작 개수 불일치(round_id={round_id}, "
+                        f"onchain={len(onchain_candidates)}, db={len(candidates_in_round)}) - DB 득표수로 폴백"
+                    )
+        except Exception as e:
+            logger.warning(f"온체인 득표수 조회 실패(round_id={round_id}), DB 득표수로 폴백: {e}")
+
     winner = db.query(models.Candidate).filter(models.Candidate.round_id == round_id).order_by(desc(models.Candidate.vp_votes)).first()
-    
+
     target_round.status = RoundPhase.VALUATION
     winner.is_winner = True
     db.commit()
