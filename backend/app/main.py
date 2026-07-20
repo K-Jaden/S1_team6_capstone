@@ -1257,18 +1257,22 @@ class GlobalChatRequest(BaseModel):
 
 @app.get("/api/chat/global")
 def get_global_messages(limit: int = 50, db: Session = Depends(get_db)):
-    """통합 토론방 메시지 최신 순으로 반환"""
-    msgs = db.query(models.GlobalChatMessage).order_by(
+    """통합 토론방 메시지 최신 순으로 반환 (보낸 유저의 닉네임과 프로필 사진을 함께 제공)"""
+    results = db.query(models.GlobalChatMessage, models.User).outerjoin(
+        models.User, models.GlobalChatMessage.wallet_address == models.User.wallet_address
+    ).order_by(
         models.GlobalChatMessage.created_at.asc()
     ).limit(limit).all()
     return [
         {
-            "id": m.id,
-            "wallet_address": m.wallet_address,
-            "text": m.text,
-            "created_at": m.created_at.isoformat() if m.created_at else None
+            "id": msg.id,
+            "wallet_address": msg.wallet_address,
+            "text": msg.text,
+            "created_at": msg.created_at.isoformat() if msg.created_at else None,
+            "nickname": user.nickname if user else "",
+            "profile_pic": user.profile_pic if user else "🔮"
         }
-        for m in msgs
+        for msg, user in results
     ]
 
 @app.post("/api/chat/global")

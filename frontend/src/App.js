@@ -53,6 +53,7 @@ function App() {
     // ==========================================
     // 1. 핵심 상태 관리 (State)
     // ==========================================
+    const [showLanding, setShowLanding] = useState(() => !sessionStorage.getItem("entered"));
     const [activeTab, setActiveTab] = useState("main");
     const [walletAddress, setWalletAddress] = useState("");
     const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -372,11 +373,12 @@ function App() {
             const candidateIndex = currentRound.candidates.findIndex(c => c.id === candidateId);
             if (candidateIndex === -1) return alert("후보를 찾을 수 없습니다.");
 
-            // 🚨 1단계: 내 지갑의 TUK 토큰을 쓸 수 있게 허락(Approve)하기
-            alert("1/2단계: TUK 토큰 사용 승인을 진행합니다. 메타마스크를 확인해주세요.");
+            // 매번 최신 signer를 새로 생성하여 stale signer 문제 방지
             const provider = new ethers.BrowserProvider(window.ethereum);
             const signer = await provider.getSigner();
 
+            // 🚨 1단계: 내 지갑의 TUK 토큰을 쓸 수 있게 허락(Approve)하기
+            alert("1/2단계: TUK 토큰 사용 승인을 진행합니다. 메타마스크를 확인해주세요.");
             const tokenAddress = await contract.governanceToken();
             const tokenAbi = ["function approve(address spender, uint256 amount) public returns (bool)"];
             const tokenContract = new ethers.Contract(tokenAddress, tokenAbi, signer);
@@ -384,9 +386,11 @@ function App() {
             const approveTx = await tokenContract.approve(CONTRACT_ADDRESS, vpInWei);
             await approveTx.wait();
 
-            // 🚨 2단계: 승인이 끝나면 진짜 투표(Vote) 트랜잭션 쏘기
+            // 🚨 2단계: 최신 signer로 컨트랙트 재연결 후 투표
+            // gasLimit을 명시적으로 지정하여 MetaMask의 stale 캐시 기반 estimateGas 시뮬레이션을 우회
             alert("2/2단계: 승인 완료! 실제 투자(Vote) 트랜잭션을 승인해주세요.");
-            const tx = await contract.vote(candidateIndex, vpInWei);
+            const freshContract = contract.connect(signer);
+            const tx = await freshContract.vote(candidateIndex, vpInWei, { gasLimit: 300000 });
             await tx.wait();
 
             await axios.post(`${API_URL}/api/vote`, {
@@ -820,6 +824,46 @@ function App() {
         }
     }, [isLoggedIn, walletAddress]);
 
+    // 대시보드 글로벌 메시지 시간 포맷팅 헬퍼 함수 (당일 -> 시간, 어제 이전 -> 경과일수/월수/년수 표시)
+    const formatMessageTime = (dateStr) => {
+        if (!dateStr) return "";
+        try {
+            const msgDate = new Date(dateStr);
+            const now = new Date();
+            const diffMs = now - msgDate;
+
+            if (isNaN(msgDate.getTime())) return "";
+
+            const diffSec = Math.floor(diffMs / 1000);
+            const diffMin = Math.floor(diffSec / 60);
+            const diffHr = Math.floor(diffMin / 60);
+            const diffDays = Math.floor(diffHr / 24);
+
+            const isSameDay = msgDate.getFullYear() === now.getFullYear() &&
+                msgDate.getMonth() === now.getMonth() &&
+                msgDate.getDate() === now.getDate();
+
+            if (isSameDay) {
+                return msgDate.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+            }
+
+            if (diffDays < 30) {
+                const count = diffDays || 1;
+                return `${count} ${count === 1 ? 'day' : 'days'} ago`;
+            }
+
+            const diffMonths = Math.floor(diffDays / 30);
+            if (diffMonths < 12) {
+                return `${diffMonths} ${diffMonths === 1 ? 'month' : 'months'} ago`;
+            }
+
+            const diffYears = Math.floor(diffMonths / 12);
+            return `${diffYears} ${diffYears === 1 ? 'year' : 'years'} ago`;
+        } catch (e) {
+            return "";
+        }
+    };
+
     // AI가 만든 Base64 이미지와 일반 URL을 모두 처리하는 함수
     const getImageUrl = (url) => {
         if (!url) return "";
@@ -832,6 +876,82 @@ function App() {
     // ==========================================
     // 5. UI 렌더링
     // ==========================================
+    if (showLanding) {
+        return (
+            <div className="landing-splash-container" style={{
+                height: '100vh',
+                width: '100vw',
+                background: '#000000',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center',
+                textAlign: 'center',
+                padding: '20px',
+                boxSizing: 'border-box',
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                zIndex: 9999,
+                color: '#fff',
+                fontFamily: "'Inter', sans-serif"
+            }}>
+                <div className="fade-in" style={{ animation: 'fadeIn 1.5s ease-out' }}>
+                    <h1 style={{
+                        fontFamily: "'Playfair Display', serif",
+                        fontSize: '7rem',
+                        fontWeight: '900',
+                        margin: '0 0 20px 0',
+                        letterSpacing: '6px',
+                        color: '#FFFFFF',
+                        textShadow: '0 0 40px rgba(255,255,255,0.05)'
+                    }}>
+                        ArtDAO
+                    </h1>
+                    <p style={{
+                        color: '#9CA3AF',
+                        fontSize: '1.2rem',
+                        lineHeight: '1.9',
+                        maxWidth: '900px',
+                        margin: '0 auto 50px auto',
+                        fontWeight: '300',
+                        wordBreak: 'keep-all'
+                    }}>
+                        세계 최초의 자율형 AI 멀티에이전트 미술 DAO 프로젝트.<br />
+                        AI가 실시간 글로벌 서브컬처 트렌드를 수집·난상토론하여 매주 독창적 명작을 탄생시키며,<br />
+                        모든 거버넌스는 스마트 컨트랙트를 통해 배당금 형태로 투자자에게 공정하게 환원됩니다.
+                    </p>
+                    <button
+                        onClick={() => { setShowLanding(false); sessionStorage.setItem("entered", "true"); }}
+                        style={{
+                            background: '#ffffff',
+                            color: '#000000',
+                            border: 'none',
+                            padding: '18px 54px',
+                            fontSize: '1.1rem',
+                            fontWeight: 'bold',
+                            borderRadius: '30px',
+                            cursor: 'pointer',
+                            letterSpacing: '3px',
+                            transition: 'all 0.3s ease',
+                            boxShadow: '0 8px 30px rgba(255,255,255,0.1)'
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.transform = 'scale(1.05)';
+                            e.currentTarget.style.background = '#e5e5e5';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'scale(1)';
+                            e.currentTarget.style.background = '#ffffff';
+                        }}
+                    >
+                        VISIT SITE
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="App">
             {/* 1. 좌측 사이드바 */}
@@ -839,10 +959,22 @@ function App() {
                 <h1 className="logo" onClick={() => setActiveTab("main")} style={{ cursor: 'pointer' }}>ArtDAO</h1>
 
                 <nav>
-                    <button className={activeTab === "대시보드" ? "active" : ""} onClick={() => setActiveTab("main")}>대시보드</button>
-                    <button className={activeTab === "큐레이션" ? "active" : ""} onClick={() => setActiveTab("curate")}>큐레이션</button>
-                    <button className={activeTab === "명예의전당" ? "active" : ""} onClick={() => setActiveTab("gallery")}>명예의 전당</button>
-                    <button className={activeTab === "프로필" ? "active" : ""} onClick={() => setActiveTab("mypage")}>프로필</button>
+                    <button className={activeTab === "main" ? "active" : ""} onClick={() => setActiveTab("main")}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>
+                        HOME
+                    </button>
+                    <button className={activeTab === "curate" ? "active" : ""} onClick={() => setActiveTab("curate")}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" /><path d="m9 12 2 2 4-4" /></svg>
+                        VOTE
+                    </button>
+                    <button className={activeTab === "gallery" ? "active" : ""} onClick={() => setActiveTab("gallery")}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" /></svg>
+                        GALLERY
+                    </button>
+                    <button className={activeTab === "mypage" ? "active" : ""} onClick={() => setActiveTab("mypage")}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+                        PROFILE
+                    </button>
                 </nav>
 
             </aside>
@@ -947,21 +1079,10 @@ function App() {
                 {/* Dashboard */}
                 {activeTab === "main" && (
                     <div className="page fade-in" style={{ padding: '0 40px 40px 40px' }}>
-                        {/* 1. 프리미엄 히어로 배너 */}
-                        <div className="hero-premium-box" style={{ padding: '80px 40px 60px 40px', borderRadius: '20px', marginBottom: '60px', textAlign: 'center', borderBottom: '1px solid #2A2A2A' }}>
-                            <div style={{ position: 'relative', zIndex: 2 }}>
-                                <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: '6rem', fontWeight: '900', color: '#F3F4F6', margin: '0 0 15px 0', letterSpacing: '4px', textShadow: '0 0 20px rgba(255,255,255,0.1)' }}>
-                                    ArtDAO
-                                </h1>
-                                <p style={{ color: '#9CA3AF', fontSize: '1.25rem', lineHeight: '1.8', maxWidth: '700px', margin: '0 auto 35px auto', fontWeight: '300' }}>
-                                    세계 최초의 자율형 AI 멀티에이전트 미술 DAO 프로젝트.<br />
-                                    AI가 실시간 글로벌 서브컬처 트렌드를 수집·난상토론하여 매주 독창적 명작을 탄생시키며,<br />
-                                    모든 거버넌스는 스마트 컨트랙트를 통해 배당금 형태로 투자자에게 공정하게 환원됩니다.
-                                </p>
-                                <button onClick={() => setActiveTab("curate")} style={{ background: 'linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%)', color: '#fff', border: 'none', padding: '18px 40px', fontSize: '1.1rem', fontWeight: 'bold', borderRadius: '30px', cursor: 'pointer', boxShadow: '0 6px 20px rgba(59, 130, 246, 0.4)', transition: 'transform 0.2s', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                                    <span>🎨</span> 큐레이션 라운드 참여하기
-                                </button>
-                            </div>
+                        {/* 1. 컴팩트 대시보드 헤더 */}
+                        <div style={{ marginBottom: '35px', borderBottom: '1px solid #2A2A2A', paddingBottom: '20px', marginTop: '10px' }}>
+                            <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: '2.5rem', fontWeight: 'bold', color: '#F3F4F6', margin: 0 }}>Dashboard</h1>
+                            <p style={{ color: '#9CA3AF', margin: '5px 0 0 0', fontSize: '0.95rem' }}>AI 에이전트와 집단 지성의 실시간 협업 통계 및 리더보드</p>
                         </div>
 
                         {/* 2. 실시간 DAO 통계 위젯 Grid */}
@@ -1003,166 +1124,259 @@ function App() {
                             </div>
                         </div>
 
-                        {/* 3. 투표 중일 때: 실시간 투자 리더보드 (왼쪽 65%) + 통합 토론장 (오른쪽 35%) */}
-                        {roundPhase === "VOTING" && currentRound && currentRound.candidates && currentRound.candidates.length > 0 && (
-                            <div style={{ display: 'flex', gap: '30px', alignItems: 'stretch', marginBottom: '55px' }}>
-                                {/* Left Side: Live Curation Grid */}
-                                <div style={{ flex: 1.8, display: 'flex', flexDirection: 'column' }}>
-                                    <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: '2.2rem', color: '#F3F4F6', marginBottom: '10px', letterSpacing: '1px' }}>⚡ 실시간 투자 리더보드 (Leaderboard)</h2>
-                                    <p style={{ color: '#9CA3AF', marginBottom: '20px', fontSize: '0.95rem' }}>현재 투자된 VP(TUK) 지분 규모에 따라 크기가 실시간 차등화됩니다. (클릭 시 상세 모달 오픈)</p>
+                        {/* 3. 실시간 투자 리더보드 (왼쪽 65%) + 통합 토론장 (오른쪽 35%) */}
+                        <div style={{ display: 'flex', gap: '30px', alignItems: 'stretch', marginBottom: '55px' }}>
+                            {/* Left Side: Live Curation Grid */}
+                            <div style={{ flex: 1.6, display: 'flex', flexDirection: 'column' }}>
+                                <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: '2.2rem', color: '#F3F4F6', marginBottom: '10px', letterSpacing: '1px' }}>Leaderboard</h2>
+                                {currentRound && currentRound.candidates && currentRound.candidates.length > 0 ? (
+                                    <>
+                                        {(() => {
+                                            const sorted = [...currentRound.candidates].sort((a, b) => b.vp_votes - a.vp_votes);
 
-                                    {(() => {
-                                        const sorted = [...currentRound.candidates].sort((a, b) => b.vp_votes - a.vp_votes);
-                                        return (
-                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '15px' }}>
-                                                {sorted.map((candidate, index) => {
-                                                    let cardStyle = {};
-                                                    let rankLabel = "";
-                                                    let glowColor = "";
+                                            // 공동 순위 계산 (1, 1, 3, 4...)
+                                            let currentRank = 1;
+                                            const ranks = sorted.map((cand, idx) => {
+                                                if (idx > 0 && cand.vp_votes < sorted[idx - 1].vp_votes) {
+                                                    currentRank = idx + 1;
+                                                }
+                                                return currentRank;
+                                            });
 
-                                                    if (index === 0) {
-                                                        cardStyle = { gridColumn: 'span 2', gridRow: 'span 2', borderColor: '#F59E0B', boxShadow: '0 0 20px rgba(245, 158, 11, 0.15)' };
-                                                        rankLabel = "🥇 1st FEATURED";
-                                                        glowColor = "#FBBF24";
-                                                    } else if (index === 1) {
-                                                        cardStyle = { gridColumn: 'span 2', borderColor: '#9CA3AF', boxShadow: '0 0 15px rgba(156, 163, 175, 0.1)' };
-                                                        rankLabel = "🥈 2nd PLACE";
-                                                        glowColor = "#D1D5DB";
-                                                    } else if (index === 2) {
-                                                        cardStyle = { gridColumn: 'span 2', borderColor: '#B45309', boxShadow: '0 0 10px rgba(180, 83, 9, 0.1)' };
-                                                        rankLabel = "🥉 3rd PLACE";
-                                                        glowColor = "#F59E0B";
-                                                    } else {
-                                                        cardStyle = { gridColumn: 'span 2', borderColor: '#2A2A2A' };
-                                                        rankLabel = `${index + 1}th PLACE`;
-                                                        glowColor = "#9CA3AF";
-                                                    }
+                                            return (
+                                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '15px' }}>
+                                                    {sorted.map((candidate, index) => {
+                                                        const computedRank = ranks[index];
+                                                        let cardStyle = {};
+                                                        let rankLabel = "";
+                                                        let glowColor = "";
 
-                                                    return (
-                                                        <div
-                                                            key={candidate.id}
-                                                            className="candidate-card"
-                                                            onClick={() => openCandidateModal(candidate)}
-                                                            style={{
-                                                                cursor: 'pointer',
-                                                                ...cardStyle,
-                                                                transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-                                                                display: 'flex',
-                                                                flexDirection: 'column',
-                                                                background: '#1A1A1A',
-                                                                borderRadius: '12px',
-                                                                border: '1px solid',
-                                                                overflow: 'hidden'
-                                                            }}
-                                                        >
-                                                            <div className="candidate-img-box" style={{ height: index === 0 ? '240px' : '130px', position: 'relative' }}>
-                                                                <img src={getImageUrl(candidate.image_url)} alt={candidate.title} style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#0B0B0B' }} />
-                                                                <div style={{ position: 'absolute', top: '10px', left: '10px', background: 'rgba(0,0,0,0.8)', padding: '4px 8px', borderRadius: '30px', border: `1px solid ${glowColor}`, fontSize: '0.65rem', color: '#fff', fontWeight: 'bold' }}>
-                                                                    {rankLabel}
+                                                        if (index === 0) {
+                                                            cardStyle = { gridColumn: 'span 2', gridRow: 'span 2', borderColor: '#F59E0B', boxShadow: '0 0 20px rgba(245, 158, 11, 0.15)' };
+                                                        } else if (index === 1) {
+                                                            cardStyle = { gridColumn: 'span 2', borderColor: '#9CA3AF', boxShadow: '0 0 15px rgba(156, 163, 175, 0.1)' };
+                                                        } else if (index === 2) {
+                                                            cardStyle = { gridColumn: 'span 2', borderColor: '#B45309', boxShadow: '0 0 10px rgba(180, 83, 9, 0.1)' };
+                                                        } else {
+                                                            cardStyle = { gridColumn: 'span 2', borderColor: '#2A2A2A' };
+                                                        }
+
+                                                        // 순위 라벨 및 강조 색상은 공동 순위를 반영하여 계산된 순위(computedRank) 기준 단독 표시
+                                                        const suffix = computedRank === 1 ? "st" : computedRank === 2 ? "nd" : computedRank === 3 ? "rd" : "th";
+                                                        const emoji = computedRank === 1 ? "🥇 " : computedRank === 2 ? "🥈 " : computedRank === 3 ? "🥉 " : "";
+                                                        rankLabel = `${emoji}${computedRank}${suffix}`;
+
+                                                        if (computedRank === 1) {
+                                                            glowColor = "#FBBF24";
+                                                        } else if (computedRank === 2) {
+                                                            glowColor = "#D1D5DB";
+                                                        } else if (computedRank === 3) {
+                                                            glowColor = "#F59E0B";
+                                                        } else {
+                                                            glowColor = "#9CA3AF";
+                                                        }
+
+                                                        return (
+                                                            <div
+                                                                key={candidate.id}
+                                                                className="candidate-card"
+                                                                onClick={() => openCandidateModal(candidate)}
+                                                                style={{
+                                                                    cursor: 'pointer',
+                                                                    ...cardStyle,
+                                                                    transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+                                                                    display: 'flex',
+                                                                    flexDirection: 'column',
+                                                                    background: '#1A1A1A',
+                                                                    borderRadius: '12px',
+                                                                    border: '1px solid',
+                                                                    overflow: 'hidden'
+                                                                }}
+                                                            >
+                                                                <div className="candidate-img-box" style={{ height: index === 0 ? '585px' : '285px', position: 'relative', background: '#0B0B0B' }}>
+                                                                    <img src={getImageUrl(candidate.image_url)} alt={candidate.title} style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#0B0B0B' }} />
+                                                                    <div style={{ position: 'absolute', top: '10px', left: '10px', background: 'rgba(0,0,0,0.8)', padding: '4px 8px', borderRadius: '30px', border: `1px solid ${glowColor}`, fontSize: '0.65rem', color: '#fff', fontWeight: 'bold' }}>
+                                                                        {rankLabel}
+                                                                    </div>
                                                                 </div>
                                                             </div>
-                                                            <div className="candidate-info" style={{ padding: '12px 15px', display: 'flex', flexDirection: 'column', flex: 1, gap: '4px' }}>
-                                                                <h3 className="candidate-title" style={{ fontSize: index === 0 ? '1.25rem' : '1rem', margin: 0, color: '#fff', fontWeight: 'bold' }}>{candidate.title}</h3>
-                                                                <p className="candidate-desc" style={{ fontSize: '0.8rem', color: '#9CA3AF', margin: 0, display: '-webkit-box', WebkitLineClamp: index === 0 ? 3 : 1, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: '1.4' }}>{candidate.description}</p>
-
-                                                                <div className="candidate-stats" style={{ marginTop: 'auto', paddingTop: '8px', borderTop: '1px dashed #2A2A2A', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                                    <span style={{ color: '#6B7280', fontSize: '0.75rem' }}>투자 규모</span>
-                                                                    <strong style={{ color: glowColor, fontSize: '0.95rem' }}>{candidate.vp_votes.toLocaleString()} TUK</strong>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        );
-                                    })()}
-                                </div>
-
-                                {/* Right Side: Global Chat Room */}
-                                <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                                    <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: '2.2rem', color: '#F3F4F6', marginBottom: '10px', letterSpacing: '1px' }}>💬 DAO 통합 토론방</h2>
-                                    <p style={{ color: '#9CA3AF', marginBottom: '20px', fontSize: '0.95rem' }}>나중에 들어와도 대화 기록이 유지되는 실시간 소통 공간입니다.</p>
-
+                                                        );
+                                                    })}
+                                                </div>
+                                            );
+                                        })()}
+                                    </>
+                                ) : (
                                     <div style={{
-                                        background: 'rgba(26, 26, 26, 0.6)',
-                                        border: '1px solid rgba(255, 255, 255, 0.05)',
-                                        borderRadius: '16px',
-                                        padding: '20px',
+                                        background: '#1A1A1A',
+                                        border: '1px solid #2A2A2A',
+                                        borderRadius: '12px',
+                                        padding: '40px 30px',
+                                        height: '100%',
                                         display: 'flex',
                                         flexDirection: 'column',
-                                        height: 'calc(100% - 70px)',
-                                        minHeight: '430px',
-                                        justifyContent: 'space-between'
+                                        justifyContent: 'center',
+                                        minHeight: '380px',
+                                        boxSizing: 'border-box'
                                     }}>
-                                        {/* 메시지 리스트 */}
-                                        <div style={{
-                                            flex: 1,
-                                            overflowY: 'auto',
-                                            display: 'flex',
-                                            flexDirection: 'column',
-                                            gap: '12px',
-                                            marginBottom: '15px',
-                                            paddingRight: '5px',
-                                            maxHeight: '350px'
-                                        }}>
-                                            {globalMessages.length === 0 ? (
-                                                <div style={{ textAlign: 'center', color: '#6B7280', fontSize: '0.85rem', margin: 'auto 0' }}>
-                                                    아직 나누어진 대화가 없습니다.<br />첫 메시지를 남겨보세요!
-                                                </div>
-                                            ) : (
-                                                globalMessages.map((msg) => (
-                                                    <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', background: '#111', padding: '10px 12px', borderRadius: '10px', border: '1px solid #222' }}>
+                                        <h3 style={{ margin: '0 0 25px 0', fontSize: '1.4rem', color: '#fff', fontWeight: 'bold', fontFamily: "'Playfair Display', serif", borderBottom: '1px solid #333', paddingBottom: '15px' }}>DAO Weekly Timeline</h3>
+
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                            {/* Step 1 */}
+                                            <div style={{
+                                                padding: '15px 20px',
+                                                borderRadius: '8px',
+                                                background: roundPhase === "KEYWORD" ? 'rgba(59, 130, 246, 0.08)' : '#0F0F0F',
+                                                border: `1px solid ${roundPhase === "KEYWORD" ? '#3B82F6' : '#222'}`,
+                                                position: 'relative',
+                                                textAlign: 'left'
+                                            }}>
+                                                {roundPhase === "KEYWORD" && <span style={{ position: 'absolute', top: '15px', right: '20px', background: '#3B82F6', color: '#fff', fontSize: '0.7rem', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>ACTIVE</span>}
+                                                <div style={{ fontSize: '0.8rem', color: roundPhase === "KEYWORD" ? '#3B82F6' : '#9CA3AF', fontWeight: 'bold', marginBottom: '4px' }}>월 ~ 화 (Mon ~ Tue)</div>
+                                                <div style={{ fontSize: '1rem', color: '#fff', fontWeight: 'bold' }}>1. 테마/화풍 기획 (Theme & Style Curation)</div>
+                                                <p style={{ margin: '5px 0 0 0', fontSize: '0.8rem', color: '#6B7280', lineHeight: '1.4', wordBreak: 'keep-all' }}>AI 에이전트들의 난상토론과 유저 키워드 투표로 작품의 컨셉을 도출합니다.</p>
+                                            </div>
+
+                                            {/* Step 2 */}
+                                            <div style={{
+                                                padding: '15px 20px',
+                                                borderRadius: '8px',
+                                                background: roundPhase === "VOTING" ? 'rgba(59, 130, 246, 0.08)' : '#0F0F0F',
+                                                border: `1px solid ${roundPhase === "VOTING" ? '#3B82F6' : '#222'}`,
+                                                position: 'relative',
+                                                textAlign: 'left'
+                                            }}>
+                                                {roundPhase === "VOTING" && <span style={{ position: 'absolute', top: '15px', right: '20px', background: '#3B82F6', color: '#fff', fontSize: '0.7rem', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>ACTIVE</span>}
+                                                <div style={{ fontSize: '0.8rem', color: roundPhase === "VOTING" ? '#3B82F6' : '#9CA3AF', fontWeight: 'bold', marginBottom: '4px' }}>수 ~ 금 (Wed ~ Fri)</div>
+                                                <div style={{ fontSize: '1rem', color: '#fff', fontWeight: 'bold' }}>2. AI 작품 생성 & 투자 (AI Art Gen & Vote)</div>
+                                                <p style={{ margin: '5px 0 0 0', fontSize: '0.8rem', color: '#6B7280', lineHeight: '1.4', wordBreak: 'keep-all' }}>기획된 테마로 AI가 생성한 5개 후보작에 거버넌스 토큰(TUK)을 투자합니다.</p>
+                                            </div>
+
+                                            {/* Step 3 */}
+                                            <div style={{
+                                                padding: '15px 20px',
+                                                borderRadius: '8px',
+                                                background: roundPhase === "VALUATION" ? 'rgba(16, 185, 129, 0.08)' : '#0F0F0F',
+                                                border: `1px solid ${roundPhase === "VALUATION" ? '#10B981' : '#222'}`,
+                                                position: 'relative',
+                                                textAlign: 'left'
+                                            }}>
+                                                {roundPhase === "VALUATION" ? <span style={{ position: 'absolute', top: '15px', right: '20px', background: '#10B981', color: '#fff', fontSize: '0.7rem', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>ACTIVE</span> : null}
+                                                <div style={{ fontSize: '0.8rem', color: roundPhase === "VALUATION" ? '#10B981' : '#9CA3AF', fontWeight: 'bold', marginBottom: '4px' }}>토 ~ 일 (Sat ~ Sun)</div>
+                                                <div style={{ fontSize: '1rem', color: '#fff', fontWeight: 'bold' }}>3. 결산 및 배당 시작 (Finalize & Rewards)</div>
+                                                <p style={{ margin: '5px 0 0 0', fontSize: '0.8rem', color: '#6B7280', lineHeight: '1.4', wordBreak: 'keep-all' }}>우승작을 온체인 NFT로 민팅하고, 가상 옥션 매각금을 투자자들에게 배당금으로 분배합니다.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Right Side: Global Chat Room */}
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                                <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: '2.2rem', color: '#F3F4F6', marginBottom: '10px', letterSpacing: '1px' }}>💬 Chat Room</h2>
+
+                                <div style={{
+                                    background: 'rgba(26, 26, 26, 0.6)',
+                                    border: '1px solid rgba(255, 255, 255, 0.05)',
+                                    borderRadius: '16px',
+                                    padding: '20px',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    height: 'calc(100% - 70px)',
+                                    minHeight: '430px',
+                                    justifyContent: 'space-between'
+                                }}>
+                                    {/* 메시지 리스트 */}
+                                    <div style={{
+                                        flex: 1,
+                                        overflowY: 'auto',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: '12px',
+                                        marginBottom: '15px',
+                                        paddingRight: '5px',
+                                        maxHeight: '350px'
+                                    }}>
+                                        {globalMessages.length === 0 ? (
+                                            <div style={{ textAlign: 'center', color: '#6B7280', fontSize: '0.85rem', margin: 'auto 0' }}>
+                                                아직 나누어진 대화가 없습니다.<br />첫 메시지를 남겨보세요!
+                                            </div>
+                                        ) : (
+                                            globalMessages.map((msg) => (
+                                                <div key={msg.id} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', background: '#111', padding: '10px 12px', borderRadius: '10px', border: '1px solid #222' }}>
+                                                    {/* 프로필 이미지 또는 이모지 영역 */}
+                                                    <div style={{
+                                                        width: '32px', height: '32px', borderRadius: '50%',
+                                                        background: '#0F0F0F', border: '1px solid #333',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                        overflow: 'hidden', flexShrink: 0
+                                                    }}>
+                                                        {msg.profile_pic && (msg.profile_pic.startsWith("http") || msg.profile_pic.startsWith("/static")) ? (
+                                                            <img
+                                                                src={msg.profile_pic.startsWith("http") ? msg.profile_pic : `${API_URL}${msg.profile_pic}`}
+                                                                alt="profile"
+                                                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                            />
+                                                        ) : (
+                                                            <span style={{ fontSize: '1.2rem' }}>{msg.profile_pic || "🔮"}</span>
+                                                        )}
+                                                    </div>
+
+                                                    {/* 메시지 상세 영역 */}
+                                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
                                                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#6B7280', marginBottom: '4px' }}>
-                                                            <span style={{ color: '#38BDF8', fontWeight: 'bold' }}>{msg.wallet_address.substring(0, 6)}...{msg.wallet_address.substring(msg.wallet_address.length - 4)}</span>
-                                                            <span>{msg.created_at ? new Date(msg.created_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : ""}</span>
+                                                            <span style={{ color: '#38BDF8', fontWeight: 'bold' }}>
+                                                                {msg.nickname ? `${msg.nickname} (${msg.wallet_address.substring(0, 4)}...${msg.wallet_address.substring(msg.wallet_address.length - 4)})` : `${msg.wallet_address.substring(0, 6)}...${msg.wallet_address.substring(msg.wallet_address.length - 4)}`}
+                                                            </span>
+                                                            <span>{formatMessageTime(msg.created_at)}</span>
                                                         </div>
                                                         <div style={{ color: '#E5E7EB', fontSize: '0.85rem', lineHeight: '1.4', wordBreak: 'break-all' }}>{msg.text}</div>
                                                     </div>
-                                                ))
-                                            )}
-                                        </div>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
 
-                                        {/* 입력창 */}
-                                        <div style={{ display: 'flex', gap: '8px' }}>
-                                            <input
-                                                type="text"
-                                                placeholder={isLoggedIn ? "메시지를 입력하세요..." : "지갑을 연결해야 대화가 가능합니다."}
-                                                disabled={!isLoggedIn}
-                                                value={globalInput}
-                                                onChange={(e) => setGlobalInput(e.target.value)}
-                                                onKeyPress={(e) => e.key === 'Enter' && submitGlobalMessage()}
-                                                style={{
-                                                    flex: 1,
-                                                    padding: '10px 15px',
-                                                    background: '#0F0F0F',
-                                                    border: '1px solid #333',
-                                                    color: '#fff',
-                                                    borderRadius: '8px',
-                                                    fontSize: '0.85rem',
-                                                    outline: 'none'
-                                                }}
-                                            />
-                                            <button
-                                                onClick={submitGlobalMessage}
-                                                disabled={!isLoggedIn || !globalInput.trim()}
-                                                style={{
-                                                    background: isLoggedIn && globalInput.trim() ? 'linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%)' : '#374151',
-                                                    color: '#fff',
-                                                    border: 'none',
-                                                    padding: '0 20px',
-                                                    borderRadius: '8px',
-                                                    cursor: isLoggedIn && globalInput.trim() ? 'pointer' : 'not-allowed',
-                                                    fontSize: '0.85rem',
-                                                    fontWeight: 'bold'
-                                                }}
-                                            >
-                                                전송
-                                            </button>
-                                        </div>
+                                    {/* 입력창 */}
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <input
+                                            type="text"
+                                            placeholder={isLoggedIn ? "메시지를 입력하세요..." : "지갑을 연결해야 대화가 가능합니다."}
+                                            disabled={!isLoggedIn}
+                                            value={globalInput}
+                                            onChange={(e) => setGlobalInput(e.target.value)}
+                                            onKeyPress={(e) => e.key === 'Enter' && submitGlobalMessage()}
+                                            style={{
+                                                flex: 1,
+                                                padding: '10px 15px',
+                                                background: '#0F0F0F',
+                                                border: '1px solid #333',
+                                                color: '#fff',
+                                                borderRadius: '8px',
+                                                fontSize: '0.85rem',
+                                                outline: 'none'
+                                            }}
+                                        />
+                                        <button
+                                            onClick={submitGlobalMessage}
+                                            disabled={!isLoggedIn || !globalInput.trim()}
+                                            style={{
+                                                background: isLoggedIn && globalInput.trim() ? 'linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%)' : '#374151',
+                                                color: '#fff',
+                                                border: 'none',
+                                                padding: '0 20px',
+                                                borderRadius: '8px',
+                                                cursor: isLoggedIn && globalInput.trim() ? 'pointer' : 'not-allowed',
+                                                fontSize: '0.85rem',
+                                                fontWeight: 'bold'
+                                            }}
+                                        >
+                                            전송
+                                        </button>
                                     </div>
                                 </div>
                             </div>
-                        )}
+                        </div>
 
                         {/* 4. 동작 방식 타임라인 */}
                         <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: '2.2rem', color: '#F3F4F6', marginBottom: '25px', letterSpacing: '1px' }}>동작 방식 (How it Works)</h2>
@@ -1195,6 +1409,46 @@ function App() {
                                 </p>
                             </div>
                         </div>
+
+                        {/* 5. Featured Collection Portfolio Showcase */}
+                        {galleryItems && galleryItems.length > 0 && (
+                            <div style={{ marginTop: '60px', marginBottom: '20px' }}>
+                                <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: '2.2rem', color: '#F3F4F6', marginBottom: '10px', letterSpacing: '1px' }}>Featured Collection</h2>
+                                <p style={{ color: '#9CA3AF', marginBottom: '25px', fontSize: '0.95rem' }}>대중의 지지를 받아 역사로 박제된 DAO 컬렉션 대표작 쇼케이스</p>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px' }}>
+                                    {galleryItems.slice(0, 4).map(item => (
+                                        <div
+                                            key={item.id}
+                                            className="portfolio-premium-card"
+                                            onClick={() => openCandidateModal(item)}
+                                            style={{
+                                                background: '#1A1A1A',
+                                                border: '1px solid #2A2A2A',
+                                                borderRadius: '12px',
+                                                overflow: 'hidden',
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                flexDirection: 'column'
+                                            }}
+                                        >
+                                            <div style={{ width: '100%', height: '200px', background: '#0B0B0B', overflow: 'hidden', position: 'relative' }}>
+                                                <img
+                                                    src={getImageUrl(item.image_url)}
+                                                    alt={item.title}
+                                                    style={{ width: '100%', height: '100%', objectFit: 'contain', transition: 'transform 0.4s ease' }}
+                                                    className="portfolio-img"
+                                                />
+                                            </div>
+                                            <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
+                                                <h4 style={{ margin: 0, fontSize: '1.1rem', color: '#fff', fontWeight: 'bold', fontFamily: "'Playfair Display', serif" }}>{item.title}</h4>
+                                                <p style={{ margin: 0, fontSize: '0.82rem', color: '#9CA3AF', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: '1.4' }}>{item.description}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -1202,7 +1456,7 @@ function App() {
                     <div className="page fade-in">
                         <div className="proposals-header-wrap" style={{ borderBottom: 'none', marginBottom: '20px' }}>
                             <div>
-                                <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: "2.5rem", margin: 0 }}>명작 큐레이션</h2>
+                                <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: "2.5rem", margin: 0 }}>VOTE</h2>
                                 <p style={{ color: '#9CA3AF', marginTop: '10px', fontSize: '1rem' }}>AI와 함께 예술의 방향성을 정하고, 최고의 가치를 지닌 작품에 투자하세요.</p>
                             </div>
                         </div>
@@ -1414,36 +1668,59 @@ function App() {
                                 </div>
 
                                 {currentRound && currentRound.candidates && currentRound.candidates.length > 0 ? (
-                                    <div className="candidate-grid">
-                                        {[...currentRound.candidates].sort((a, b) => b.vp_votes - a.vp_votes).map(candidate => (
-                                            <div key={candidate.id} className="candidate-card" onClick={() => openCandidateModal(candidate)} style={{ cursor: 'pointer' }}>
-                                                <div className="candidate-img-box">
-                                                    <img src={getImageUrl(candidate.image_url)} alt={candidate.title} />
-                                                </div>
-                                                <div className="candidate-info">
-                                                    <h3 className="candidate-title">{candidate.title}</h3>
-                                                    <p className="candidate-desc">{candidate.description}</p>
+                                    (() => {
+                                        const sorted = [...currentRound.candidates].sort((a, b) => b.vp_votes - a.vp_votes);
 
-                                                    <div className="candidate-stats">
-                                                        <span style={{ color: '#6B7280', fontSize: '0.9rem' }}>현재 누적 투자금</span>
-                                                        <span className="vp-count">{candidate.vp_votes} TUK</span>
-                                                    </div>
+                                        // 공동 순위 계산 (1, 1, 3, 4...)
+                                        let currentRank = 1;
+                                        const ranks = sorted.map((cand, idx) => {
+                                            if (idx > 0 && cand.vp_votes < sorted[idx - 1].vp_votes) {
+                                                currentRank = idx + 1;
+                                            }
+                                            return currentRank;
+                                        });
 
-                                                    <div className="vote-action-box" onClick={(e) => e.stopPropagation()}>
-                                                        <input
-                                                            type="number"
-                                                            className="vp-input"
-                                                            placeholder="TUK 입력"
-                                                            min="1"
-                                                            value={vpInputs[candidate.id] || ""}
-                                                            onChange={(e) => setVpInputs({ ...vpInputs, [candidate.id]: e.target.value })}
-                                                        />
-                                                        <button className="vote-btn" onClick={() => handleVote(candidate.id)}>투자하기</button>
-                                                    </div>
-                                                </div>
+                                        return (
+                                            <div className="candidate-grid">
+                                                {sorted.map((candidate, index) => {
+                                                    const computedRank = ranks[index];
+                                                    return (
+                                                        <div key={candidate.id} className="candidate-card" onClick={() => openCandidateModal(candidate)} style={{ cursor: 'pointer' }}>
+                                                            <div className="candidate-img-box">
+
+                                                                <div className={`rank-badge rank-${computedRank}`}>
+                                                                    🏆 {computedRank}
+                                                                </div>
+
+                                                                <img src={getImageUrl(candidate.image_url)} alt={candidate.title} />
+                                                            </div>
+                                                            <div className="candidate-info">
+                                                                <h3 className="candidate-title">{candidate.title}</h3>
+                                                                <p className="candidate-desc">{candidate.description}</p>
+
+                                                                <div className="candidate-stats">
+                                                                    <span style={{ color: '#6B7280', fontSize: '0.9rem' }}>현재 누적 투자금</span>
+                                                                    <span className="vp-count">{candidate.vp_votes} TUK</span>
+                                                                </div>
+
+                                                                <div className="vote-action-box" onClick={(e) => e.stopPropagation()}>
+                                                                    <input
+                                                                        type="number"
+                                                                        className="vp-input"
+                                                                        placeholder="TUK 입력"
+                                                                        min="1"
+                                                                        value={vpInputs[candidate.id] || ""}
+                                                                        onChange={(e) => setVpInputs({ ...vpInputs, [candidate.id]: e.target.value })}
+                                                                    />
+                                                                    <button className="vote-btn" onClick={() => handleVote(candidate.id)}>투자하기</button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
-                                        ))}
-                                    </div>
+                                        );
+                                    })()
                                 ) : (
                                     <div style={{ textAlign: 'center', padding: '80px 20px', background: '#1A1A1A', borderRadius: '16px', border: '1px dashed #2A2A2A' }}>
                                         <p style={{ color: '#6B7280' }}>현재 생성된 작품이 없습니다. 'Step 2' 버튼을 눌러주세요.</p>
@@ -1515,7 +1792,7 @@ function App() {
                 {/* Hall of Fame */}
                 {activeTab === "gallery" && (
                     <div className="page fade-in">
-                        <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: "2.5rem" }}>명예의 전당</h2>
+                        <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: "2.5rem" }}>GALLERY</h2>
                         <p style={{ color: '#9CA3AF', marginBottom: '30px' }}>대중의 선택을 받아 NFT로 영구 박제된 우승작 컬렉션입니다.</p>
 
                         {/* auto-fill 덕분에 작품이 무한히 늘어나도 다음 줄로 예쁘게 정렬됩니다. */}
@@ -1646,7 +1923,7 @@ function App() {
 
                 {activeTab === "mypage" && (
                     <div className="page fade-in">
-                        <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: "2.5rem", marginBottom: '30px' }}>프로필</h2>
+                        <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: "2.5rem", marginBottom: '30px' }}>PROFILE</h2>
                         {!isLoggedIn ? <p style={{ color: '#9CA3AF' }}>지갑을 먼저 연결해주세요.</p> : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
 
@@ -1668,7 +1945,7 @@ function App() {
                                 {/* 1.5 내 프로필 설정 (Profile Settings) */}
                                 <div className="card" style={{ background: '#1A1A1A', border: '1px solid #2A2A2A', padding: '30px' }}>
                                     <h3 style={{ color: '#38BDF8', borderBottom: '1px solid #333', paddingBottom: '15px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                        <span>👤</span> 내 프로필 설정
+                                        <span>👤</span> Profile Settings
                                     </h3>
                                     <div style={{ display: 'flex', gap: '30px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
                                         {/* 프로필픽 */}
@@ -1784,7 +2061,7 @@ function App() {
 
                                 <div className="card profile" style={{ background: '#1A1A1A', border: '1px solid #2A2A2A', padding: '30px' }}>
                                     <h3 style={{ color: '#FBBF24', borderBottom: '1px solid #333', paddingBottom: '15px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                        <span>🏆</span> 온체인 우승 배당금 수령 (Claim)
+                                        <span>🏆</span> Claim Rewards
                                     </h3>
                                     <p style={{ color: '#9CA3AF', fontSize: '0.95rem', lineHeight: '1.6', marginBottom: '20px' }}>
                                         종료된 라운드에서 1등(우승작)에 투표하셨다면 스마트 컨트랙트를 통해 내 지갑으로 TUK 토큰을 직접 청구할 수 있습니다.
