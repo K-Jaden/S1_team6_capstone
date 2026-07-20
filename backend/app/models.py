@@ -56,6 +56,11 @@ class Round(Base):
     # 온체인 트랜잭션 성공 여부 (DB-체인 상태 불일치 추적용)
     onchain_status = Column(String(20), default="pending")  # pending | confirmed | failed
 
+    # 실제 온체인 컨트랙트의 currentRoundId - startNewRound 트랜잭션이 성공적으로 마이닝된 뒤에만 채워짐.
+    # DB의 id/round_number는 체인이 리셋(예: 로컬 hardhat 노드 재시작)되면 온체인 라운드 번호와
+    # 어긋날 수 있어, 이 값이 없으면(None) 그 라운드는 애초에 체인에 존재하지 않는 것으로 취급한다.
+    onchain_round_id = Column(Integer, nullable=True)
+
     candidates = relationship("Candidate", back_populates="round")
     votes = relationship("VoteLog", back_populates="round")
     keywords = relationship("Keyword", back_populates="round")

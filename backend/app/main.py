@@ -319,7 +319,10 @@ def get_gallery_items(wallet_address: Optional[str] = None, db: Session = Depend
             
         res.append({
             "id": item.id,
-            "round_id": winner.round_id if winner else None,
+            # DB round.id가 아니라 실제 온체인 라운드 번호를 내려줘야 프론트의 컨트랙트 조회
+            # (contract.rounds/claimReward)가 진짜 존재하는 라운드를 가리킨다. 체인 리셋 등으로
+            # 온체인에 없는 라운드는 None - 프론트에서 클레임 버튼이 자연히 동작 안 함.
+            "round_id": winner.round.onchain_round_id if (winner and winner.round) else None,
             "title": item.title,
             "artist_address": item.artist_address,
             "image_url": item.image_url,
@@ -658,9 +661,11 @@ def get_ended_rounds(wallet_address: Optional[str] = None, db: Session = Depends
                 ).scalar() or 0
 
             # 🟢 지갑 주소가 주어지면 1등 우승작에 1표 이상 지분 투표를 한 라운드만 포함시킵니다!
-            if not wallet_address or my_votes > 0:
+            # + 온체인에 실제로 존재하는 라운드(onchain_round_id 있음)만 포함 - 없으면 클레임 자체가
+            # 불가능한 라운드이므로 목록에 올려봐야 "종료 안 됨" 오류만 반복하게 됨.
+            if r.onchain_round_id is not None and (not wallet_address or my_votes > 0):
                 result.append({
-                    "round_id": r.round_number,
+                    "round_id": r.onchain_round_id,
                     "winner_title": winner.title,
                     "auction_price": winner.auction_price,
                     "my_votes": my_votes
@@ -1057,6 +1062,12 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
         logger.exception("🔥 후보작 저장 실패 (이미지 생성 결과 유실 위험)")
         raise HTTPException(status_code=500, detail="후보작 저장 중 오류가 발생했습니다.")
 
+    # =========================================================
+    # 🚨 온체인 라운드 시작 - DB의 round_id를 온체인 라운드 번호로 그냥 재사용하면,
+    # 로컬 hardhat 노드가 재시작되어 currentRoundId가 리셋될 때 영구적으로 어긋난다.
+    # 트랜잭션이 실제로 성공 마이닝됐는지 확인한 뒤, 그 결과로 생긴 진짜 온체인 라운드 번호를
+    # target_round.onchain_round_id에 기록해 이후 finalize/claim이 이 값만 신뢰하게 한다.
+    # =========================================================
     try:
         if ADMIN_ACCOUNT:
             dao_contract = get_dao_contract()
@@ -1066,7 +1077,13 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
                     'chainId': 31337, 'gas': 3000000, 'gasPrice': w3.to_wei('1', 'gwei'), 'nonce': nonce,
                 })
                 signed_tx = w3.eth.account.sign_transaction(tx, private_key=ADMIN_PRIVATE_KEY)
-                w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+                tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+                receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
+                if receipt.status == 1:
+                    target_round.onchain_round_id = dao_contract.functions.currentRoundId().call()
+                    db.commit()
+                else:
+                    logger.error(f"🔥 온체인 라운드 시작 트랜잭션 실패(revert) - round_id={round_id}")
     except Exception as e:
         logger.error(f"온체인 시작 에러: {e}")
 
@@ -1237,27 +1254,52 @@ def finalize_round_to_chain(req: FinalizeReq, db: Session = Depends(get_db)):
 
     # =========================================================
     # 🚨 6. [핵심] 스마트 컨트랙트 마감 (블록체인 등록)
+    # finalizeRound()는 인자로 라운드 번호를 받지 않고 컨트랙트 내부의 currentRoundId를 그대로
+    # 마감시킨다. 따라서 이 DB 라운드가 실제로 "지금 온체인에서 진행 중인 그 라운드"가 맞는지
+    # (target_round.onchain_round_id가 존재하고, 그 값이 실제 currentRoundId와 같은지) 먼저
+    # 확인하지 않으면, 체인이 리셋됐거나 시작 트랜잭션이 실패했던 경우 엉뚱한 라운드를
+    # 마감시키거나(또는 존재하지도 않는 라운드를) "확정"으로 잘못 기록하게 된다.
     # =========================================================
     onchain_ok = False
+    onchain_skip_reason = None
     try:
         if ADMIN_ACCOUNT:
             dao_contract = get_dao_contract()
             if dao_contract:
-                nonce = w3.eth.get_transaction_count(ADMIN_ACCOUNT.address)
-                auction_price_wei = w3.to_wei(winner.auction_price, 'ether')
-                ipfs_uri = winner.ipfs_hash if winner.ipfs_hash != "PENDING" else winner.image_url
+                if target_round.onchain_round_id is None:
+                    onchain_skip_reason = "이 라운드는 시작 시점에 온체인 트랜잭션이 성공하지 못해 체인에 존재하지 않음"
+                else:
+                    current_onchain_id = dao_contract.functions.currentRoundId().call()
+                    if current_onchain_id != target_round.onchain_round_id:
+                        onchain_skip_reason = (
+                            f"온체인 currentRoundId({current_onchain_id})가 이 라운드의 "
+                            f"onchain_round_id({target_round.onchain_round_id})와 불일치 - 체인 리셋 등으로 어긋남"
+                        )
+                    else:
+                        nonce = w3.eth.get_transaction_count(ADMIN_ACCOUNT.address)
+                        auction_price_wei = w3.to_wei(winner.auction_price, 'ether')
+                        ipfs_uri = winner.ipfs_hash if winner.ipfs_hash != "PENDING" else winner.image_url
 
-                tx = dao_contract.functions.finalizeRound(auction_price_wei, ipfs_uri).build_transaction({
-                    'chainId': 31337, 'gas': 3000000, 'gasPrice': w3.to_wei('1', 'gwei'), 'nonce': nonce,
-                })
-                signed_tx = w3.eth.account.sign_transaction(tx, private_key=ADMIN_PRIVATE_KEY)
-                w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-                onchain_ok = True
+                        tx = dao_contract.functions.finalizeRound(auction_price_wei, ipfs_uri).build_transaction({
+                            'chainId': 31337, 'gas': 3000000, 'gasPrice': w3.to_wei('1', 'gwei'), 'nonce': nonce,
+                        })
+                        signed_tx = w3.eth.account.sign_transaction(tx, private_key=ADMIN_PRIVATE_KEY)
+                        tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+                        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
+                        onchain_ok = receipt.status == 1
     except Exception as e:
         logger.error(f"온체인 라운드 마감 실패: {e}")
 
-    # DB는 이미 ENDED로 확정되었으므로, 체인 tx 실패 시 상태만 기록해 불일치를 추적 가능하게 함
-    target_round.onchain_status = "confirmed" if onchain_ok else "failed"
+    if onchain_skip_reason:
+        logger.error(f"🔥 온체인 마감 건너뜀 (round_id={req.round_id}): {onchain_skip_reason}")
+
+    # DB는 이미 ENDED로 확정되었으므로, 체인 tx 실패/스킵 시 상태만 기록해 불일치를 추적 가능하게 함
+    if onchain_ok:
+        target_round.onchain_status = "confirmed"
+    elif onchain_skip_reason:
+        target_round.onchain_status = "no_onchain_round"
+    else:
+        target_round.onchain_status = "failed"
     db.commit()
 
     return {"message": "최종 결산 및 스마트 컨트랙트 등록 완료!", "onchain": onchain_ok}
