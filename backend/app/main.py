@@ -319,6 +319,7 @@ def get_gallery_items(wallet_address: Optional[str] = None, db: Session = Depend
             
         res.append({
             "id": item.id,
+            "round_id": winner.round_id if winner else None,
             "title": item.title,
             "artist_address": item.artist_address,
             "image_url": item.image_url,

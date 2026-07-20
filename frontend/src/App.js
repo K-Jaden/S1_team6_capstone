@@ -441,9 +441,10 @@ function App() {
     const handleVirtualSell = async (item) => {
         if (!isLoggedIn) return alert("지갑을 먼저 연결해주세요!");
 
-        if (window.confirm(`'${item.title}' 작품을 가상 판매하시겠습니까?\n투자한 VP 지분에 따라 수익이 배당됩니다.`)) {
+        if (window.confirm(`'${item.title}' 작품의 가상 매각 배당금을 받으시겠습니까?\n온체인 TUK 토큰 지급 및 배당 영수증 정산이 함께 진행됩니다.`)) {
             setIsLoading(true);
             try {
+                // 1단계: 백엔드 가상 정산 API 호출
                 const res = await axios.post(`${API_URL}/api/gallery/virtual-sell`, {
                     item_id: item.id,
                     wallet_address: walletAddress
@@ -452,9 +453,22 @@ function App() {
                 if (res.data.error) {
                     alert(`❌ 실패: ${res.data.error}`);
                 } else {
-                    // 알림창도 30% 기준 명세서로 예쁘게 리포팅되도록 수정합니다.
-                    alert(`🎉 판매 및 정산 완료!\n\n🧾 [오프체인 배당 명세서]\n 총 매각 금액: ${res.data.total_price.toLocaleString()} TUK\n🏛️ DAO 유지비용 (30%): ${(res.data.total_price * 0.3).toLocaleString()} TUK\n📈 나의 투자 지분율: ${res.data.stake_ratio.toFixed(2)}%\n💸 최종 실수령액 (70%): ${res.data.profit.toFixed(2)} TUK 입금 완료!`);
-                    
+                    let onchainSuccess = false;
+
+                    // 2단계: 스마트 컨트랙트 온체인 Claim 자동 연동 실행!
+                    if (contract && item.round_id) {
+                        try {
+                            alert("🔗 스마트 컨트랙트에 연결 중입니다.\n메타마스크에서 TUK 토큰 배당금 수령 트랜잭션을 승인해 주세요!");
+                            const tx = await contract.claimReward(item.round_id);
+                            await tx.wait();
+                            onchainSuccess = true;
+                        } catch (contractErr) {
+                            console.warn("온체인 배당 수령 건너뜀 또는 이미 청구됨:", contractErr);
+                        }
+                    }
+
+                    alert(`🎉 판매 및 정산 완료!\n\n🧾 [배당 명세서]\n 총 매각 금액: ${res.data.total_price.toLocaleString()} TUK\n🏛️ DAO 유지비용 (30%): ${(res.data.total_price * 0.3).toLocaleString()} TUK\n📈 나의 투자 지분율: ${res.data.stake_ratio.toFixed(2)}%\n💸 최종 실수령액 (70%): ${res.data.profit.toFixed(2)} TUK 입금 완료!` + (onchainSuccess ? "\n\n✅ 메타마스크 지갑으로 온체인 TUK 토큰 지급이 완료되었습니다!" : ""));
+
                     // 모달 창 상태를 즉시 매각 완료(영수증 뷰)로 반영
                     setSelectedCandidate(prev => prev && prev.id === item.id ? { 
                         ...prev, 
@@ -468,7 +482,8 @@ function App() {
                     fetchEndedRounds();
                 }
             } catch (err) {
-                alert("서버 오류로 판매를 진행할 수 없습니다.");
+                console.error(err);
+                alert("서버 오류로 배당 처리를 진행할 수 없습니다.");
             } finally {
                 setIsLoading(false);
             }
@@ -2081,15 +2096,15 @@ function App() {
 
                                 <div className="card profile" style={{ background: '#1A1A1A', border: '1px solid #2A2A2A', padding: '30px' }}>
                                     <h3 style={{ color: '#FBBF24', borderBottom: '1px solid #333', paddingBottom: '15px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                        <span>🏆</span> Claim Rewards
+                                        <span>🏆</span> On-Chain Reward Status
                                     </h3>
                                     <p style={{ color: '#9CA3AF', fontSize: '0.95rem', lineHeight: '1.6', marginBottom: '20px' }}>
-                                        종료된 라운드에서 1등(우승작)에 투표하셨다면 스마트 컨트랙트를 통해 내 지갑으로 TUK 토큰을 직접 청구할 수 있습니다.
+                                        <strong>GALLERY</strong> 탭의 작품 상세화면에서 <strong>[배당금 받기]</strong> 버튼을 누르시면, 가상 매각 정산과 온체인 TUK 토큰 수령이 원스톱으로 한 번에 완료됩니다.
                                     </p>
 
                                     {endedRounds.length === 0 ? (
                                         <div style={{ textAlign: 'center', padding: '30px', background: '#0F0F0F', borderRadius: '12px' }}>
-                                            <p style={{ color: '#6B7280', margin: 0 }}>청구 가능한 종료 라운드가 없습니다.</p>
+                                            <p style={{ color: '#6B7280', margin: 0 }}>참여한 종료 라운드가 없습니다.</p>
                                         </div>
                                     ) : (
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
@@ -2099,22 +2114,16 @@ function App() {
                                                         <div style={{ color: '#fff', fontWeight: 'bold', fontSize: '1.1rem', marginBottom: '5px' }}>Round #{r.round_id}</div>
                                                         <div style={{ color: '#9CA3AF', fontSize: '0.9rem' }}>우승작: {r.winner_title} <span style={{ color: '#6B7280' }}>(AI 매각가: {r.auction_price} TUK)</span></div>
                                                     </div>
-                                                    <button
-                                                        onClick={() => !r.isClaimed && handleClaimReward(r.round_id)}
-                                                        disabled={r.isClaimed}
-                                                        style={{
-                                                            background: r.isClaimed ? '#374151' : 'linear-gradient(135deg, #F59E0B, #EF4444)',
-                                                            color: r.isClaimed ? '#9CA3AF' : '#fff',
-                                                            fontWeight: 'bold',
-                                                            border: 'none',
-                                                            padding: '10px 20px',
-                                                            borderRadius: '8px',
-                                                            cursor: r.isClaimed ? 'not-allowed' : 'pointer',
-                                                            transition: 'all 0.2s'
-                                                        }}
-                                                    >
-                                                        {r.isClaimed ? "수령 완료" : "지갑으로 TUK 받기"}
-                                                    </button>
+                                                    <span style={{
+                                                        background: r.isClaimed ? '#065F46' : '#1F2937',
+                                                        color: r.isClaimed ? '#34D399' : '#9CA3AF',
+                                                        fontWeight: 'bold',
+                                                        padding: '6px 14px',
+                                                        borderRadius: '8px',
+                                                        fontSize: '0.85rem'
+                                                    }}>
+                                                        {r.isClaimed ? "✓ 온체인 수령 완료" : "갤러리에서 수령 가능"}
+                                                    </span>
                                                 </div>
                                             ))}
                                         </div>
