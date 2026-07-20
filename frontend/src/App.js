@@ -1473,7 +1473,6 @@ function App() {
                         {galleryItems && galleryItems.length > 0 && (
                             <div style={{ marginTop: '60px', marginBottom: '20px' }}>
                                 <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: '2.2rem', color: '#F3F4F6', marginBottom: '10px', letterSpacing: '1px' }}>Featured Collection</h2>
-                                <p style={{ color: '#9CA3AF', marginBottom: '25px', fontSize: '0.95rem' }}>대중의 지지를 받아 역사로 박제된 DAO 컬렉션 대표작 쇼케이스</p>
 
                                 <div style={{
                                     display: 'grid',

@@ -63,6 +63,13 @@ models.Base.metadata.create_all(bind=database.engine)
 def seed_initial_gallery_items():
     try:
         db = database.SessionLocal()
+        # 기존 DB 호환용 auction_price 컬럼 마이그레이션 안전 처리
+        try:
+            db.execute(text("ALTER TABLE gallery_items ADD COLUMN auction_price FLOAT DEFAULT 1000.0"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
         # 컨테이너 내부 /app/static/images/seed/ 경로 사용 (uvicorn 실행 위치 기준)
         seed_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "images", "seed")
         os.makedirs(seed_dir, exist_ok=True)
@@ -85,10 +92,17 @@ def seed_initial_gallery_items():
                         title=item.get("title", "ArtDAO Seed Masterpiece"),
                         artist_address=item.get("artist_address", "ArtDAO Genesis Collection"),
                         image_url=img_url,
-                        description=item.get("description", "ArtDAO 시작 시 기본으로 제공되는 명예의 전당 보존작입니다.")
+                        description=item.get("description", "ArtDAO 시작 시 기본으로 제공되는 명예의 전당 보존작입니다."),
+                        is_sold=item.get("is_sold", True),
+                        auction_price=item.get("auction_price", 25000.0)
                     ))
+                else:
+                    # 기존 시드 갤러리 데이터도 판매 완료(is_sold=True) 및 가상 매각가 동기화
+                    exists.is_sold = item.get("is_sold", True)
+                    if item.get("auction_price"):
+                        exists.auction_price = item.get("auction_price")
             db.commit()
-            logger.info(f"✅ [Seed] json 기반 {len(items_data)}개 시드 갤러리 작품 등록 동기화 완료!")
+            logger.info(f"✅ [Seed] json 기반 {len(items_data)}개 시드 갤러리 작품 등록/동기화 완료!")
         else:
             valid_exts = {".png", ".jpg", ".jpeg", ".webp"}
             files = [f for f in os.listdir(seed_dir) if os.path.splitext(f)[1].lower() in valid_exts]
@@ -299,7 +313,7 @@ def get_gallery_items(wallet_address: Optional[str] = None, db: Session = Depend
     res = []
     for item in items:
         winner = db.query(models.Candidate).filter(models.Candidate.title == item.title, models.Candidate.is_winner == True).first()
-        auction_price = winner.auction_price if winner else 1000
+        auction_price = winner.auction_price if (winner and winner.auction_price) else (item.auction_price or 1000)
         
         # 유저별 실시간 지분 및 배당금 계산 장치 가동
         stake_ratio = 0.0
