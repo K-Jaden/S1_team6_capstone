@@ -2193,59 +2193,52 @@ function App() {
                                 {selectedCandidate.vp_votes !== undefined ? (
                                     <p style={{ color: '#9CA3AF', margin: 0 }}>현재 총 투자금: <strong style={{ color: '#38BDF8', fontSize: '1.4rem' }}>{selectedCandidate.vp_votes} TUK</strong></p>
                                 ) : (
-                                    <div>
-                                        <p style={{ color: '#34D399', margin: '0 0 15px 0', fontWeight: 'bold' }}>🏆 이 작품은 ArtDAO 명예의 전당에 헌액된 우승작입니다.</p>
-                                        
-                                        {/* 가상 매각 및 영수증 정보 */}
-                                        {!(selectedCandidate.artist_address === "ArtDAO Genesis Collection" || (selectedCandidate.image_url && selectedCandidate.image_url.includes("/seed/"))) && (
-                                            <div className="sale-status" style={{ marginTop: '10px' }}>
-                                                {!selectedCandidate.is_sold ? (
-                                                    <div style={{ padding: '15px', background: '#111', borderRadius: '12px', border: '1px solid #333' }}>
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                                            <span style={{ color: '#9CA3AF', fontSize: '0.85rem' }}> 확정 가상 매각가</span>
-                                                            <strong style={{ color: '#FBBF24', fontSize: '1.2rem' }}>{Number(selectedCandidate.auction_price || 0).toLocaleString()} TUK</strong>
-                                                        </div>
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                            <span style={{ color: '#10B981', fontWeight: 'bold', fontSize: '0.85rem' }}> 가상 배당 가능</span>
-                                                            <button
-                                                                onClick={() => handleVirtualSell(selectedCandidate)}
-                                                                style={{
-                                                                    background: 'linear-gradient(135deg, #3B82F6, #8B5CF6)',
-                                                                    color: '#fff', border: 'none', padding: '8px 16px',
-                                                                    borderRadius: '8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 'bold'
-                                                                }}
-                                                            >
-                                                                배당금 받기
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                ) : (
-                                                    <div style={{ padding: '15px', background: '#111', borderRadius: '12px', border: '1px solid #EF4444', fontFamily: "'Courier New', Courier, monospace" }}>
-                                                        <div style={{ fontSize: '0.8rem', color: '#EF4444', borderBottom: '1px dashed #333', paddingBottom: '6px', marginBottom: '10px', textAlign: 'center', fontWeight: 'bold' }}>
-                                                            🧾 ART SALES RECEIPTS
-                                                        </div>
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '5px', color: '#9CA3AF' }}>
-                                                            <span>판매금액</span>
-                                                            <span style={{ color: '#fff' }}>{Number(selectedCandidate.auction_price || 0).toLocaleString()} TUK</span>
-                                                        </div>
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '5px', color: '#F87171' }}>
-                                                            <span>- DAO 유지비용 (30%)</span>
-                                                            <span>{Number((selectedCandidate.auction_price || 0) * 0.3).toLocaleString()} TUK</span>
-                                                        </div>
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 'bold', borderBottom: '1px dashed #333', paddingBottom: '8px', marginBottom: '8px', color: '#34D399' }}>
-                                                            <span>= 투자자들의 수익 (70%)</span>
-                                                            <span>{Number((selectedCandidate.auction_price || 0) * 0.7).toLocaleString()} TUK</span>
-                                                        </div>
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#9CA3AF', marginBottom: '4px' }}>
-                                                            <span>내 투자 지분율</span>
-                                                            <span style={{ color: '#38BDF8', fontWeight: 'bold' }}>{Number(selectedCandidate.stake_ratio || 0).toFixed(2)} %</span>
-                                                        </div>
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', fontWeight: 'bold', color: '#FBBF24', paddingTop: '4px' }}>
-                                                            <span>🎁 내 지분 수익</span>
-                                                            <span>{Number(selectedCandidate.my_profit || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} TUK</span>
-                                                        </div>
-                                                    </div>
-                                                )}
+                                    <div className="sale-status">
+                                        {!selectedCandidate.is_sold ? (
+                                            <div style={{ padding: '15px', background: '#111', borderRadius: '12px', border: '1px solid #333' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                                    <span style={{ color: '#9CA3AF', fontSize: '0.85rem' }}> 확정 가상 매각가</span>
+                                                    <strong style={{ color: '#FBBF24', fontSize: '1.2rem' }}>{Number(selectedCandidate.auction_price || 0).toLocaleString()} TUK</strong>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <span style={{ color: '#10B981', fontWeight: 'bold', fontSize: '0.85rem' }}> 가상 배당 가능</span>
+                                                    <button
+                                                        onClick={() => handleVirtualSell(selectedCandidate)}
+                                                        style={{
+                                                            background: 'linear-gradient(135deg, #3B82F6, #8B5CF6)',
+                                                            color: '#fff', border: 'none', padding: '8px 16px',
+                                                            borderRadius: '8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 'bold'
+                                                        }}
+                                                    >
+                                                        배당금 받기
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div style={{ padding: '15px', background: '#111', borderRadius: '12px', border: '1px solid #EF4444', fontFamily: "'Courier New', Courier, monospace" }}>
+                                                <div style={{ fontSize: '0.8rem', color: '#EF4444', borderBottom: '1px dashed #333', paddingBottom: '6px', marginBottom: '10px', textAlign: 'center', fontWeight: 'bold' }}>
+                                                    🧾 ART SALES RECEIPTS
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '5px', color: '#9CA3AF' }}>
+                                                    <span>판매금액</span>
+                                                    <span style={{ color: '#fff' }}>{Number(selectedCandidate.auction_price || 0).toLocaleString()} TUK</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '5px', color: '#F87171' }}>
+                                                    <span>- DAO 유지비용 (30%)</span>
+                                                    <span>{Number((selectedCandidate.auction_price || 0) * 0.3).toLocaleString()} TUK</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 'bold', borderBottom: '1px dashed #333', paddingBottom: '8px', marginBottom: '8px', color: '#34D399' }}>
+                                                    <span>= 투자자들의 수익 (70%)</span>
+                                                    <span>{Number((selectedCandidate.auction_price || 0) * 0.7).toLocaleString()} TUK</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#9CA3AF', marginBottom: '4px' }}>
+                                                    <span>내 투자 지분율</span>
+                                                    <span style={{ color: '#38BDF8', fontWeight: 'bold' }}>{Number(selectedCandidate.stake_ratio || 0).toFixed(2)} %</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', fontWeight: 'bold', color: '#FBBF24', paddingTop: '4px' }}>
+                                                    <span>🎁 내 지분 수익</span>
+                                                    <span>{Number(selectedCandidate.my_profit || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} TUK</span>
+                                                </div>
                                             </div>
                                         )}
                                     </div>
