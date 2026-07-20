@@ -63,7 +63,8 @@ models.Base.metadata.create_all(bind=database.engine)
 def seed_initial_gallery_items():
     try:
         db = database.SessionLocal()
-        seed_dir = os.path.join(os.path.dirname(__file__), "static", "images", "seed")
+        # 컨테이너 내부 /app/static/images/seed/ 경로 사용 (uvicorn 실행 위치 기준)
+        seed_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "images", "seed")
         os.makedirs(seed_dir, exist_ok=True)
         json_path = os.path.join(seed_dir, "seed_items.json")
 
