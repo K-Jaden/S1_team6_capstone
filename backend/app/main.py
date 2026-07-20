@@ -640,18 +640,30 @@ def get_current_round(db: Session = Depends(get_db)):
         "moods": []
     }
 @app.get("/api/rounds/ended")
-def get_ended_rounds(db: Session = Depends(get_db)):
+def get_ended_rounds(wallet_address: Optional[str] = None, db: Session = Depends(get_db)):
     ended_rounds = db.query(models.Round).filter(models.Round.status == RoundPhase.ENDED).order_by(desc(models.Round.id)).all()
     
     result = []
     for r in ended_rounds:
         winner = db.query(models.Candidate).filter(models.Candidate.round_id == r.id, models.Candidate.is_winner == True).first()
         if winner:
-            result.append({
-                "round_id": r.round_number,
-                "winner_title": winner.title,
-                "auction_price": winner.auction_price
-            })
+            my_votes = 0
+            if wallet_address:
+                # 해당 지갑이 1등 우승작에 투표한 VP 누적 표수 조회
+                my_votes = db.query(func.sum(models.VoteLog.vp_used)).filter(
+                    models.VoteLog.round_id == r.id,
+                    models.VoteLog.candidate_id == winner.id,
+                    models.VoteLog.voter_wallet == wallet_address
+                ).scalar() or 0
+
+            # 🟢 지갑 주소가 주어지면 1등 우승작에 1표 이상 지분 투표를 한 라운드만 포함시킵니다!
+            if not wallet_address or my_votes > 0:
+                result.append({
+                    "round_id": r.round_number,
+                    "winner_title": winner.title,
+                    "auction_price": winner.auction_price,
+                    "my_votes": my_votes
+                })
     return result
 
 class VoteReq(BaseModel):

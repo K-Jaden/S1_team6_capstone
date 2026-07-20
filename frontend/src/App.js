@@ -224,7 +224,9 @@ function App() {
 
     const fetchEndedRounds = async () => {
         try {
-            const res = await axios.get(`${API_URL}/api/rounds/ended`);
+            const res = await axios.get(`${API_URL}/api/rounds/ended`, {
+                params: { wallet_address: walletAddress }
+            });
             const roundsData = res.data;
 
             if (contract && walletAddress) {
