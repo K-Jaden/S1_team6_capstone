@@ -441,7 +441,7 @@ function App() {
     const handleVirtualSell = async (item) => {
         if (!isLoggedIn) return alert("지갑을 먼저 연결해주세요!");
 
-        if (window.confirm(`'${item.title}' 작품의 가상 매각 배당금을 받으시겠습니까?\n온체인 TUK 토큰 지급 및 배당 영수증 정산이 함께 진행됩니다.`)) {
+        if (window.confirm(`'${item.title}' 작품의 가상 매각 배당금을 받으시겠습니까?\n가상 배당 정산 및 온체인 TUK 토큰 수령이 처리됩니다.`)) {
             setIsLoading(true);
             try {
                 // 1단계: 백엔드 가상 정산 API 호출
@@ -455,15 +455,28 @@ function App() {
                 } else {
                     let onchainSuccess = false;
 
-                    // 2단계: 스마트 컨트랙트 온체인 Claim 자동 연동 실행!
-                    if (contract && item.round_id) {
+                    // 2단계: 온체인 배당 가능 상태인 경우에만 스마트 컨트랙트 Claim 트랜잭션 안전 실행
+                    if (contract && item.round_id && walletAddress) {
                         try {
-                            alert("🔗 스마트 컨트랙트에 연결 중입니다.\n메타마스크에서 TUK 토큰 배당금 수령 트랜잭션을 승인해 주세요!");
-                            const tx = await contract.claimReward(item.round_id);
-                            await tx.wait();
-                            onchainSuccess = true;
+                            const roundInfo = await contract.rounds(item.round_id);
+                            const isFinalized = roundInfo[4];
+                            const winningId = roundInfo[5];
+                            const isClaimed = await contract.hasClaimedReward(item.round_id, walletAddress);
+                            const myVotes = await contract.userVoteWeight(item.round_id, winningId, walletAddress);
+
+                            // 온체인 결산 완료되었고, 아직 수령 안 했으며, 내 온체인 투표수가 > 0 일 때만 온체인 수령 진행
+                            if (isFinalized && !isClaimed && myVotes > 0n) {
+                                const provider = new ethers.BrowserProvider(window.ethereum);
+                                const signer = await provider.getSigner();
+                                const freshContract = contract.connect(signer);
+
+                                alert("🔗 스마트 컨트랙트 배당 수령 중입니다.\n메타마스크에서 TUK 토큰 배당금 수령 트랜잭션을 승인해 주세요!");
+                                const tx = await freshContract.claimReward(item.round_id, { gasLimit: 300000 });
+                                await tx.wait();
+                                onchainSuccess = true;
+                            }
                         } catch (contractErr) {
-                            console.warn("온체인 배당 수령 건너뜀 또는 이미 청구됨:", contractErr);
+                            console.warn("온체인 배당 수령 처리 건너뜀:", contractErr);
                         }
                     }
 
