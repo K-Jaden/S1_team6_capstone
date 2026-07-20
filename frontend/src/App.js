@@ -427,7 +427,12 @@ function App() {
 
         } catch (err) {
             console.error("Claim 에러:", err);
-            alert("보상 청구 실패: 이미 수령했거나 트랜잭션이 거절되었습니다.");
+            const errStr = String(err?.message || err);
+            if (errStr.includes("No votes for the winning candidate") || errStr.includes("execution reverted")) {
+                alert("⚠️ 보상 청구 불가:\n해당 지갑은 1등 우승작에 투표한 내역이 없거나 이미 배당금을 수령했습니다!");
+            } else {
+                alert("보상 청구 실패: 이미 수령했거나 트랜잭션이 거절되었습니다.");
+            }
         }
     };
 
