@@ -961,18 +961,32 @@ body {
   box-shadow: 0 10px 25px rgba(56, 189, 248, 0.1);
 }
 
+/* Botto DAO 스타일 후보작 투표 갤러리 (액자 스타일 적용) */
 .candidate-img-box {
   width: 100%;
-  height: 250px;
-  background: #0F0F0F;
-  overflow: hidden;
+  height: 320px;
+  /* 갤러리 느낌을 위해 세로 공간을 넉넉하게 확보 */
+  background: #161618;
+  /* 너무 까맣지 않은 은은한 다크 그레이 (액자 매트 역할) */
+  display: flex;
+  align-items: center;
+  justify-content: center;
   position: relative;
+  border-bottom: 1px solid #2A2A2A;
+  padding: 20px;
+  /* 상하좌우 여백을 주어 이미지가 벽면에 걸린 것처럼 연출 */
+  box-sizing: border-box;
 }
 
 .candidate-img-box img {
-  width: 100%;
-  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
   object-fit: contain;
+  /* 원본 비율을 절대 찌그러뜨리지 않음 */
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.7);
+  /* 캔버스(이미지) 자체에 묵직한 그림자를 주어 입체감 극대화 */
+  border-radius: 4px;
+  /* 이미지 모서리를 아주 살짝 둥글게 (선택 사항) */
 }
 
 .candidate-info {
@@ -1547,3 +1561,149 @@ body {
   background: #151515;
   transform: translateY(-2px);
 }
+
+/* Botto 스타일 좌상단 순위 뱃지 (기본: 차분한 어두운 회색) */
+.rank-badge {
+  position: absolute;
+  top: 15px;
+  left: 15px;
+  background: rgba(20, 20, 20, 0.85);
+  /* 공통 어두운 배경 */
+  border: 1px solid #333;
+  /* 기본 테두리 */
+  color: #9CA3AF;
+  /* 기본 글자색 */
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 10;
+  backdrop-filter: blur(4px);
+}
+
+/* 🥇 1등 전용 뱃지 (테두리와 글자만 골드 포인트!) */
+.rank-badge.rank-1 {
+  background: rgba(20, 20, 20, 0.85);
+  /* 배경은 2등 이하와 동일하게 어둡게 유지 */
+  color: #FBBF24;
+  /* 글자와 트로피 아이콘을 노란색으로 */
+  border: 1px solid #FBBF24;
+  /* 테두리에 노란색 포인트 */
+  box-shadow: 0 0 10px rgba(251, 191, 36, 0.15);
+  /* 테두리 주변만 살짝 빛나게 */
+}
+
+/* 프리미엄 갤러리 포트폴리오 카드 호버 효과 */
+.portfolio-premium-card {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.portfolio-premium-card:hover {
+  transform: translateY(-5px);
+  border-color: #3b82f6 !important;
+  box-shadow: 0 12px 30px rgba(59, 130, 246, 0.08);
+}
+
+.portfolio-premium-card:hover .portfolio-img {
+  transform: scale(1.04);
+}
+
+/* ==========================================
+   스플래시 랜딩 페이지 예술품 하강/비상 애니메이션 (Art Stream)
+   ========================================== */
+.landing-art-bg-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  z-index: 1;
+  display: flex;
+  justify-content: space-around;
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.landing-vignette-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at center, rgba(0, 0, 0, 0.45) 0%, rgba(0, 0, 0, 0.92) 75%, #000000 100%);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.landing-art-column {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.landing-art-track {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding-bottom: 24px;
+  will-change: transform;
+}
+
+.landing-art-column:nth-child(1) .landing-art-track { animation: artFallTrack 22s linear infinite; }
+.landing-art-column:nth-child(2) .landing-art-track { animation: artRiseTrack 26s linear infinite; }
+.landing-art-column:nth-child(3) .landing-art-track { animation: artFallTrack 30s linear infinite; }
+.landing-art-column:nth-child(4) .landing-art-track { animation: artRiseTrack 34s linear infinite; }
+.landing-art-column:nth-child(5) .landing-art-track { animation: artFallTrack 38s linear infinite; }
+
+.landing-art-card {
+  width: 210px;
+  flex-shrink: 0;
+  background: #121212;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+  transition: transform 0.4s ease, border-color 0.4s ease;
+}
+
+.landing-art-card img {
+  width: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.landing-art-card.ratio-square img {
+  height: 210px; /* 1:1 정사각형 */
+}
+
+.landing-art-card.ratio-landscape img {
+  height: 118px; /* 16:9 가로형 */
+}
+
+.landing-art-card.ratio-portrait img {
+  height: 290px; /* 9:16 세로형 */
+}
+
+@keyframes artFallTrack {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(0%);
+  }
+}
+
+@keyframes artRiseTrack {
+  0% {
+    transform: translateY(0%);
+  }
+  100% {
+    transform: translateY(-100%);
+  }
+}
+

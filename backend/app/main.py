@@ -60,6 +60,56 @@ AI_AGENT_URL = "http://ai_core:8002"
 # DB 테이블 생성
 models.Base.metadata.create_all(bind=database.engine)
 
+def seed_initial_gallery_items():
+    try:
+        db = database.SessionLocal()
+        # 컨테이너 내부 /app/static/images/seed/ 경로 사용 (uvicorn 실행 위치 기준)
+        seed_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "images", "seed")
+        os.makedirs(seed_dir, exist_ok=True)
+        json_path = os.path.join(seed_dir, "seed_items.json")
+
+        items_data = []
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, "r", encoding="utf-8") as f:
+                    items_data = json.load(f)
+            except Exception as je:
+                logger.error(f"⚠️ [Seed] seed_items.json 읽기 실패: {je}")
+
+        if items_data:
+            for item in items_data:
+                img_url = f"/static/images/seed/{item['filename']}"
+                exists = db.query(models.GalleryItem).filter(models.GalleryItem.image_url == img_url).first()
+                if not exists:
+                    db.add(models.GalleryItem(
+                        title=item.get("title", "ArtDAO Seed Masterpiece"),
+                        artist_address=item.get("artist_address", "ArtDAO Genesis Collection"),
+                        image_url=img_url,
+                        description=item.get("description", "ArtDAO 시작 시 기본으로 제공되는 명예의 전당 보존작입니다.")
+                    ))
+            db.commit()
+            logger.info(f"✅ [Seed] json 기반 {len(items_data)}개 시드 갤러리 작품 등록 동기화 완료!")
+        else:
+            valid_exts = {".png", ".jpg", ".jpeg", ".webp"}
+            files = [f for f in os.listdir(seed_dir) if os.path.splitext(f)[1].lower() in valid_exts]
+            for idx, fname in enumerate(sorted(files), 1):
+                img_url = f"/static/images/seed/{fname}"
+                exists = db.query(models.GalleryItem).filter(models.GalleryItem.image_url == img_url).first()
+                if not exists:
+                    db.add(models.GalleryItem(
+                        title=f"ArtDAO 컬렉션 #{idx}",
+                        artist_address="ArtDAO Genesis Collection",
+                        image_url=img_url,
+                        description="ArtDAO 시작 시 기본으로 제공되는 명예의 전당 보존작입니다."
+                    ))
+            db.commit()
+            logger.info(f"✅ [Seed] 이미지 파일 자동 감지 {len(files)}개 시드 등록 완료!")
+        db.close()
+    except Exception as e:
+        logger.error(f"⚠️ [Seed] 초기 갤러리 데이터 주입 에러: {e}")
+
+seed_initial_gallery_items()
+
 app = FastAPI()
 
 os.makedirs("static/images", exist_ok=True)
@@ -1296,18 +1346,22 @@ class GlobalChatRequest(BaseModel):
 
 @app.get("/api/chat/global")
 def get_global_messages(limit: int = 50, db: Session = Depends(get_db)):
-    """통합 토론방 메시지 최신 순으로 반환"""
-    msgs = db.query(models.GlobalChatMessage).order_by(
+    """통합 토론방 메시지 최신 순으로 반환 (보낸 유저의 닉네임과 프로필 사진을 함께 제공)"""
+    results = db.query(models.GlobalChatMessage, models.User).outerjoin(
+        models.User, models.GlobalChatMessage.wallet_address == models.User.wallet_address
+    ).order_by(
         models.GlobalChatMessage.created_at.asc()
     ).limit(limit).all()
     return [
         {
-            "id": m.id,
-            "wallet_address": m.wallet_address,
-            "text": m.text,
-            "created_at": m.created_at.isoformat() if m.created_at else None
+            "id": msg.id,
+            "wallet_address": msg.wallet_address,
+            "text": msg.text,
+            "created_at": msg.created_at.isoformat() if msg.created_at else None,
+            "nickname": user.nickname if user else "",
+            "profile_pic": user.profile_pic if user else "🔮"
         }
-        for m in msgs
+        for msg, user in results
     ]
 
 @app.post("/api/chat/global")
