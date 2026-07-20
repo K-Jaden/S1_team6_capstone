@@ -132,7 +132,6 @@ class GalleryItem(Base):
     image_url = Column(Text)
     description = Column(Text)
     is_sold = Column(Boolean, default=False)
-    auction_price = Column(Float, default=1000.0) # 가상 매각가 (TUK)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     feedbacks = relationship("GalleryFeedback", back_populates="item")
 

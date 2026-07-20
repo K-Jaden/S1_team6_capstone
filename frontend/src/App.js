@@ -1937,9 +1937,11 @@ function App() {
                                             }}>
                                                 {item.description}
                                             </p>
-                                            <div style={{ marginTop: '15px', color: '#3B82F6', fontSize: '0.85rem', fontWeight: 'bold' }}>
-                                                더 보기...
-                                            </div>
+                                            {item.description && item.description.length > 60 && (
+                                                <div style={{ marginTop: '10px', color: '#3B82F6', fontSize: '0.85rem', fontWeight: 'bold' }}>
+                                                    더 보기...
+                                                </div>
+                                            )}
                                             {/* 가상 판매 상태 및 버튼 UI */}
                                             {/* 가상 판매 상태 및 영수증 영리한 전환 UI 구현 블록 */}
                                             <div

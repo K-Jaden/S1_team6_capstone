@@ -3,64 +3,48 @@
     "title": "사이버펑크 조선 묵향",
     "description": "ArtDAO 창립 시드 컬렉션 #1 - 동양 수묵화와 고광택 네온 빛이 융합된 명작",
     "filename": "seed_1.png",
-    "artist_address": "ArtDAO Genesis Collection",
-    "auction_price": 28500.0,
-    "is_sold": true
+    "artist_address": "ArtDAO Genesis Collection"
   },
   {
     "title": "네온 야경 과객",
     "description": "ArtDAO 창립 시드 컬렉션 #2 - 밤하늘 아래 펼쳐진 미래 도시와 낭만적 화풍",
     "filename": "seed_2.png",
-    "artist_address": "ArtDAO Genesis Collection",
-    "auction_price": 42000.0,
-    "is_sold": true
+    "artist_address": "ArtDAO Genesis Collection"
   },
   {
     "title": "달빛 속의 한옥 갤러리",
     "description": "ArtDAO 창립 시드 컬렉션 #3 - 몽환적인 달빛 분위기와 전통 한옥 조화",
     "filename": "seed_3.png",
-    "artist_address": "ArtDAO Genesis Collection",
-    "auction_price": 36000.0,
-    "is_sold": true
+    "artist_address": "ArtDAO Genesis Collection"
   },
   {
     "title": "바람의 궤적",
     "description": "나이프로 긁어낸 벽의 균열과 소녀의 역동적인 움직임을 통해 차가운 겨울바람을 시각화했습니다. 날카로운 선과 잉크의 대비가 강조된 작품입니다.",
     "filename": "seed_4.png",
-    "artist_address": "ArtDAO Genesis Collection",
-    "auction_price": 54000.0,
-    "is_sold": true
+    "artist_address": "ArtDAO Genesis Collection"
   },
   {
     "title": "디지털 조각보",
     "description": "근미래의 데이터 흐름을 상징하는 사이버펑크 회로망이 전통 조각보 패턴과 결합된 메쉬망입니다. 나노 입자로 구성된 검은 손이 데이터를 포획하려는 긴장감이 옥색 비단의 광택과 어우러져 표현됩니다.",
     "filename": "seed_5.png",
-    "artist_address": "ArtDAO Genesis Collection",
-    "auction_price": 68000.0,
-    "is_sold": true
+    "artist_address": "ArtDAO Genesis Collection"
   },
   {
     "title": "전쟁의 흉터",
     "description": "전쟁의 상흔이 서린 흰 면사포 위에 검은 손자국이 남겨져 있습니다. 찢겨진 실밥들이 엉켜 비정형적인 메쉬를 이루며 검은 손을 가두는 차가운 분위기의 작품입니다.",
     "filename": "seed_6.png",
-    "artist_address": "ArtDAO Genesis Collection",
-    "auction_price": 72500.0,
-    "is_sold": true
+    "artist_address": "ArtDAO Genesis Collection"
   },
   {
     "title": "기억의 잠식",
     "description": "빅토리아 시대의 우아한 레이스 천 위에 검은 손이 나타나며 레이스 구멍이 확장되어 존재를 집어삼킵니다. 실체가 소멸해가는 몽환적이고 긴장감 넘치는 장면입니다.",
     "filename": "seed_7.png",
-    "artist_address": "ArtDAO Genesis Collection",
-    "auction_price": 89000.0,
-    "is_sold": true
+    "artist_address": "ArtDAO Genesis Collection"
   },
   {
     "title": "신화의 파편",
     "description": "고대 문명의 세월이 묻은 삼베 위에 고대 메쉬 문양이 식물 섬유처럼 엉겨 붙어 있습니다. 화석처럼 굳어버린 검은 손이 시간의 퇴락 속에 영원히 박제된 모습입니다.",
     "filename": "seed_8.png",
-    "artist_address": "ArtDAO Genesis Collection",
-    "auction_price": 105000.0,
-    "is_sold": true
+    "artist_address": "ArtDAO Genesis Collection"
   }
 ]
