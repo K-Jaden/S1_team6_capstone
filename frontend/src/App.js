@@ -891,12 +891,18 @@ function App() {
             const list = [...dummyArtworks];
             if (galleryItems && galleryItems.length > 0) {
                 galleryItems.forEach(item => {
-                    list.push({ url: item.image_url, ratio: "ratio-square" });
+                    const url = (item.image_url || "").toLowerCase();
+                    let ratio = "ratio-square";
+                    if (url.includes("c2") || url.includes("c4") || url.includes("landscape") || url.includes("seed_2") || url.includes("seed_4")) {
+                        ratio = "ratio-landscape";
+                    } else if (url.includes("c3") || url.includes("c5") || url.includes("portrait") || url.includes("seed_3") || url.includes("seed_7")) {
+                        ratio = "ratio-portrait";
+                    }
+                    list.push({ url: item.image_url, ratio });
                 });
             }
             const offset = (colIndex * 2) % list.length;
-            const reordered = [...list.slice(offset), ...list.slice(0, offset)];
-            return [...reordered, ...reordered];
+            return [...list.slice(offset), ...list.slice(0, offset)];
         };
 
         return (
@@ -919,17 +925,29 @@ function App() {
                 fontFamily: "'Inter', sans-serif",
                 overflow: 'hidden'
             }}>
-                {/* 1. 무한 갤러리 하강/비상 애니메이션 레이어 */}
+                {/* 1. 무한 갤러리 하강/비상 애니메이션 레이어 (이중 트랙으로 100% 무봉제 보정) */}
                 <div className="landing-art-bg-canvas">
-                    {[0, 1, 2, 3, 4].map((colIdx) => (
-                        <div key={colIdx} className={`landing-art-column ${colIdx % 2 === 1 ? 'reverse' : ''}`} style={{ animationDuration: `${22 + colIdx * 4}s` }}>
-                            {buildColumnItems(colIdx).map((art, idx) => (
-                                <div key={idx} className={`landing-art-card ${art.ratio}`}>
-                                    <img src={getImageUrl(art.url)} alt="ArtDAO Masterwork" />
+                    {[0, 1, 2, 3, 4].map((colIdx) => {
+                        const colItems = buildColumnItems(colIdx);
+                        return (
+                            <div key={colIdx} className="landing-art-column">
+                                <div className="landing-art-track">
+                                    {colItems.map((art, idx) => (
+                                        <div key={idx} className={`landing-art-card ${art.ratio}`}>
+                                            <img src={getImageUrl(art.url)} alt="ArtDAO Masterwork" />
+                                        </div>
+                                    ))}
                                 </div>
-                            ))}
-                        </div>
-                    ))}
+                                <div className="landing-art-track">
+                                    {colItems.map((art, idx) => (
+                                        <div key={idx} className={`landing-art-card ${art.ratio}`}>
+                                            <img src={getImageUrl(art.url)} alt="ArtDAO Masterwork" />
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        );
+                    })}
                 </div>
 
                 {/* 2. 시인성을 높이는 가독성 딤 오버레이 */}

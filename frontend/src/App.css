@@ -1642,17 +1642,27 @@ body {
 .landing-art-column {
   display: flex;
   flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.landing-art-track {
+  display: flex;
+  flex-direction: column;
   gap: 24px;
-  animation: artFallStream 24s linear infinite;
+  padding-bottom: 24px;
   will-change: transform;
 }
 
-.landing-art-column.reverse {
-  animation: artRiseStream 28s linear infinite;
-}
+.landing-art-column:nth-child(1) .landing-art-track { animation: artFallTrack 22s linear infinite; }
+.landing-art-column:nth-child(2) .landing-art-track { animation: artRiseTrack 26s linear infinite; }
+.landing-art-column:nth-child(3) .landing-art-track { animation: artFallTrack 30s linear infinite; }
+.landing-art-column:nth-child(4) .landing-art-track { animation: artRiseTrack 34s linear infinite; }
+.landing-art-column:nth-child(5) .landing-art-track { animation: artFallTrack 38s linear infinite; }
 
 .landing-art-card {
   width: 210px;
+  flex-shrink: 0;
   background: #121212;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 12px;
@@ -1679,21 +1689,21 @@ body {
   height: 290px; /* 9:16 세로형 */
 }
 
-@keyframes artFallStream {
+@keyframes artFallTrack {
   0% {
-    transform: translateY(-50%);
+    transform: translateY(-100%);
   }
   100% {
     transform: translateY(0%);
   }
 }
 
-@keyframes artRiseStream {
+@keyframes artRiseTrack {
   0% {
     transform: translateY(0%);
   }
   100% {
-    transform: translateY(-50%);
+    transform: translateY(-100%);
   }
 }
 
