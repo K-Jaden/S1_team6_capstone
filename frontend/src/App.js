@@ -877,6 +877,28 @@ function App() {
     // 5. UI 렌더링
     // ==========================================
     if (showLanding) {
+        // 더미 이미지 3가지 비율 (1:1 정사각형, 16:9 가로형, 9:16 세로형)
+        const dummyArtworks = [
+            { url: "/static/images/round1_c1.png", ratio: "ratio-square" },
+            { url: "/static/images/round1_c2.png", ratio: "ratio-landscape" },
+            { url: "/static/images/round1_c3.png", ratio: "ratio-portrait" },
+            { url: "/static/images/round1_c4.png", ratio: "ratio-landscape" },
+            { url: "/static/images/round1_c5.png", ratio: "ratio-portrait" },
+        ];
+
+        // 갤러리 아이템이 존재할 경우 포함하여 5개 컬럼 생성
+        const buildColumnItems = (colIndex) => {
+            const list = [...dummyArtworks];
+            if (galleryItems && galleryItems.length > 0) {
+                galleryItems.forEach(item => {
+                    list.push({ url: item.image_url, ratio: "ratio-square" });
+                });
+            }
+            const offset = (colIndex * 2) % list.length;
+            const reordered = [...list.slice(offset), ...list.slice(0, offset)];
+            return [...reordered, ...reordered];
+        };
+
         return (
             <div className="landing-splash-container" style={{
                 height: '100vh',
@@ -894,9 +916,27 @@ function App() {
                 left: 0,
                 zIndex: 9999,
                 color: '#fff',
-                fontFamily: "'Inter', sans-serif"
+                fontFamily: "'Inter', sans-serif",
+                overflow: 'hidden'
             }}>
-                <div className="fade-in" style={{ animation: 'fadeIn 1.5s ease-out' }}>
+                {/* 1. 무한 갤러리 하강/비상 애니메이션 레이어 */}
+                <div className="landing-art-bg-canvas">
+                    {[0, 1, 2, 3, 4].map((colIdx) => (
+                        <div key={colIdx} className={`landing-art-column ${colIdx % 2 === 1 ? 'reverse' : ''}`} style={{ animationDuration: `${22 + colIdx * 4}s` }}>
+                            {buildColumnItems(colIdx).map((art, idx) => (
+                                <div key={idx} className={`landing-art-card ${art.ratio}`}>
+                                    <img src={getImageUrl(art.url)} alt="ArtDAO Masterwork" />
+                                </div>
+                            ))}
+                        </div>
+                    ))}
+                </div>
+
+                {/* 2. 시인성을 높이는 가독성 딤 오버레이 */}
+                <div className="landing-vignette-overlay" />
+
+                {/* 3. 중앙 브랜딩 & 입장 버튼 컨텐츠 */}
+                <div className="fade-in" style={{ animation: 'fadeIn 1.5s ease-out', zIndex: 10, position: 'relative' }}>
                     <h1 style={{
                         fontFamily: "'Playfair Display', serif",
                         fontSize: '7rem',
@@ -904,18 +944,19 @@ function App() {
                         margin: '0 0 20px 0',
                         letterSpacing: '6px',
                         color: '#FFFFFF',
-                        textShadow: '0 0 40px rgba(255,255,255,0.05)'
+                        textShadow: '0 0 40px rgba(255,255,255,0.2)'
                     }}>
                         ArtDAO
                     </h1>
                     <p style={{
-                        color: '#9CA3AF',
+                        color: '#D1D5DB',
                         fontSize: '1.2rem',
                         lineHeight: '1.9',
                         maxWidth: '900px',
                         margin: '0 auto 50px auto',
                         fontWeight: '300',
-                        wordBreak: 'keep-all'
+                        wordBreak: 'keep-all',
+                        textShadow: '0 2px 10px rgba(0,0,0,0.8)'
                     }}>
                         세계 최초의 자율형 AI 멀티에이전트 미술 DAO 프로젝트.<br />
                         AI가 실시간 글로벌 서브컬처 트렌드를 수집·난상토론하여 매주 독창적 명작을 탄생시키며,<br />
@@ -934,7 +975,7 @@ function App() {
                             cursor: 'pointer',
                             letterSpacing: '3px',
                             transition: 'all 0.3s ease',
-                            boxShadow: '0 8px 30px rgba(255,255,255,0.1)'
+                            boxShadow: '0 8px 30px rgba(255,255,255,0.2)'
                         }}
                         onMouseEnter={(e) => {
                             e.currentTarget.style.transform = 'scale(1.05)';
@@ -1416,36 +1457,63 @@ function App() {
                                 <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: '2.2rem', color: '#F3F4F6', marginBottom: '10px', letterSpacing: '1px' }}>Featured Collection</h2>
                                 <p style={{ color: '#9CA3AF', marginBottom: '25px', fontSize: '0.95rem' }}>대중의 지지를 받아 역사로 박제된 DAO 컬렉션 대표작 쇼케이스</p>
 
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px' }}>
-                                    {galleryItems.slice(0, 4).map(item => (
-                                        <div
-                                            key={item.id}
-                                            className="portfolio-premium-card"
-                                            onClick={() => openCandidateModal(item)}
-                                            style={{
-                                                background: '#1A1A1A',
-                                                border: '1px solid #2A2A2A',
-                                                borderRadius: '12px',
-                                                overflow: 'hidden',
-                                                cursor: 'pointer',
-                                                display: 'flex',
-                                                flexDirection: 'column'
-                                            }}
-                                        >
-                                            <div style={{ width: '100%', height: '200px', background: '#0B0B0B', overflow: 'hidden', position: 'relative' }}>
-                                                <img
-                                                    src={getImageUrl(item.image_url)}
-                                                    alt={item.title}
-                                                    style={{ width: '100%', height: '100%', objectFit: 'contain', transition: 'transform 0.4s ease' }}
-                                                    className="portfolio-img"
-                                                />
+                                <div style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 300px))',
+                                    justifyContent: 'start',
+                                    gap: '20px',
+                                    alignItems: 'start'
+                                }}>
+                                    {galleryItems.slice(0, 6).map(item => {
+                                        const url = (item.image_url || "").toLowerCase();
+                                        let isLandscape = url.includes("c2") || url.includes("c4") || url.includes("landscape");
+                                        let isPortrait = url.includes("c3") || url.includes("c5") || url.includes("portrait");
+
+                                        let cardStyle = {};
+                                        let imgHeight = "230px";
+
+                                        if (isLandscape) {
+                                            cardStyle = { gridColumn: 'span 2' };
+                                            imgHeight = "230px";
+                                        } else if (isPortrait) {
+                                            cardStyle = { gridColumn: 'span 1' };
+                                            imgHeight = "330px";
+                                        } else {
+                                            cardStyle = { gridColumn: 'span 1' };
+                                            imgHeight = "230px";
+                                        }
+
+                                        return (
+                                            <div
+                                                key={item.id}
+                                                className="portfolio-premium-card"
+                                                onClick={() => openCandidateModal(item)}
+                                                style={{
+                                                    ...cardStyle,
+                                                    background: '#1A1A1A',
+                                                    border: '1px solid #2A2A2A',
+                                                    borderRadius: '12px',
+                                                    overflow: 'hidden',
+                                                    cursor: 'pointer',
+                                                    display: 'flex',
+                                                    flexDirection: 'column'
+                                                }}
+                                            >
+                                                <div style={{ width: '100%', height: imgHeight, background: '#0B0B0B', overflow: 'hidden', position: 'relative' }}>
+                                                    <img
+                                                        src={getImageUrl(item.image_url)}
+                                                        alt={item.title}
+                                                        style={{ width: '100%', height: '100%', objectFit: 'contain', transition: 'transform 0.4s ease' }}
+                                                        className="portfolio-img"
+                                                    />
+                                                </div>
+                                                <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                    <h4 style={{ margin: 0, fontSize: '1.05rem', color: '#fff', fontWeight: 'bold', fontFamily: "'Playfair Display', serif" }}>{item.title}</h4>
+                                                    <p style={{ margin: 0, fontSize: '0.82rem', color: '#9CA3AF', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: '1.4' }}>{item.description}</p>
+                                                </div>
                                             </div>
-                                            <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
-                                                <h4 style={{ margin: 0, fontSize: '1.1rem', color: '#fff', fontWeight: 'bold', fontFamily: "'Playfair Display', serif" }}>{item.title}</h4>
-                                                <p style={{ margin: 0, fontSize: '0.82rem', color: '#9CA3AF', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: '1.4' }}>{item.description}</p>
-                                            </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             </div>
                         )}

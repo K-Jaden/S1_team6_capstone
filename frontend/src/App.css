@@ -1609,4 +1609,91 @@ body {
 
 .portfolio-premium-card:hover .portfolio-img {
   transform: scale(1.04);
-}
+}
+
+/* ==========================================
+   스플래시 랜딩 페이지 예술품 하강/비상 애니메이션 (Art Stream)
+   ========================================== */
+.landing-art-bg-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  z-index: 1;
+  display: flex;
+  justify-content: space-around;
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.landing-vignette-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at center, rgba(0, 0, 0, 0.45) 0%, rgba(0, 0, 0, 0.92) 75%, #000000 100%);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.landing-art-column {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  animation: artFallStream 24s linear infinite;
+  will-change: transform;
+}
+
+.landing-art-column.reverse {
+  animation: artRiseStream 28s linear infinite;
+}
+
+.landing-art-card {
+  width: 210px;
+  background: #121212;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+  transition: transform 0.4s ease, border-color 0.4s ease;
+}
+
+.landing-art-card img {
+  width: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.landing-art-card.ratio-square img {
+  height: 210px; /* 1:1 정사각형 */
+}
+
+.landing-art-card.ratio-landscape img {
+  height: 118px; /* 16:9 가로형 */
+}
+
+.landing-art-card.ratio-portrait img {
+  height: 290px; /* 9:16 세로형 */
+}
+
+@keyframes artFallStream {
+  0% {
+    transform: translateY(-50%);
+  }
+  100% {
+    transform: translateY(0%);
+  }
+}
+
+@keyframes artRiseStream {
+  0% {
+    transform: translateY(0%);
+  }
+  100% {
+    transform: translateY(-50%);
+  }
+}
+
