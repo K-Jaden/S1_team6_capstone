@@ -299,7 +299,7 @@ def get_gallery_items(wallet_address: Optional[str] = None, db: Session = Depend
     res = []
     for item in items:
         winner = db.query(models.Candidate).filter(models.Candidate.title == item.title, models.Candidate.is_winner == True).first()
-        auction_price = winner.auction_price if winner else 1000
+        auction_price = winner.auction_price if (winner and winner.auction_price) else (getattr(item, 'auction_price', None) or 1000)
         
         # 유저별 실시간 지분 및 배당금 계산 장치 가동
         stake_ratio = 0.0
