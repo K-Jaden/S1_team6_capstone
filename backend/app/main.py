@@ -326,8 +326,8 @@ def get_image_aspect_type(item, db: Session) -> str:
             if cand and cand.round_id:
                 round_cands = db.query(models.Candidate).filter(models.Candidate.round_id == cand.round_id).order_by(models.Candidate.id.asc()).all()
                 for idx, c in enumerate(round_cands, 1):
-                    if c.id == cand.id:
-                        local_filename = f"static/images/round{cand.round_id}_c{idx}.png"
+                    if c.id == cand.id and c.image_url:
+                        local_filename = urllib.parse.urlparse(c.image_url).path.lstrip("/")
                         if os.path.exists(local_filename):
                             from PIL import Image
                             with Image.open(local_filename) as img:
