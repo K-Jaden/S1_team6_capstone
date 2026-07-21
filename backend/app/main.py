@@ -1279,7 +1279,17 @@ class FinalizeReq(BaseModel):
 @app.post("/api/admin/finalize")
 def finalize_round_to_chain(req: FinalizeReq, db: Session = Depends(get_db)):
     target_round = db.query(models.Round).filter(models.Round.id == req.round_id).first()
+    if not target_round:
+        raise HTTPException(status_code=404, detail="라운드를 찾을 수 없습니다.")
+
+    # 🚨 [중복 결산 차단 1] 이미 결산 완료된 라운드인 경우 중복 처리 방지 (DB 멱등성 보장)
+    if target_round.status == RoundPhase.ENDED:
+        logger.info(f"이미 결산 완료된 라운드입니다. (round_id: {req.round_id})")
+        return {"message": "이미 결산 완료된 라운드입니다.", "already_ended": True}
+
     winner = db.query(models.Candidate).filter(models.Candidate.round_id == req.round_id, models.Candidate.is_winner == True).first()
+    if not winner:
+        raise HTTPException(status_code=404, detail="우승 후보작을 찾을 수 없습니다.")
 
     winner.auction_price = req.price_tuk
     target_round.duration_days = req.duration_days
@@ -1308,19 +1318,24 @@ def finalize_round_to_chain(req: FinalizeReq, db: Session = Depends(get_db)):
         except Exception as e:
             logger.error(f"IPFS 업로드 실패: {e}")
     
-    # 🌟 드디어 원래 자리를 찾은 명예의 전당 등록 코드!
-    db.add(models.GalleryItem(
-        title=winner.title, 
-        artist_address="ArtDAO Core AI", 
-        image_url=winner.image_url,
-        description=winner.description
-    ))
-    try:
-        db.commit()
-    except SQLAlchemyError:
-        db.rollback()
-        logger.exception("🔥 명예의 전당 등록 실패")
-        raise HTTPException(status_code=500, detail="명예의 전당 등록 중 오류가 발생했습니다.")
+    # 🌟 [중복 결산 차단 2] 명예의 전당 중복 등록 여부 확인
+    existing_item = db.query(models.GalleryItem).filter(
+        (models.GalleryItem.title == winner.title) & (models.GalleryItem.image_url == winner.image_url)
+    ).first()
+
+    if not existing_item:
+        db.add(models.GalleryItem(
+            title=winner.title, 
+            artist_address="ArtDAO Core AI", 
+            image_url=winner.image_url,
+            description=winner.description
+        ))
+        try:
+            db.commit()
+        except SQLAlchemyError:
+            db.rollback()
+            logger.exception("🔥 명예의 전당 등록 실패")
+            raise HTTPException(status_code=500, detail="명예의 전당 등록 중 오류가 발생했습니다.")
 
     # =========================================================
     # 🚨 6. [핵심] 스마트 컨트랙트 마감 (블록체인 등록)

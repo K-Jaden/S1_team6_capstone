@@ -730,6 +730,7 @@ function App() {
 
     // 유저가 가격을 입력하고 최종 승인할 때 실행되는 함수
     const submitFinalization = async () => {
+        if (isLoading) return; // 🚨 중복 클릭 차단
         if (!valuationPrice || valuationPrice <= 0) return alert("적정 희망 시작가를 입력해주세요!");
         setIsLoading(true);
         setLoadingStatus("🔗 블록체인 스마트 컨트랙트에 등록 중...");
@@ -1908,10 +1909,11 @@ function App() {
 
                                     <button
                                         className="glow-btn"
-                                        style={{ marginTop: 'auto', background: '#10B981', color: 'white' }}
+                                        style={{ marginTop: 'auto', background: '#10B981', color: 'white', opacity: isLoading ? 0.6 : 1 }}
                                         onClick={submitFinalization}
+                                        disabled={isLoading}
                                     >
-                                        이 조건으로 블록체인에 등록
+                                        {isLoading ? "블록체인에 등록 중..." : "이 조건으로 블록체인에 등록"}
                                     </button>
                                 </div>
                             </div>
