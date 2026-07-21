@@ -1030,6 +1030,10 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
         target_round = db.query(models.Round).filter(models.Round.id == round_id).first()
 
     target_round.status = RoundPhase.IMAGE_GENERATING
+    
+    # 🟢 재실행 시 해당 라운드의 기존 후보작 및 투표 기록 초기화 (중복 생성 방지)
+    db.query(models.VoteLog).filter(models.VoteLog.round_id == round_id).delete(synchronize_session=False)
+    db.query(models.Candidate).filter(models.Candidate.round_id == round_id).delete(synchronize_session=False)
     db.commit()
 
     # 🔥 [수정 1] 피사체(Subject)도 복수 선택 투표 결과 중 '1등(동점자 모두 포함)'만 선별하여 전달
@@ -1149,7 +1153,7 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
                     
                 if img_bytes:
                     os.makedirs("static/images", exist_ok=True)
-                    filename = f"round{round_id}_c{idx}.png"
+                    filename = f"round{round_id}_c{idx}_{int(time.time())}.png"
                     filepath = f"static/images/{filename}"
                     
                     with open(filepath, "wb") as f: 
