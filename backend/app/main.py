@@ -1127,7 +1127,7 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
                 "session_id": session_id,
                 "agent_role": "시스템",
                 "log_type": "final",
-                "content": "🎉 퀄리티 게이트 최종 검수 완료! 고품질 5개 후보작 투표가 개시됩니다."
+                "content": "🎉 프롬프트-이미지 정합성 최종 검수 완료! 고품질 5개 후보작 투표가 개시됩니다."
             }, timeout=5)
         except Exception as e:
             logger.warning(f"SSE 최종 완료 로그 푸시 실패: {e}")

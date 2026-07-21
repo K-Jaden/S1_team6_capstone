@@ -121,7 +121,7 @@ def generate_weighted_candidates(req: WeightedCandidateRequest):
             }
         )
         candidates = result["candidates"]
-        streaming.push_log(session_id, "시스템", "in_progress", f"🎨 텍스트 기획안 확정 완료! (후보작 {len(candidates)}개). 퀄리티 게이트 에이전트와 시각 검수를 시작합니다.")
+        streaming.push_log(session_id, "시스템", "in_progress", f"🎨 텍스트 기획안 확정 완료! (후보작 {len(candidates)}개). 프롬프트-이미지 정합성 검수자와 시각 검수를 시작합니다.")
         return {"candidates": candidates[:5]}
     except Exception as e:
         streaming.push_log(session_id, "시스템", "error", f"⚠️ AI 사고 회로 지연: {str(e)}")
@@ -165,7 +165,7 @@ def evaluate_winner_only(req: WinnerEvalOnlyRequest):
 
 @app.post("/api/agent/push-log")
 def push_log_endpoint(req: PushLogRequest):
-    """외부(FastAPI 백엔드)에서 퀄리티 게이트 최종 진행률 등의 SSE 로그를 푸시할 수 있도록 전용 엔드포인트 제공"""
+    """외부(FastAPI 백엔드)에서 프롬프트-이미지 정합성 검수자 최종 진행률 등의 SSE 로그를 푸시할 수 있도록 전용 엔드포인트 제공"""
     streaming.push_log(req.session_id, req.agent_role, req.log_type, req.content)
     return {"status": "success"}
 
@@ -175,7 +175,7 @@ def quality_check(req: QualityCheckRequest):
     """축 A(실행 품질)만 검증 - 화풍 취향은 판단하지 않는다 (docs/quality_validation_framework.md 참고).
     실패 시 재수정 프롬프트까지 함께 반환해 backend가 별도 왕복 없이 바로 재시도할 수 있게 한다."""
     if req.session_id:
-        streaming.push_log(req.session_id, "퀄리티 게이트", "in_progress", f"🔍 [{req.title}] 시각 품질 렌더링 검수 진행 중...")
+        streaming.push_log(req.session_id, "프롬프트-이미지 정합성 검수자", "in_progress", f"🔍 [{req.title}] 시각 품질 렌더링 검수 진행 중...")
 
     result = quality_gate.check_image_quality(req)
     passed = quality_gate.is_passed(result)
@@ -190,7 +190,7 @@ def quality_check(req: QualityCheckRequest):
         summary = quality_gate.failure_summary(result)
         response["failure_summary"] = summary
         if req.session_id:
-            streaming.push_log(req.session_id, "퀄리티 게이트", "in_progress", f"⚠️ [{req.title}] 시각 품질 미달 ({summary}) ➔ 🎨 구도 및 화풍 보정을 위해 2차 재시도 렌더링을 진행합니다.")
+            streaming.push_log(req.session_id, "프롬프트-이미지 정합성 검수자", "in_progress", f"⚠️ [{req.title}] 시각 품질 미달 ({summary}) ➔ 🎨 구도 및 프롬프트 보정을 위해 2차 재시도 렌더링을 진행합니다.")
         try:
             response["revised_prompt"] = quality_gate.rewrite_prompt_for_retry(
                 req.image_prompt, req.title, req.description, req.style, summary
@@ -200,7 +200,7 @@ def quality_check(req: QualityCheckRequest):
             response["revised_prompt"] = req.image_prompt
     else:
         if req.session_id:
-            streaming.push_log(req.session_id, "퀄리티 게이트", "in_progress", f"✅ [{req.title}] 시각 품질 검수 통과 완료!")
+            streaming.push_log(req.session_id, "프롬프트-이미지 정합성 검수자", "in_progress", f"✅ [{req.title}] 시각 품질 검수 통과 완료!")
 
     return response
 
