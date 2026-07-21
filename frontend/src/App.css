@@ -1706,4 +1706,25 @@ body {
     transform: translateY(-100%);
   }
 }
+
+/* 갤러리 6열 반응형 및 유기적 그리드 미디어 쿼리 */
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  grid-auto-flow: dense;
+  gap: 24px;
+  align-items: stretch;
+}
+
+@media (max-width: 1400px) {
+  .gallery-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (max-width: 860px) {
+  .gallery-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
 

@@ -1927,46 +1927,73 @@ function App() {
                         <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: "2.5rem" }}>GALLERY</h2>
                         <p style={{ color: '#9CA3AF', marginBottom: '30px' }}>대중의 선택을 받아 NFT로 영구 박제된 우승작 컬렉션입니다.</p>
 
-                        {/* auto-fill 덕분에 작품이 무한히 늘어나도 다음 줄로 예쁘게 정렬됩니다. */}
-                        <div className="gallery-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '25px' }}>
+                        {/* 6열 테트리스(Bento) 그리드: 1x1, 2x1, 1x2 카드가 dense 옵션으로 빈틈없이 결합됨 */}
+                        <div className="gallery-grid" style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(6, 1fr)',
+                            gridAutoFlow: 'dense',
+                            gap: '24px',
+                            alignItems: 'stretch'
+                        }}>
                             {galleryItems.length === 0 ? (
-                                <p style={{ color: '#6B7280' }}>아직 등록된 우승작이 없습니다.</p>
+                                <p style={{ color: '#6B7280', gridColumn: 'span 6' }}>아직 등록된 우승작이 없습니다.</p>
                             ) : (
-                                galleryItems.map(item => (
-                                    <div
-                                        key={item.id}
-                                        className="card gallery-card"
-                                        onClick={() => openCandidateModal(item)}
-                                        style={{
-                                            background: '#1A1A1A',
-                                            border: '1px solid #2A2A2A',
-                                            borderRadius: '16px',
-                                            overflow: 'hidden',
-                                            cursor: 'pointer',
-                                            height: '340px',
-                                            position: 'relative',
-                                            transition: 'transform 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease'
-                                        }}
-                                        onMouseEnter={(e) => {
-                                            e.currentTarget.style.transform = 'translateY(-6px)';
-                                            e.currentTarget.style.borderColor = '#3B82F6';
-                                            e.currentTarget.style.boxShadow = '0 12px 30px rgba(59, 130, 246, 0.25)';
-                                        }}
-                                        onMouseLeave={(e) => {
-                                            e.currentTarget.style.transform = 'translateY(0)';
-                                            e.currentTarget.style.borderColor = '#2A2A2A';
-                                            e.currentTarget.style.boxShadow = 'none';
-                                        }}
-                                    >
-                                        <div style={{ width: '100%', height: '100%', backgroundColor: '#0B0B0B', overflow: 'hidden' }}>
-                                            <img
-                                                src={getImageUrl(item.image_url)}
-                                                alt={item.title}
-                                                style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.4s ease' }}
-                                            />
+                                galleryItems.map((item, idx) => {
+                                    const aspect = item.aspect_type || "1x1";
+                                    let cardSpan = { gridColumn: 'span 1', gridRow: 'span 1', height: '280px' };
+                                    if (aspect === "3x1") {
+                                        cardSpan = { gridColumn: 'span 3', gridRow: 'span 1', height: '280px' };
+                                    } else if (aspect === "2x1") {
+                                        cardSpan = { gridColumn: 'span 2', gridRow: 'span 1', height: '280px' };
+                                    } else if (aspect === "1x2") {
+                                        cardSpan = { gridColumn: 'span 1', gridRow: 'span 2', height: '584px' };
+                                    }
+
+                                    return (
+                                        <div
+                                            key={item.id}
+                                            className="gallery-card-item"
+                                            onClick={() => openCandidateModal(item)}
+                                            style={{
+                                                ...cardSpan,
+                                                background: 'none',
+                                                border: 'none',
+                                                outline: 'none',
+                                                boxShadow: 'none',
+                                                borderRadius: '16px',
+                                                overflow: 'hidden',
+                                                cursor: 'pointer',
+                                                position: 'relative',
+                                                padding: 0,
+                                                transition: 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)'
+                                            }}
+                                            onMouseEnter={(e) => {
+                                                e.currentTarget.style.transform = 'scale(1.025)';
+                                                const img = e.currentTarget.querySelector('img');
+                                                if (img) img.style.transform = 'scale(1.06)';
+                                            }}
+                                            onMouseLeave={(e) => {
+                                                e.currentTarget.style.transform = 'scale(1)';
+                                                const img = e.currentTarget.querySelector('img');
+                                                if (img) img.style.transform = 'scale(1)';
+                                            }}
+                                        >
+                                            <div style={{ width: '100%', height: '100%', position: 'relative', borderRadius: '16px', overflow: 'hidden' }}>
+                                                <img
+                                                    src={getImageUrl(item.image_url)}
+                                                    alt={item.title}
+                                                    style={{
+                                                        width: '100%',
+                                                        height: '100%',
+                                                        objectFit: 'cover',
+                                                        transition: 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1)',
+                                                        borderRadius: '16px'
+                                                    }}
+                                                />
+                                            </div>
                                         </div>
-                                    </div>
-                                ))
+                                    );
+                                })
                             )}
                         </div>
                     </div>
@@ -2235,7 +2262,7 @@ function App() {
                                     <p style={{ color: '#9CA3AF', margin: 0 }}>현재 총 투자금: <strong style={{ color: '#38BDF8', fontSize: '1.4rem' }}>{selectedCandidate.vp_votes} TUK</strong></p>
                                 ) : (
                                     <div className="sale-status">
-                                        {!selectedCandidate.is_sold ? (
+                                        {!(selectedCandidate.is_sold || (selectedCandidate.image_url && (selectedCandidate.image_url.includes('/seed/') || selectedCandidate.image_url.includes('dummy')))) ? (
                                             <div style={{ padding: 0, background: 'transparent' }}>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                                                     <span style={{ color: '#9CA3AF', fontSize: '0.9rem' }}>확정 가상 매각가</span>

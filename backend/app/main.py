@@ -85,8 +85,14 @@ def seed_initial_gallery_items():
                         title=item.get("title", "ArtDAO Seed Masterpiece"),
                         artist_address=item.get("artist_address", "ArtDAO Genesis Collection"),
                         image_url=img_url,
-                        description=item.get("description", "ArtDAO 시작 시 기본으로 제공되는 명예의 전당 보존작입니다.")
+                        description=item.get("description", "ArtDAO 시작 시 기본으로 제공되는 명예의 전당 보존작입니다."),
+                        is_sold=True,
+                        auction_price=float(item.get("auction_price") or (random.randint(12, 68) * 100))
                     ))
+                else:
+                    if not exists.is_sold or exists.auction_price == 1000.0:
+                        exists.is_sold = True
+                        exists.auction_price = float(item.get("auction_price") or (random.randint(12, 68) * 100))
             db.commit()
             logger.info(f"✅ [Seed] json 기반 {len(items_data)}개 시드 갤러리 작품 등록 동기화 완료!")
         else:
@@ -100,8 +106,14 @@ def seed_initial_gallery_items():
                         title=f"ArtDAO 컬렉션 #{idx}",
                         artist_address="ArtDAO Genesis Collection",
                         image_url=img_url,
-                        description="ArtDAO 시작 시 기본으로 제공되는 명예의 전당 보존작입니다."
+                        description="ArtDAO 시작 시 기본으로 제공되는 명예의 전당 보존작입니다.",
+                        is_sold=True,
+                        auction_price=float(random.randint(12, 68) * 100)
                     ))
+                else:
+                    if not exists.is_sold or exists.auction_price == 1000.0:
+                        exists.is_sold = True
+                        exists.auction_price = float(random.randint(12, 68) * 100)
             db.commit()
             logger.info(f"✅ [Seed] 이미지 파일 자동 감지 {len(files)}개 시드 등록 완료!")
         db.close()
@@ -293,6 +305,101 @@ async def upload_profile_pic(wallet_address: str, file: UploadFile = File(...), 
 
 
 
+import io
+
+import io
+
+def get_image_aspect_type(item, db: Session) -> str:
+    """GalleryItem 또는 Candidate 객체로부터 이미지 원본 규격을 정밀 판정합니다.
+    - 3x1: 비율 > 1.85 (초가로 파노라마형 3칸)
+    - 2x1: 1.25 < 비율 <= 1.85 (가로형 2칸)
+    - 1x2: 비율 < 0.8 (세로형 1칸 x 2줄)
+    - 1x1: 0.8 <= 비율 <= 1.25 (정사각형 1칸)
+    """
+    image_url = getattr(item, 'image_url', '') or ''
+    title = getattr(item, 'title', '') or ''
+
+    # 1. DB에서 우승작 Candidate를 찾아 로컬 렌더링 파일(static/images/roundX_cX.png)을 즉시 정밀 검사
+    if title and db:
+        try:
+            cand = db.query(models.Candidate).filter(models.Candidate.title == title).first()
+            if cand and cand.round_id:
+                round_cands = db.query(models.Candidate).filter(models.Candidate.round_id == cand.round_id).order_by(models.Candidate.id.asc()).all()
+                for idx, c in enumerate(round_cands, 1):
+                    if c.id == cand.id:
+                        local_filename = f"static/images/round{cand.round_id}_c{idx}.png"
+                        if os.path.exists(local_filename):
+                            from PIL import Image
+                            with Image.open(local_filename) as img:
+                                w, h = img.size
+                                ratio = float(w) / float(h)
+                                if ratio > 1.85:
+                                    return "3x1"
+                                elif ratio > 1.25:
+                                    return "2x1"
+                                elif ratio < 0.8:
+                                    return "1x2"
+                                else:
+                                    return "1x1"
+        except Exception as cand_e:
+            logger.warning(f"후보작 로컬 픽셀 검사 패스: {cand_e}")
+
+    # 2. image_url이 로컬 static 상대 경로인 경우
+    if image_url:
+        parsed_url = urllib.parse.urlparse(image_url)
+        filepath = parsed_url.path.lstrip("/")
+        if os.path.exists(filepath):
+            try:
+                from PIL import Image
+                with Image.open(filepath) as img:
+                    w, h = img.size
+                    ratio = float(w) / float(h)
+                    if ratio > 1.85:
+                        return "3x1"
+                    elif ratio > 1.25:
+                        return "2x1"
+                    elif ratio < 0.8:
+                        return "1x2"
+                    else:
+                        return "1x1"
+            except Exception:
+                pass
+
+    # 3. HTTP / IPFS URL 타임아웃 방지: 빠른 public IPFS gateway 헤더 수신 시도
+    if image_url and image_url.startswith("http"):
+        fast_gateways = [
+            image_url.replace("gateway.pinata.cloud", "cloudflare-ipfs.com"),
+            image_url.replace("gateway.pinata.cloud", "dweb.link"),
+            image_url
+        ]
+        for gw in fast_gateways:
+            try:
+                res = requests.get(gw, headers={"Range": "bytes=0-2048"}, timeout=1.5, stream=True)
+                if res.status_code in (200, 206):
+                    from PIL import Image
+                    with Image.open(io.BytesIO(res.content)) as img:
+                        w, h = img.size
+                        ratio = float(w) / float(h)
+                        if ratio > 1.85:
+                            return "3x1"
+                        elif ratio > 1.25:
+                            return "2x1"
+                        elif ratio < 0.8:
+                            return "1x2"
+                        else:
+                            return "1x1"
+            except Exception:
+                continue
+
+    # 폴백: URL 파일명 규칙 추정
+    lower_url = image_url.lower()
+    if "c2" in lower_url or "c4" in lower_url or "landscape" in lower_url:
+        return "2x1"
+    elif "c3" in lower_url or "c5" in lower_url or "portrait" in lower_url:
+        return "1x2"
+    return "1x1"
+
+
 @app.get("/api/gallery/items")
 def get_gallery_items(wallet_address: Optional[str] = None, db: Session = Depends(get_db)):
     items = db.query(models.GalleryItem).all()
@@ -331,7 +438,8 @@ def get_gallery_items(wallet_address: Optional[str] = None, db: Session = Depend
             "auction_price": auction_price,
             "stake_ratio": stake_ratio * 100,
             "my_profit": my_profit,
-            "my_vp": total_user_vp
+            "my_vp": total_user_vp,
+            "aspect_type": get_image_aspect_type(item, db)
         })
     return res
 
