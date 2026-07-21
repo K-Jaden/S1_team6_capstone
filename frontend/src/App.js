@@ -566,11 +566,12 @@ function App() {
             "키워드 스토리텔러": { icon: "✍️", color: "#A78BFA", bg: "rgba(167, 139, 250, 0.1)" },
             "가중치 프롬프터": { icon: "💻", color: "#F472B6", bg: "rgba(244, 114, 182, 0.1)" },
             "가치 증명자": { icon: "📈", color: "#FBBF24", bg: "rgba(251, 191, 36, 0.1)" },
-            "AI 큐레이터": { icon: "", color: "#10B981", bg: "rgba(16, 185, 129, 0.1)" },
-            "시스템": { icon: "", color: "#60A5FA", bg: "rgba(96, 165, 250, 0.1)" },
+            "퀄리티 게이트": { icon: "🔍", color: "#EC4899", bg: "rgba(236, 72, 153, 0.1)" },
+            "AI 큐레이터": { icon: "🎨", color: "#10B981", bg: "rgba(16, 185, 129, 0.1)" },
+            "시스템": { icon: "🤖", color: "#60A5FA", bg: "rgba(96, 165, 250, 0.1)" },
         };
         const foundKey = Object.keys(map).find(key => agentRole && agentRole.includes(key));
-        return foundKey ? map[foundKey] : { icon: "", color: "#9CA3AF", bg: "rgba(156, 163, 175, 0.1)" };
+        return foundKey ? map[foundKey] : { icon: "🤖", color: "#9CA3AF", bg: "rgba(156, 163, 175, 0.1)" };
     };
 
     const getLogTypeLabel = (type) => {

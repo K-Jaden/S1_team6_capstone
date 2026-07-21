@@ -1042,13 +1042,58 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
                 if img_bytes:
                     os.makedirs("static/images", exist_ok=True)
                     filename = f"round{round_id}_c{idx}.png"
+                    filepath = f"static/images/{filename}"
                     
-                    with open(f"static/images/{filename}", "wb") as f: 
+                    with open(filepath, "wb") as f: 
                         f.write(img_bytes)
                     
+                    # 🟢 [신규] 퀄리티 게이트 에이전트의 시각 검수 및 1회 보정 렌더링
+                    try:
+                        img_b64 = base64.b64encode(img_bytes).decode()
+                        qc_res = requests.post(f"{AI_AGENT_URL}/api/agent/quality-check", json={
+                            "image_base64": img_b64,
+                            "mime_type": "image/png",
+                            "image_prompt": prompt,
+                            "title": c_data.get("title", f"작품 {idx}"),
+                            "description": c_data.get("description", ""),
+                            "style": selected_style,
+                            "session_id": session_id,
+                        }, timeout=60)
+                        quality_result = qc_res.json()
+
+                        if not quality_result.get("passed", True):
+                            logger.warning(f"🔍 [{idx}번 후보작] 시각 퀄리티 미달 판정: {quality_result.get('failure_summary')}")
+                            revised_prompt = quality_result.get("revised_prompt") or prompt
+                            
+                            retry_data = {
+                                "prompt": revised_prompt[:1000],
+                                "negative_prompt": negative_prompt,
+                                "num_steps": 20,
+                                "width": width,
+                                "height": height
+                            }
+                            retry_res = requests.post(cf_url, headers=headers, json=retry_data, timeout=60)
+                            if retry_res.status_code == 200:
+                                retry_content_type = retry_res.headers.get("Content-Type", "")
+                                new_bytes = None
+                                if "application/json" in retry_content_type:
+                                    retry_json = retry_res.json()
+                                    if "result" in retry_json and "image" in retry_json["result"]:
+                                        new_bytes = base64.b64decode(retry_json["result"]["image"])
+                                else:
+                                    new_bytes = retry_res.content
+
+                                if new_bytes:
+                                    with open(filepath, "wb") as f:
+                                        f.write(new_bytes)
+                                    prompt = revised_prompt
+                                    logger.info(f"🎨 [{idx}번 후보작] 시각 퀄리티 보정 렌더링 완료!")
+                    except Exception as qc_e:
+                        logger.warning(f"후보작 퀄리티 게이트 검수 중 예외 발생 (기존 이미지 유지): {qc_e}")
+
                     # 상대경로로 저장 - 프론트 getImageUrl()이 API_URL을 붙여줌 (서버 IP 변경에 무관)
                     image_url = f"/static/images/{filename}"
-                    logger.info(f"✅ [{idx}번 그림] 저장 완벽 성공!")
+                    logger.info(f"✅ [{idx}번 후보작] 저장 완벽 성공!")
                 else:
                     logger.error(f"🔥 [데이터 에러] 그림 데이터 추출 실패 (컨텐츠 타입: {content_type})")
             else:
@@ -1074,6 +1119,18 @@ def start_phase2_generate(round_id: int = 0, session_id: str = "", db: Session =
         db.rollback()
         logger.exception("🔥 후보작 저장 실패 (이미지 생성 결과 유실 위험)")
         raise HTTPException(status_code=500, detail="후보작 저장 중 오류가 발생했습니다.")
+
+    # 🟢 [신규] 퀄리티 게이트 최종 검수 완료 SSE 로그 푸시
+    if session_id:
+        try:
+            requests.post(f"{AI_AGENT_URL}/api/agent/push-log", json={
+                "session_id": session_id,
+                "agent_role": "시스템",
+                "log_type": "final",
+                "content": "🎉 퀄리티 게이트 최종 검수 완료! 고품질 5개 후보작 투표가 개시됩니다."
+            }, timeout=5)
+        except Exception as e:
+            logger.warning(f"SSE 최종 완료 로그 푸시 실패: {e}")
 
     # =========================================================
     # 🚨 온체인 라운드 시작 - DB의 round_id를 온체인 라운드 번호로 그냥 재사용하면,
@@ -1145,6 +1202,8 @@ def start_phase3_valuation(round_id: int = 0, session_id: str = "", db: Session 
             logger.warning(f"온체인 득표수 조회 실패(round_id={round_id}), DB 득표수로 폴백: {e}")
 
     winner = db.query(models.Candidate).filter(models.Candidate.round_id == round_id).order_by(desc(models.Candidate.vp_votes)).first()
+    if not winner:
+        raise HTTPException(status_code=404, detail="라운드 후보작을 찾을 수 없습니다.")
 
     target_round.status = RoundPhase.VALUATION
     winner.is_winner = True
@@ -1182,77 +1241,10 @@ def start_phase3_valuation(round_id: int = 0, session_id: str = "", db: Session 
         logger.warning(f"낙선 후보 RAG 아카이브 실패 (무시하고 진행): {e}")
 
     # =========================================================
-    # 🟢 [품질 게이트] 우승작 이미지 축 A(실행 품질) 검증
-    # 5개 후보 전부가 아니라 온체인에 영구 기록되는 우승작 1개에만 적용 (토큰 절약).
-    # 자세한 설계 근거는 docs/quality_validation_framework.md 참고.
+    # 🟢 [품질 게이트] 후보작 렌더링(Phase 2) 단계에서 이미 품질 검수 및 보정이
+    # 완료된 최고 퀄리티 이미지가 유저 투표를 거쳐 1등으로 선정되었으므로,
+    # Phase 3 결산에서는 1등 이미지를 재그리거나 덮어쓰지 않고 투표된 원본 100% 보존합니다.
     # =========================================================
-    quality_result = None
-    if winner.image_prompt and winner.image_url.startswith("/static/images/"):
-        try:
-            filepath = winner.image_url.lstrip("/")
-            if os.path.exists(filepath):
-                with open(filepath, "rb") as f:
-                    img_b64 = base64.b64encode(f.read()).decode()
-
-                style_kw = db.query(models.Keyword).filter(
-                    models.Keyword.round_id == round_id,
-                    models.Keyword.type == "style",
-                    models.Keyword.vote_count > 0
-                ).order_by(desc(models.Keyword.vote_count)).first()
-                selected_style = style_kw.word if style_kw else ""
-
-                combined_style = selected_style
-
-                qc_res = requests.post(f"{AI_AGENT_URL}/api/agent/quality-check", json={
-                    "image_base64": img_b64,
-                    "mime_type": "image/png",
-                    "image_prompt": winner.image_prompt,
-                    "title": winner.title,
-                    "description": winner.description,
-                    "style": combined_style,
-                }, timeout=60)
-                quality_result = qc_res.json()
-
-                if not quality_result.get("passed", True):
-                    logger.warning(f"🔍 품질 게이트 실패: {quality_result.get('failure_summary')}")
-                    revised_prompt = quality_result.get("revised_prompt") or winner.image_prompt
-
-                    # 재시도는 최대 1회 - 무료 API 티어 제약상 무한정 매달리지 않음
-                    CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
-                    CF_API_TOKEN = os.getenv("CF_API_TOKEN")
-                    cf_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0"
-                    headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
-                    negative_prompt = get_negative_prompt_for_style(selected_style)
-                    retry_data = {
-                        "prompt": revised_prompt[:1000],
-                        "negative_prompt": negative_prompt,
-                        "num_steps": 20
-                    }
-                    retry_res = requests.post(cf_url, headers=headers, json=retry_data, timeout=60)
-                    if retry_res.status_code == 200:
-                        content_type = retry_res.headers.get("Content-Type", "")
-                        new_bytes = None
-                        
-                        if "application/json" in content_type:
-                            retry_json = retry_res.json()
-                            if "result" in retry_json and "image" in retry_json["result"]:
-                                new_bytes = base64.b64decode(retry_json["result"]["image"])
-                        else:
-                            # SDXL은 raw binary bytes를 직접 리턴하므로 바로 저장합니다.
-                            new_bytes = retry_res.content
-                            
-                        if new_bytes:
-                            with open(filepath, "wb") as f:
-                                f.write(new_bytes)
-                            winner.image_prompt = revised_prompt
-                            db.commit()
-                            logger.info("✅ 품질 게이트 재수정 완료 - 이미지 교체됨")
-                        else:
-                            logger.warning("품질 게이트 재수정 실패 (그림 데이터 추출 실패) - 기존 이미지 유지")
-                    else:
-                        logger.warning(f"품질 게이트 재수정 실패 (CF 상태코드 {retry_res.status_code}) - 기존 이미지 유지")
-        except Exception:
-            logger.exception("품질 게이트 처리 중 오류 - 기존 이미지로 진행")
 
     try:
         res = requests.post(f"{AI_AGENT_URL}/api/agent/evaluate-winner-only", json={
@@ -1268,7 +1260,7 @@ def start_phase3_valuation(round_id: int = 0, session_id: str = "", db: Session 
         logger.error(f"비평문 생성 실패: {e}")
         report = "비평문 에러"
 
-    return {"message": "Phase 3: 가치 평가 완료", "report": report, "quality_check": quality_result}
+    return {"message": "Phase 3: 가치 평가 완료", "report": report}
 
 # 🟢 [Step 4] 유저 결산 (IPFS 영구 박제 및 스마트 컨트랙트 등록)
 class FinalizeReq(BaseModel):

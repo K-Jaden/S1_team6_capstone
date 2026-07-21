@@ -98,6 +98,14 @@ class QualityCheckRequest(BaseModel):
     title: str
     description: str
     style: str = ""
+    session_id: str = ""
+
+
+class PushLogRequest(BaseModel):
+    session_id: str
+    agent_role: str
+    log_type: str
+    content: str
 
 
 class LosingCandidateArchiveItem(BaseModel):
