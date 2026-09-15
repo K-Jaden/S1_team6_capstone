@@ -7,14 +7,10 @@ import { DAO_CONTRACT_ADDRESS as CONTRACT_ADDRESS, TUK_TOKEN_ADDRESS } from './c
 import ArtPlanningDAO from './contracts/ArtPlanningDAO.json';
 
 const currentHost = window.location.hostname;
-const API_URL = process.env.REACT_APP_API_URL || (currentHost === "localhost"
-    ? "http://localhost:8000"
-    : "http://13.209.8.50:8000");
+const API_URL = process.env.REACT_APP_API_URL || `http://${currentHost}:8000`;
 
 // AI Core 서버 주소 (SSE 직접 연결용)
-const AI_CORE_URL = process.env.REACT_APP_AI_CORE_URL || (currentHost === "localhost"
-    ? "http://localhost:8002"
-    : "http://13.209.8.50:8002");
+const AI_CORE_URL = process.env.REACT_APP_AI_CORE_URL || `http://${currentHost}:8002`;
 
 function App() {
 
