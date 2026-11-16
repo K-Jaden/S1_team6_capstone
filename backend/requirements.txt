@@ -7,3 +7,5 @@ cryptography
 requests
 python-dotenv
 web3
+python-multipart
+Pillow

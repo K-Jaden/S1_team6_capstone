@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Float, ForeignKey, Boolean, Enum
+from sqlalchemy import Column, Integer, String, Text, DateTime, Float, ForeignKey, Boolean, Enum, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from .database import Base
@@ -24,6 +24,7 @@ class User(Base):
 
     wallet_address = Column(String(255), primary_key=True, index=True)
     nickname = Column(String(50), nullable=True)
+    profile_pic = Column(Text, default="🔮")
     membership_grade = Column(String(20), default="Bronze")
     token_balance = Column(Float, default=0.0)
     pending_rewards = Column(Float, default=0.0)
@@ -47,10 +48,18 @@ class Round(Base):
     status = Column(Enum(RoundPhase), default=RoundPhase.TREND_SEARCH) 
     
     top_keywords = Column(Text, nullable=True) # JSON 문자열 예: '{"Cyberpunk": 0.5}'
-    duration_days = Column(Integer, default=7) 
-    
+    duration_days = Column(Integer, default=7)
+
     start_time = Column(DateTime, default=datetime.utcnow)
     end_time = Column(DateTime, nullable=True)
+
+    # 온체인 트랜잭션 성공 여부 (DB-체인 상태 불일치 추적용)
+    onchain_status = Column(String(20), default="pending")  # pending | confirmed | failed
+
+    # 실제 온체인 컨트랙트의 currentRoundId - startNewRound 트랜잭션이 성공적으로 마이닝된 뒤에만 채워짐.
+    # DB의 id/round_number는 체인이 리셋(예: 로컬 hardhat 노드 재시작)되면 온체인 라운드 번호와
+    # 어긋날 수 있어, 이 값이 없으면(None) 그 라운드는 애초에 체인에 존재하지 않는 것으로 취급한다.
+    onchain_round_id = Column(Integer, nullable=True)
 
     candidates = relationship("Candidate", back_populates="round")
     votes = relationship("VoteLog", back_populates="round")
@@ -68,6 +77,19 @@ class Keyword(Base):
     round = relationship("Round", back_populates="keywords")
 
 
+class KeywordVoteLog(Base):
+    """키워드 투표 1인 1회 제한용 로그 (round_id + wallet_address 조합 유일)"""
+    __tablename__ = "keyword_vote_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    round_id = Column(Integer, index=True)
+    wallet_address = Column(String(255), index=True)
+
+    __table_args__ = (
+        UniqueConstraint("round_id", "wallet_address", name="uq_kwvote_round_wallet"),
+    )
+
+
 # ==========================================
 # 3. 후보작 및 투표 (Candidate & VoteLog)
 # ==========================================
@@ -80,8 +102,9 @@ class Candidate(Base):
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=False)
     image_url = Column(String(255), nullable=False)
+    image_prompt = Column(Text, nullable=True)  # 품질 검증 게이트에서 재생성 시 필요
     ipfs_hash = Column(String(255), nullable=False)
-    
+
     vp_votes = Column(Integer, default=0)
     is_winner = Column(Boolean, default=False)
     auction_price = Column(Integer, nullable=True)
@@ -114,6 +137,7 @@ class GalleryItem(Base):
     image_url = Column(Text)
     description = Column(Text)
     is_sold = Column(Boolean, default=False)
+    auction_price = Column(Float, default=1000.0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     feedbacks = relationship("GalleryFeedback", back_populates="item")
 
@@ -145,3 +169,20 @@ class UserRecommendation(Base):
     reason = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     user = relationship("User", back_populates="recommendations")
+
+class ArtworkComment(Base):
+    __tablename__ = "artwork_comments"
+    id = Column(Integer, primary_key=True, index=True)
+    artwork_title = Column(String(255), index=True, nullable=False)
+    wallet_address = Column(String(255), nullable=False)
+    text = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# 대시보드 통합 토론방 메시지 (GlobalChatMessage)
+class GlobalChatMessage(Base):
+    __tablename__ = "global_chat_messages"
+    id = Column(Integer, primary_key=True, index=True)
+    wallet_address = Column(String(255), nullable=False)
+    text = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

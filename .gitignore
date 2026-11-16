@@ -50,3 +50,9 @@ backend/static/images/round*.png
 # 스마트 컨트랙트 주소 업로드 무시
 ai_core/contract_address.json
 backend/app/contract_address.json
+
+# 개인 작업용 의사결정 메모 (팀 공용 DECISIONS.md와 별개, git에 안 올림)
+decision.md
+
+# DreamSim 모델 가중치 캐시 (수 GB, 최초 실행 시 자동 다운로드됨)
+ai_core/.dreamsim_cache/
